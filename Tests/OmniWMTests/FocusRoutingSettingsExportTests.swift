@@ -19,6 +19,7 @@ final class FocusRoutingSettingsExportTests: XCTestCase {
             "moveMouseToFocusedWindow": .boolean(false),
             "followsWindowToMonitor": .boolean(false),
             "crossesMonitorAtEdge": .boolean(false),
+            "monitorCrossingFocus": .string("spatial"),
             "moveCrossesMonitorAtEdge": .boolean(false)
         ]))
         XCTAssertEqual(tree["mouseWarp"], .table([
@@ -31,6 +32,15 @@ final class FocusRoutingSettingsExportTests: XCTestCase {
             "arrangements": .array([])
         ]))
         XCTAssertEqual(try SettingsTOMLCodec.decode(data), defaults)
+    }
+
+    func testLegacyFocusSectionDefaultsMonitorCrossingFocusToSpatial() throws {
+        let source = String(decoding: try SettingsTOMLCodec.encode(.defaults()), as: UTF8.self)
+            .replacingOccurrences(of: "monitorCrossingFocus = \"spatial\"\n", with: "")
+
+        let decoded = try SettingsTOMLCodec.decode(Data(source.utf8))
+
+        XCTAssertEqual(decoded.focus.monitorCrossingFocus, .spatial)
     }
 
     func testEverySectionFieldRemainsRequired() throws {
