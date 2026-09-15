@@ -34,13 +34,21 @@ final class FocusRoutingSettingsExportTests: XCTestCase {
         XCTAssertEqual(try SettingsTOMLCodec.decode(data), defaults)
     }
 
-    func testLegacyFocusSectionDefaultsMonitorCrossingFocusToSpatial() throws {
+    func testSchemaThreeFocusSectionMigratesMonitorCrossingFocusToSpatial() throws {
         let source = String(decoding: try SettingsTOMLCodec.encode(.defaults()), as: UTF8.self)
+            .replacingOccurrences(of: "schemaVersion = 4", with: "schemaVersion = 3")
             .replacingOccurrences(of: "monitorCrossingFocus = \"spatial\"\n", with: "")
 
-        let decoded = try SettingsTOMLCodec.decode(Data(source.utf8))
+        let result = try SettingsTOMLCodec.decodeForLoad(Data(source.utf8))
 
-        XCTAssertEqual(decoded.focus.monitorCrossingFocus, .spatial)
+        XCTAssertEqual(result.export.focus.monitorCrossingFocus, .spatial)
+        XCTAssertEqual(result.migration?.fromVersion, 3)
+        XCTAssertEqual(result.migration?.toVersion, 4)
+        XCTAssertEqual(result.migration?.defaultedPaths, ["focus.monitorCrossingFocus"])
+        XCTAssertTrue(
+            String(decoding: try XCTUnwrap(result.migratedData), as: UTF8.self)
+                .contains("schemaVersion = 4")
+        )
     }
 
     func testEverySectionFieldRemainsRequired() throws {
@@ -49,7 +57,8 @@ final class FocusRoutingSettingsExportTests: XCTestCase {
         let sections = [
             "focus": [
                 "followsMouse", "raiseOnMouseFocus", "lockModifier", "moveMouseToFocusedWindow",
-                "followsWindowToMonitor", "crossesMonitorAtEdge", "moveCrossesMonitorAtEdge"
+                "followsWindowToMonitor", "crossesMonitorAtEdge", "moveCrossesMonitorAtEdge",
+                "monitorCrossingFocus"
             ],
             "mouseWarp": ["margin", "enabled", "constrainToArrangement"],
             "routing": ["mode", "arrangements"]
