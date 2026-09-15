@@ -24,8 +24,7 @@ final class MonitorCrossingFocusTests: XCTestCase {
     func testSpatialPolicySelectsSpatialNeighbor() {
         let spatial = token(1)
         let farther = token(2)
-        let result = WorkspaceNavigationHandler.monitorCrossingFocusToken(
-            policy: .spatial,
+        let result = WorkspaceNavigationHandler.spatialNeighborToken(
             from: CGRect(x: 0, y: 200, width: 400, height: 400),
             candidates: [
                 (token: farther, frame: CGRect(x: 1_600, y: 0, width: 300, height: 800)),
@@ -36,19 +35,6 @@ final class MonitorCrossingFocusTests: XCTestCase {
         )
 
         XCTAssertEqual(result, spatial)
-    }
-
-    func testLastPolicyDoesNotSelectOrReplaceSpatialNeighbor() {
-        let spatial = token(3)
-        let result = WorkspaceNavigationHandler.monitorCrossingFocusToken(
-            policy: .last,
-            from: CGRect(x: 0, y: 200, width: 400, height: 400),
-            candidates: [(token: spatial, frame: CGRect(x: 1_000, y: 200, width: 300, height: 400))],
-            direction: .right,
-            targetFrame: CGRect(x: 1_000, y: 0, width: 1_000, height: 800)
-        )
-
-        XCTAssertNil(result)
     }
 
     func testLastPolicyRestoresFloatingWorkspaceHistoryAcrossMonitorEdge() throws {
@@ -134,7 +120,7 @@ final class MonitorCrossingFocusTests: XCTestCase {
             autosaveEnabled: false
         )
         settings.focus.crossesMonitorAtEdge = true
-        settings.focus.monitorCrossingFocus = .last
+        settings.focus.monitorCrossingFocus = .lastFocused
         settings.workspaces.configurations = [
             WorkspaceConfiguration(
                 name: "1",

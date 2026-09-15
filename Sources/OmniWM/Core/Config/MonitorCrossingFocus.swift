@@ -5,7 +5,7 @@ import Foundation
 
 enum MonitorCrossingFocus: String, CaseIterable, Codable, Identifiable {
     case spatial
-    case last
+    case lastFocused = "last"
 
     var id: String {
         rawValue
@@ -14,7 +14,7 @@ enum MonitorCrossingFocus: String, CaseIterable, Codable, Identifiable {
     var displayName: String {
         switch self {
         case .spatial: "Spatial Neighbor"
-        case .last: "Last Focused"
+        case .lastFocused: "Last Focused"
         }
     }
 }

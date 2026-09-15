@@ -98,10 +98,11 @@ struct SettingsExport: Equatable {
             moveMouseToFocusedWindow = try container.decode(Bool.self, forKey: .moveMouseToFocusedWindow)
             followsWindowToMonitor = try container.decode(Bool.self, forKey: .followsWindowToMonitor)
             crossesMonitorAtEdge = try container.decode(Bool.self, forKey: .crossesMonitorAtEdge)
+            // Keep decoding configuration files written before this key existed.
             monitorCrossingFocus = try container.decodeIfPresent(
                 MonitorCrossingFocus.self,
                 forKey: .monitorCrossingFocus
-            ) ?? .spatial
+            ) ?? Self.defaults().monitorCrossingFocus
             moveCrossesMonitorAtEdge = try container.decode(Bool.self, forKey: .moveCrossesMonitorAtEdge)
         }
     }

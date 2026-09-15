@@ -687,11 +687,11 @@ final class SettingsTOMLCodecTests: XCTestCase {
         XCTAssertEqual(SettingsExport.defaults().focus.monitorCrossingFocus, .spatial)
 
         var export = SettingsExport.defaults()
-        export.focus.monitorCrossingFocus = .last
+        export.focus.monitorCrossingFocus = .lastFocused
         let data = try SettingsTOMLCodec.encode(export)
 
         XCTAssertTrue(String(decoding: data, as: UTF8.self).contains("monitorCrossingFocus = \"last\""))
-        XCTAssertEqual(try SettingsTOMLCodec.decode(data).focus.monitorCrossingFocus, .last)
+        XCTAssertEqual(try SettingsTOMLCodec.decode(data).focus.monitorCrossingFocus, .lastFocused)
     }
 
     func testMoveCrossesMonitorAtEdgeRoundTrips() throws {
