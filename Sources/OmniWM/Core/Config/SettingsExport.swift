@@ -67,7 +67,43 @@ struct SettingsExport: Equatable {
         var moveMouseToFocusedWindow: Bool
         var followsWindowToMonitor: Bool
         var crossesMonitorAtEdge: Bool
+        var monitorCrossingFocus: MonitorCrossingFocus
         var moveCrossesMonitorAtEdge: Bool
+
+        init(
+            followsMouse: Bool,
+            raiseOnMouseFocus: Bool,
+            lockModifier: FocusLockModifier,
+            moveMouseToFocusedWindow: Bool,
+            followsWindowToMonitor: Bool,
+            crossesMonitorAtEdge: Bool,
+            monitorCrossingFocus: MonitorCrossingFocus,
+            moveCrossesMonitorAtEdge: Bool
+        ) {
+            self.followsMouse = followsMouse
+            self.raiseOnMouseFocus = raiseOnMouseFocus
+            self.lockModifier = lockModifier
+            self.moveMouseToFocusedWindow = moveMouseToFocusedWindow
+            self.followsWindowToMonitor = followsWindowToMonitor
+            self.crossesMonitorAtEdge = crossesMonitorAtEdge
+            self.monitorCrossingFocus = monitorCrossingFocus
+            self.moveCrossesMonitorAtEdge = moveCrossesMonitorAtEdge
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            followsMouse = try container.decode(Bool.self, forKey: .followsMouse)
+            raiseOnMouseFocus = try container.decode(Bool.self, forKey: .raiseOnMouseFocus)
+            lockModifier = try container.decode(FocusLockModifier.self, forKey: .lockModifier)
+            moveMouseToFocusedWindow = try container.decode(Bool.self, forKey: .moveMouseToFocusedWindow)
+            followsWindowToMonitor = try container.decode(Bool.self, forKey: .followsWindowToMonitor)
+            crossesMonitorAtEdge = try container.decode(Bool.self, forKey: .crossesMonitorAtEdge)
+            monitorCrossingFocus = try container.decodeIfPresent(
+                MonitorCrossingFocus.self,
+                forKey: .monitorCrossingFocus
+            ) ?? .spatial
+            moveCrossesMonitorAtEdge = try container.decode(Bool.self, forKey: .moveCrossesMonitorAtEdge)
+        }
     }
 
     struct MouseWarp: Codable, Equatable {
@@ -243,6 +279,7 @@ extension SettingsExport.Focus {
             moveMouseToFocusedWindow: false,
             followsWindowToMonitor: false,
             crossesMonitorAtEdge: false,
+            monitorCrossingFocus: .spatial,
             moveCrossesMonitorAtEdge: false
         )
     }

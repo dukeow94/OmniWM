@@ -180,6 +180,12 @@ struct MonitorSettingsTab: View {
 
             Section("Cross-Monitor Behavior") {
                 Toggle("Focus Across Monitor at Edge", isOn: Bindable(settings.focus).crossesMonitorAtEdge)
+                Picker("Focus on Monitor Crossing", selection: Bindable(settings.focus).monitorCrossingFocus) {
+                    ForEach(MonitorCrossingFocus.allCases) { mode in
+                        Text(mode.displayName).tag(mode)
+                    }
+                }
+                .disabled(!settings.focus.crossesMonitorAtEdge)
                 Toggle("Move Window Across Monitor at Edge", isOn: Bindable(settings.focus).moveCrossesMonitorAtEdge)
                 Toggle("Follow Window to Monitor", isOn: Bindable(settings.focus).followsWindowToMonitor)
                 Toggle(isOn: Bindable(settings.pointer).enabled) {
@@ -199,6 +205,11 @@ struct MonitorSettingsTab: View {
                     }
                 }
                 .disabled(!settings.pointer.enabled)
+
+                SettingsCaption(
+                    "Spatial Neighbor selects the nearest window on the destination monitor. Last Focused restores "
+                        + "that workspace's most recently focused eligible window when focus crosses the edge."
+                )
 
                 SettingsCaption(
                     "Mouse Warp moves the pointer across matching display edges using the OmniWM routing arrangement. "

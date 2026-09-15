@@ -35,6 +35,10 @@ final class FocusSettings {
         didSet { onChange?() }
     }
 
+    var monitorCrossingFocus = FocusSettings.defaults.monitorCrossingFocus {
+        didSet { onChange?() }
+    }
+
     var moveCrossesMonitorAtEdge = FocusSettings.defaults.moveCrossesMonitorAtEdge {
         didSet { onChange?() }
     }
@@ -47,6 +51,7 @@ final class FocusSettings {
             moveMouseToFocusedWindow: moveMouseToFocusedWindow,
             followsWindowToMonitor: followsWindowToMonitor,
             crossesMonitorAtEdge: crossesMonitorAtEdge,
+            monitorCrossingFocus: monitorCrossingFocus,
             moveCrossesMonitorAtEdge: moveCrossesMonitorAtEdge
         )
     }
@@ -58,6 +63,7 @@ final class FocusSettings {
         moveMouseToFocusedWindow = focus.moveMouseToFocusedWindow
         followsWindowToMonitor = focus.followsWindowToMonitor
         crossesMonitorAtEdge = focus.crossesMonitorAtEdge
+        monitorCrossingFocus = focus.monitorCrossingFocus
         moveCrossesMonitorAtEdge = focus.moveCrossesMonitorAtEdge
     }
 }
