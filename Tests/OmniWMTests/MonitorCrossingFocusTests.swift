@@ -14,6 +14,7 @@ final class MonitorCrossingFocusTests: XCTestCase {
         let controller: WMController
         let sourceMonitor: Monitor
         let targetMonitor: Monitor
+        let sourceWorkspaceId: WorkspaceDescriptor.ID
         let targetWorkspaceId: WorkspaceDescriptor.ID
     }
 
@@ -68,6 +69,75 @@ final class MonitorCrossingFocusTests: XCTestCase {
         XCTAssertEqual(manager.resolveWorkspaceFocusToken(in: fixture.targetWorkspaceId), targetLast)
     }
 
+    func testSpatialPolicyIgnoresHiddenSelectedSourceWindow() throws {
+        let fixture = try makeFloatingFixture()
+        addTeardownBlock {
+            try? FileManager.default.removeItem(at: fixture.root)
+        }
+        defer {
+            fixture.controller.deadlineWheel.stop()
+            fixture.controller.layoutRefreshController.resetState()
+        }
+
+        let manager = fixture.controller.workspaceManager
+        fixture.controller.settings.focus.monitorCrossingFocus = .spatial
+        fixture.controller.niriLayoutHandler.enableNiriLayout()
+
+        let hiddenSource = addFloatingWindow(
+            pid: 1_004_020,
+            windowId: 1,
+            to: fixture.sourceWorkspaceId,
+            manager: manager
+        )
+        manager.updateFloatingGeometry(
+            frame: CGRect(x: 100, y: 20, width: 300, height: 120),
+            for: hiddenSource
+        )
+        XCTAssertTrue(
+            manager.confirmManagedFocus(
+                hiddenSource,
+                in: fixture.sourceWorkspaceId,
+                onMonitor: fixture.sourceMonitor.id,
+                activateWorkspaceOnMonitor: false
+            )
+        )
+        manager.setAppHidden(true, pid: hiddenSource.pid, source: .ax)
+
+        let staleSourceAlignedTarget = addTiledWindow(
+            pid: 1_004_021,
+            windowId: 2,
+            to: fixture.targetWorkspaceId,
+            manager: manager
+        )
+        let centeredTarget = addTiledWindow(
+            pid: 1_004_022,
+            windowId: 3,
+            to: fixture.targetWorkspaceId,
+            manager: manager
+        )
+        let engine = try XCTUnwrap(fixture.controller.niriEngine)
+        let staleNode = engine.addWindow(
+            token: staleSourceAlignedTarget,
+            to: fixture.targetWorkspaceId,
+            afterSelection: nil
+        )
+        staleNode.frame = CGRect(x: 1_020, y: 20, width: 300, height: 120)
+        staleNode.renderedFrame = staleNode.frame
+        let centeredNode = engine.addWindow(
+            token: centeredTarget,
+            to: fixture.targetWorkspaceId,
+            afterSelection: staleNode.id
+        )
+        centeredNode.frame = CGRect(x: 1_020, y: 350, width: 300, height: 120)
+        centeredNode.renderedFrame = centeredNode.frame
+
+        XCTAssertTrue(fixture.controller.workspaceNavigationHandler.focusMonitor(direction: .right))
+        XCTAssertEqual(
+            manager.resolveWorkspaceFocusToken(in: fixture.targetWorkspaceId),
+            centeredTarget
+        )
+    }
+
     private func makeFloatingFixture() throws -> FloatingFixture {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(
             "OmniWMMonitorCrossingFocusTests-\(UUID().uuidString)",
@@ -102,6 +172,7 @@ final class MonitorCrossingFocusTests: XCTestCase {
             controller: controller,
             sourceMonitor: sourceMonitor,
             targetMonitor: targetMonitor,
+            sourceWorkspaceId: sourceWorkspaceId,
             targetWorkspaceId: targetWorkspaceId
         )
     }
@@ -170,6 +241,20 @@ final class MonitorCrossingFocusTests: XCTestCase {
             windowId: windowId,
             to: workspaceId,
             mode: .floating
+        )
+    }
+
+    private func addTiledWindow(
+        pid: pid_t,
+        windowId: Int,
+        to workspaceId: WorkspaceDescriptor.ID,
+        manager: WorkspaceManager
+    ) -> WindowToken {
+        manager.addWindow(
+            AXWindowRef(element: AXUIElementCreateApplication(pid), windowId: windowId),
+            pid: pid,
+            windowId: windowId,
+            to: workspaceId
         )
     }
 }
