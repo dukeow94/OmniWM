@@ -913,6 +913,7 @@ Most configuration is also editable in Settings. **Start at Login** is managed b
 
 - **Reveal Settings File** and **Edit Settings File** open the canonical TOML file and recreate it from the running settings if it was deleted.
 - `updateChecksEnabled` is part of the persisted settings model, so it round-trips through `settings.toml`.
+- `focus.monitorCrossingFocus` controls directional focus when `focus.crossesMonitorAtEdge = true`. It accepts `"spatial"` (the default, selecting the nearest spatial neighbor) or `"last"` (restoring the destination workspace's last-focused eligible window).
 - Clipboard history, last-check timestamps, skipped-release state, and the persisted window restore catalog live in `${XDG_STATE_HOME:-$HOME/.local/state}/omniwm` and stay out of dotfile-oriented config storage.
 
 ## Scratchpads

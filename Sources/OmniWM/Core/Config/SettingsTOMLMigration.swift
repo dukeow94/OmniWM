@@ -59,12 +59,15 @@ enum SettingsTOMLMigration {
     static func migrate(_ raw: inout [String: TOMLNode], from version: Int) throws -> SettingsMigrationReport {
         let versionOneReport = version == 0 ? try migrateVersionZero(&raw) : nil
         let versionTwoAddedHotkeyIDs = version <= 1 ? migrateVersionOne(&raw) : []
-        let versionThreeDefaultedPaths = try migrateVersionTwo(&raw)
+        let versionThreeDefaultedPaths = version <= 2 ? try migrateVersionTwo(&raw) : []
+        let versionFourDefaultedPaths = migrateVersionThree(&raw)
         canonicalizeMigratedHotkeys(in: &raw)
         return SettingsMigrationReport(
             fromVersion: version,
             toVersion: SettingsTOMLCodec.currentSchemaVersion,
-            defaultedPaths: (versionOneReport?.defaultedPaths ?? []) + versionThreeDefaultedPaths,
+            defaultedPaths: (versionOneReport?.defaultedPaths ?? [])
+                + versionThreeDefaultedPaths
+                + versionFourDefaultedPaths,
             addedHotkeyIDs: (versionOneReport?.addedHotkeyIDs ?? []) + versionTwoAddedHotkeyIDs,
             mappedHotkeys: versionOneReport?.mappedHotkeys ?? [],
             retiredHotkeys: versionOneReport?.retiredHotkeys ?? []
@@ -247,6 +250,17 @@ enum SettingsTOMLMigration {
         )
         raw["schemaVersion"] = .integer(3)
         return added ? ["routing.arrangements"] : []
+    }
+
+    private static func migrateVersionThree(_ raw: inout [String: TOMLNode]) -> [String] {
+        defer { raw["schemaVersion"] = .integer(4) }
+        guard addMissingValue(
+            in: &raw,
+            table: "focus",
+            key: "monitorCrossingFocus",
+            value: .string("spatial")
+        ) else { return [] }
+        return ["focus.monitorCrossingFocus"]
     }
 
     private static func appendMissingUnassignedHotkeys(

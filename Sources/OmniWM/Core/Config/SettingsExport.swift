@@ -67,6 +67,7 @@ struct SettingsExport: Equatable {
         var moveMouseToFocusedWindow: Bool
         var followsWindowToMonitor: Bool
         var crossesMonitorAtEdge: Bool
+        var monitorCrossingFocus: MonitorCrossingFocus
         var moveCrossesMonitorAtEdge: Bool
     }
 
@@ -243,6 +244,7 @@ extension SettingsExport.Focus {
             moveMouseToFocusedWindow: false,
             followsWindowToMonitor: false,
             crossesMonitorAtEdge: false,
+            monitorCrossingFocus: .spatial,
             moveCrossesMonitorAtEdge: false
         )
     }

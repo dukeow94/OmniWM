@@ -208,19 +208,24 @@ final class StatusMenuPanelTests: XCTestCase {
         fixture.seedSubmenuRows()
         fixture.host.hoverSubmenu(.advanced, hovered: true)
 
-        try await Task.sleep(for: .milliseconds(225))
+        let advancedPresented = await waitUntil { fixture.host.presentation.expandedPage == .advanced }
+        XCTAssertTrue(advancedPresented)
 
         XCTAssertEqual(fixture.host.presentation.expandedPage, .advanced)
         let submenu = try XCTUnwrap(fixture.host.submenuPanel)
         fixture.host.hoverSubmenu(.help, hovered: true)
 
-        try await Task.sleep(for: .milliseconds(225))
+        let helpPresented = await waitUntil { fixture.host.presentation.expandedPage == .help }
+        XCTAssertTrue(helpPresented)
 
         XCTAssertEqual(fixture.host.presentation.expandedPage, .help)
         XCTAssertTrue(fixture.host.submenuPanel === submenu)
         fixture.host.hoverSubmenu(nil, hovered: true)
 
-        try await Task.sleep(for: .milliseconds(225))
+        let submenuClosed = await waitUntil {
+            fixture.host.presentation.expandedPage == nil && !submenu.isVisible
+        }
+        XCTAssertTrue(submenuClosed)
 
         XCTAssertNil(fixture.host.presentation.expandedPage)
         XCTAssertFalse(submenu.isVisible)
@@ -296,6 +301,19 @@ final class StatusMenuPanelTests: XCTestCase {
 
     private func makeFixture() -> StatusMenuPanelFixture {
         StatusMenuPanelFixture()
+    }
+
+    private func waitUntil(
+        timeout: Duration = .seconds(2),
+        condition: () -> Bool
+    ) async -> Bool {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: timeout)
+        while !condition() {
+            guard clock.now < deadline else { return false }
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        return true
     }
 }
 

@@ -59,15 +59,17 @@ extension WorkspaceNavigationHandler {
                     (token: entry.token, frame: $0)
                 }
             }
-        guard !candidates.isEmpty else { return false }
-
-        if let chosen = Self.spatialNeighborToken(
-            from: sourceFrame,
-            candidates: candidates,
-            direction: direction,
-            targetFrame: controller.insetWorkingFrame(for: target)
-        ) {
+        switch controller.settings.focus.monitorCrossingFocus {
+        case .spatial:
+            guard let chosen = Self.spatialNeighborToken(
+                from: sourceFrame,
+                candidates: candidates,
+                direction: direction,
+                targetFrame: controller.insetWorkingFrame(for: target)
+            ) else { return false }
             _ = controller.workspaceManager.rememberFocus(chosen, in: targetWorkspace.id)
+        case .lastFocused:
+            break
         }
         return switchToMonitor(target.id, fromMonitor: currentMonitorId)
     }

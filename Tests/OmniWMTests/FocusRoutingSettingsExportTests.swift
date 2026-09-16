@@ -19,6 +19,7 @@ final class FocusRoutingSettingsExportTests: XCTestCase {
             "moveMouseToFocusedWindow": .boolean(false),
             "followsWindowToMonitor": .boolean(false),
             "crossesMonitorAtEdge": .boolean(false),
+            "monitorCrossingFocus": .string("spatial"),
             "moveCrossesMonitorAtEdge": .boolean(false)
         ]))
         XCTAssertEqual(tree["mouseWarp"], .table([
@@ -33,13 +34,31 @@ final class FocusRoutingSettingsExportTests: XCTestCase {
         XCTAssertEqual(try SettingsTOMLCodec.decode(data), defaults)
     }
 
+    func testSchemaThreeFocusSectionMigratesMonitorCrossingFocusToSpatial() throws {
+        let source = String(decoding: try SettingsTOMLCodec.encode(.defaults()), as: UTF8.self)
+            .replacingOccurrences(of: "schemaVersion = 4", with: "schemaVersion = 3")
+            .replacingOccurrences(of: "monitorCrossingFocus = \"spatial\"\n", with: "")
+
+        let result = try SettingsTOMLCodec.decodeForLoad(Data(source.utf8))
+
+        XCTAssertEqual(result.export.focus.monitorCrossingFocus, .spatial)
+        XCTAssertEqual(result.migration?.fromVersion, 3)
+        XCTAssertEqual(result.migration?.toVersion, 4)
+        XCTAssertEqual(result.migration?.defaultedPaths, ["focus.monitorCrossingFocus"])
+        XCTAssertTrue(
+            String(decoding: try XCTUnwrap(result.migratedData), as: UTF8.self)
+                .contains("schemaVersion = 4")
+        )
+    }
+
     func testEverySectionFieldRemainsRequired() throws {
         let data = try SettingsTOMLCodec.encode(.defaults())
         let source = String(decoding: data, as: UTF8.self)
         let sections = [
             "focus": [
                 "followsMouse", "raiseOnMouseFocus", "lockModifier", "moveMouseToFocusedWindow",
-                "followsWindowToMonitor", "crossesMonitorAtEdge", "moveCrossesMonitorAtEdge"
+                "followsWindowToMonitor", "crossesMonitorAtEdge", "moveCrossesMonitorAtEdge",
+                "monitorCrossingFocus"
             ],
             "mouseWarp": ["margin", "enabled", "constrainToArrangement"],
             "routing": ["mode", "arrangements"]
