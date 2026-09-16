@@ -43,9 +43,12 @@ extension WorkspaceNavigationHandler {
         guard let targetWorkspace = controller.workspaceManager.activeWorkspaceOrFirst(on: target.id)
         else { return false }
 
-        let sourceFrame = controller.workspaceManager.selectedManagedToken
-            .filter { controller.isManagedWindowDisplayable($0) }
-            .flatMap { controller.preferredKeyboardFocusFrame(for: $0) }
+        let sourceFrame: CGRect? = {
+            guard let token = controller.workspaceManager.selectedManagedToken,
+                  controller.isManagedWindowDisplayable(token)
+            else { return nil }
+            return controller.preferredKeyboardFocusFrame(for: token)
+        }()
         let dwindleEngine = controller.workspaceManager.activeLayoutKind(for: targetWorkspace.id) == .dwindle
             ? controller.dwindleEngine
             : nil
