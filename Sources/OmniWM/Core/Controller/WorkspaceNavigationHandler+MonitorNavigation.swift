@@ -43,8 +43,10 @@ extension WorkspaceNavigationHandler {
         guard let targetWorkspace = controller.workspaceManager.activeWorkspaceOrFirst(on: target.id)
         else { return false }
 
-        let sourceFrame = controller.workspaceManager.selectedManagedToken
-            .flatMap { controller.preferredKeyboardFocusFrame(for: $0) }
+        let sourceFrame = sourceFrameForMonitorCrossing(
+            controller: controller,
+            currentMonitorId: currentMonitorId
+        )
         let dwindleEngine = controller.workspaceManager.activeLayoutKind(for: targetWorkspace.id) == .dwindle
             ? controller.dwindleEngine
             : nil
@@ -72,6 +74,31 @@ extension WorkspaceNavigationHandler {
             break
         }
         return switchToMonitor(target.id, fromMonitor: currentMonitorId)
+    }
+
+    private func sourceFrameForMonitorCrossing(
+        controller: WMController,
+        currentMonitorId: Monitor.ID
+    ) -> CGRect? {
+        let manager = controller.workspaceManager
+        guard let currentWorkspace = manager.activeWorkspaceOrFirst(on: currentMonitorId) else {
+            return nil
+        }
+
+        let sourceToken = manager.pendingFocusedToken
+            .flatMap { token in
+                guard manager.pendingFocusedWorkspaceId == currentWorkspace.id,
+                      manager.pendingFocusedMonitorId == currentMonitorId,
+                      controller.isManagedWindowDisplayable(token)
+                else { return nil }
+                return token
+            }
+            ?? manager.resolveWorkspaceFocusToken(in: currentWorkspace.id)
+
+        guard let sourceToken,
+              controller.isManagedWindowDisplayable(sourceToken)
+        else { return nil }
+        return controller.preferredKeyboardFocusFrame(for: sourceToken)
     }
 
     static func spatialNeighborToken(
