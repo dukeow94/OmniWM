@@ -81,6 +81,35 @@ final class NiriLayoutBuildMetricsRegressionTests: XCTestCase {
         )
     }
 
+    func testAnimationBuildUsesPositionOnlyAXWhenWindowSizeRoundsByOnePoint() throws {
+        let fixture = try makeFixture()
+        let target = try addWindowAndTargetFrame(to: fixture)
+        fixture.controller.axManager.confirmFrameWrite(
+            for: fixture.token.windowId,
+            frame: CGRect(
+                x: target.minX - 30,
+                y: target.minY,
+                width: target.width + 1,
+                height: target.height
+            )
+        )
+
+        XCTAssertTrue(
+            fixture.controller.layoutRefreshController.niriHandler.applyFramesOnDemand(
+                wsId: fixture.workspaceId,
+                state: fixture.controller.workspaceManager.niriViewportState(for: fixture.workspaceId),
+                engine: fixture.engine,
+                monitor: fixture.monitor,
+                animationTime: CACurrentMediaTime()
+            )
+        )
+
+        XCTAssertEqual(
+            fixture.controller.axManager.recentFrameWriteFailureComponents(for: fixture.token.windowId),
+            .position
+        )
+    }
+
     func testTerminalScrollTickBuildsOneFullFrameSettlementPlan() throws {
         let fixture = try makeFixture()
         let target = try addWindowAndTargetFrame(to: fixture)

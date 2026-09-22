@@ -837,6 +837,8 @@ final class DiagnosticsTraceRecorderTests: XCTestCase {
                 dwindleMs: 0,
                 closingMs: 0,
                 reconcileMs: 1,
+                surfaceMs: 0.2,
+                transactionMs: 0.5,
                 classification: DisplayTickClassification(
                     longTimestampGap: true,
                     workExceededNominalPeriod: false,
@@ -914,7 +916,8 @@ final class DiagnosticsTraceRecorderTests: XCTestCase {
         XCTAssertTrue(tickDump.hasSuffix(
             "t=1.000 effect=0 disp=1 interval=99.00ms expected=6.00ms entry_slack=2.50ms"
                 + " completion_slack=-3.50ms scroll=5.00ms dwindle=0.00ms closing=0.00ms"
-                + " reconcile=1.00ms total=6.00ms LONG_GAP COMPLETION_PAST_TARGET"
+                + " reconcile=1.00ms surface=0.20ms transaction=0.50ms total=6.00ms"
+                + " LONG_GAP COMPLETION_PAST_TARGET"
         ))
         XCTAssertTrue(BorderOpMetricsRecorder.shared.dump().contains("applyCalls=1"))
         XCTAssertTrue(ScrollTickTrace.shared.dump().contains("commit=290.00ms"))

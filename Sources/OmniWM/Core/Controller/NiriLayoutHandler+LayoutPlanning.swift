@@ -131,7 +131,7 @@ extension NiriLayoutHandler {
                 settledContext: isSettled ? (snapshot.monitor, snapshot.viewportState) : nil
             )
         )
-        enforceOnDemandFrameSizes(&diff, animated: sampledAnimationTime != nil)
+        enforceOnDemandFrameSizes(&diff, animated: !isSettled)
         if animationTime != nil {
             diff.tabRailGeometryCommands = niriTabRailGeometryCommands(
                 engine: engine,

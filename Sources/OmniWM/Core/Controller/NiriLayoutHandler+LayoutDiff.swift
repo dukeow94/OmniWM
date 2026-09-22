@@ -45,7 +45,7 @@ extension NiriLayoutHandler {
             viewportNeedsRecalc: selection.viewportNeedsRecalc, arrival: arrival
         )
 
-        let diff = layoutDiff(
+        var diff = layoutDiff(
             windows: snapshot.windows,
             frames: frames,
             hiddenHandles: hiddenHandles,
@@ -59,6 +59,17 @@ extension NiriLayoutHandler {
             )
         )
         completeAnimationDirectives(&directives, pass: pass, state: state)
+        let startsScroll = directives.contains {
+            if case .startNiriScroll = $0 { return true }
+            return false
+        }
+        if pass.motion.animationsEnabled && (!isSettled || startsScroll),
+           let axManager = controller?.axManager
+        {
+            for index in diff.frameChanges.indices {
+                diff.frameChanges[index] = axManager.animationFrameChange(diff.frameChanges[index])
+            }
+        }
         return WorkspaceLayoutPlan(
             workspaceId: pass.wsId,
             monitor: snapshot.monitor,
