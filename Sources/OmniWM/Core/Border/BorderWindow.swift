@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/BarutSRB/OmniWM
+// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import QuartzCore
@@ -7,7 +7,7 @@ import QuartzCore
 @MainActor
 final class BorderWindow {
     struct Operations {
-        var createLayerPanel: @MainActor (CGRect) -> BorderLayerPanel
+        var createLayerPanel: @MainActor (CGRect) -> BorderLayerPanel?
         var excludeFromScreencaptureSelection: @MainActor (UInt32) -> Void
         var queryWindowInfoDeferred: @MainActor (UInt32) async throws -> WindowServerInfo?
         var backingScaleForFrame: @MainActor (CGRect) -> (scale: CGFloat, screenFrame: CGRect)
@@ -61,7 +61,6 @@ final class BorderWindow {
     private(set) var appliedTargetLevel: Int32 = 0
 
     private let defaultCornerRadii = WindowCornerRadii(uniform: 9.0)
-    private static let borderColorSpace = CGColorSpaceCreateDeviceRGB()
 
     init(config: BorderConfig, operations: Operations = .live) {
         self.config = config
@@ -153,7 +152,7 @@ final class BorderWindow {
     }
 
     private func createWindow(scale: CGFloat) {
-        let panel = operations.createLayerPanel(appliedSurfaceFrame)
+        guard let panel = operations.createLayerPanel(appliedSurfaceFrame) else { return }
         guard let windowId = UInt32(exactly: panel.windowNumber), windowId != 0 else {
             panel.close()
             return
@@ -173,7 +172,7 @@ final class BorderWindow {
         needsOrdering: Bool,
         retryingTargetLevel: Bool
     ) {
-        layerPanel?.applyFrame(appliedSurfaceFrame)
+        layerPanel?.applyFrame(targetFrame: appliedTargetFrame, surfaceFrame: appliedSurfaceFrame)
         if needsOrdering {
             BorderOpMetricsRecorder.shared.noteMoveAndOrder()
             let level = resolvedTargetLevel(
@@ -305,7 +304,9 @@ final class BorderWindow {
 
     func updateConfig(_ newConfig: BorderConfig) {
         guard config != newConfig else { return }
-        if config.color != newConfig.color || config.width != newConfig.width {
+        if config.color != newConfig.color || config.width != newConfig.width
+            || config.gradient != newConfig.gradient || config.glow != newConfig.glow
+        {
             needsRedraw = true
         }
         config = newConfig
@@ -344,68 +345,16 @@ extension BorderWindow {
 
     private func draw(geometry: BorderConfig.ResolvedGeometry) {
         guard let layerPanel else { return }
+        let color = BorderLayerPanel.cgColor(config.color)
         layerPanel.updateBorder(
             geometry: geometry, cornerRadii: currentCornerRadii,
-            color: Self.cgColor(config.color), scale: lastConfiguredScale
+            color: color, scale: lastConfiguredScale
+        )
+        layerPanel.updateEffects(
+            geometry: geometry, cornerRadii: currentCornerRadii,
+            config: config, baseColor: color, scale: lastConfiguredScale
         )
         needsRedraw = false
-        BorderOpMetricsRecorder.shared.noteRedraw(
-            rasterizedArea: geometry.surfaceFrame.width * geometry.surfaceFrame.height
-        )
-    }
-
-    private static func cgColor(_ color: SettingsColor) -> CGColor {
-        CGColor(
-            colorSpace: borderColorSpace,
-            components: [
-                component(color.red),
-                component(color.green),
-                component(color.blue),
-                component(color.alpha)
-            ]
-        )!
-    }
-
-    private static func component(_ value: Double) -> CGFloat {
-        guard value.isFinite else { return 0 }
-        return CGFloat(min(max(value, 0), 1))
-    }
-
-    static func roundedRectPath(in rect: CGRect, radii: WindowCornerRadii) -> CGPath {
-        let path = CGMutablePath()
-        guard rect.width > 0, rect.height > 0, !rect.isInfinite, !rect.isNull else { return path }
-        let radii = radii.normalized(to: rect.size)
-
-        path.move(to: CGPoint(x: rect.minX + radii.bottomLeft, y: rect.minY))
-        path.addLine(to: CGPoint(x: rect.maxX - radii.bottomRight, y: rect.minY))
-        path.addArc(
-            tangent1End: CGPoint(x: rect.maxX, y: rect.minY),
-            tangent2End: CGPoint(x: rect.maxX, y: rect.minY + radii.bottomRight),
-            radius: radii.bottomRight
-        )
-
-        path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY - radii.topRight))
-        path.addArc(
-            tangent1End: CGPoint(x: rect.maxX, y: rect.maxY),
-            tangent2End: CGPoint(x: rect.maxX - radii.topRight, y: rect.maxY),
-            radius: radii.topRight
-        )
-
-        path.addLine(to: CGPoint(x: rect.minX + radii.topLeft, y: rect.maxY))
-        path.addArc(
-            tangent1End: CGPoint(x: rect.minX, y: rect.maxY),
-            tangent2End: CGPoint(x: rect.minX, y: rect.maxY - radii.topLeft),
-            radius: radii.topLeft
-        )
-
-        path.addLine(to: CGPoint(x: rect.minX, y: rect.minY + radii.bottomLeft))
-        path.addArc(
-            tangent1End: CGPoint(x: rect.minX, y: rect.minY),
-            tangent2End: CGPoint(x: rect.minX + radii.bottomLeft, y: rect.minY),
-            radius: radii.bottomLeft
-        )
-
-        path.closeSubpath()
-        return path
+        BorderOpMetricsRecorder.shared.noteRedraw()
     }
 }

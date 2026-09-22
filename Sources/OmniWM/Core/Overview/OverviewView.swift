@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/BarutSRB/OmniWM
+// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import Foundation
@@ -8,35 +8,44 @@ import Foundation
 final class OverviewView: NSView {
     private(set) var layout: OverviewLayout = .init()
     private(set) var searchQuery: String = ""
-    private(set) var thumbnails: [Int: CGImage] = [:]
     private(set) var palette: OverviewRenderPalette
-    private(set) var selectedWindowHandle: WindowHandle?
+    private(set) var selection: OverviewSelection?
+    var selectedWindowHandle: WindowHandle? {
+        selection?.windowHandle
+    }
+
     private(set) var presentationProgress: Double = 0
 
     private let displayId: CGDirectDisplayID
 
     var onWindowSelected: ((WindowHandle) -> Void)?
     var onWindowClosed: ((WindowHandle) -> Void)?
+    var onNewWorkspace: (() -> Void)?
+    var onTabSelected: ((WindowHandle) -> Void)?
+    var onClearSearch: (() -> Void)?
+    var onStripPan: ((CGPoint, CGFloat) -> Void)?
+    var onWorkspaceSelected: ((WorkspaceDescriptor.ID) -> Void)?
+    var onOverflowPillPressed: ((OverviewOverflowPill) -> Void)?
     var onDismiss: (() -> Void)?
     var onScroll: ((CGFloat) -> Void)?
-    var onScrollWithModifiers: ((CGFloat, NSEvent.ModifierFlags, Bool) -> Void)?
+    var onScrollEvent: ((OverviewScrollInput.Event) -> Void)?
     var onDragBegin: ((WindowHandle, CGPoint) -> Void)?
     var onDragUpdate: ((CGPoint) -> Void)?
     var onDragEnd: ((CGPoint) -> Void)?
-    var onDragCancel: (() -> Void)?
 
     private var trackingArea: NSTrackingArea?
+    private var rightDragPoint: CGPoint?
     private var dragCandidateHandle: WindowHandle?
     private var dragStartPoint: CGPoint = .zero
     private var isDragging: Bool = false
     private var hoveredWindowHandle: WindowHandle?
     private var closeButtonHovered = false
-    private var textLineCache = OverviewTextLineCache()
-    private var traceCaptureGeneration: UInt64 = 0
-    private var traceGeneration: UInt64 = 0
-    private var traceSequence: UInt64 = 0
-    private var traceInvalidatedAt: CFTimeInterval = 0
-    private(set) var tracePendingInvalidations = 0
+    private var tabPicker: OverviewTabPicker?
+    var isTabPickerOpen: Bool {
+        tabPicker != nil
+    }
+
+    let layerRenderer: OverviewLayerRenderer
     private let dragThreshold: CGFloat = 6.0
 
     init(
@@ -46,9 +55,11 @@ final class OverviewView: NSView {
     ) {
         self.displayId = displayId
         self.palette = palette
-        selectedWindowHandle = nil
+        layerRenderer = OverviewLayerRenderer(displayId: displayId)
         super.init(frame: frame)
         wantsLayer = true
+        layerContentsRedrawPolicy = .onSetNeedsDisplay
+        layer?.addSublayer(layerRenderer.root)
     }
 
     @available(*, unavailable)
@@ -62,11 +73,18 @@ final class OverviewView: NSView {
         searchQuery: String,
         selectedWindowHandle: WindowHandle?,
         palette: OverviewRenderPalette? = nil,
-        thumbnails: [Int: CGImage]? = nil
+        animationsEnabled: Bool = true,
+        selection: OverviewSelection? = nil,
+        update: OverviewLayoutUpdate = .preserve
     ) {
         self.layout = layout
         self.searchQuery = searchQuery
-        self.selectedWindowHandle = selectedWindowHandle
+        self.selection = selection ?? selectedWindowHandle.map(OverviewSelection.window)
+        if let tabPicker,
+           !state.isOpen || state.isAnimating || layout.window(for: tabPicker.handle)?.isDisplayed != true
+        {
+            closeTabPicker()
+        }
         if let hoveredWindowHandle,
            layout.window(for: hoveredWindowHandle)?.matchesSearch != true
         {
@@ -75,9 +93,10 @@ final class OverviewView: NSView {
         }
         switch state {
         case .closed:
+            cancelAnimation()
             presentationProgress = 0
-            textLineCache.removeAll()
         case .open:
+            if layerRenderer.activeTransition != nil { cancelAnimation() }
             presentationProgress = 1
         case .opening,
              .closing:
@@ -86,60 +105,60 @@ final class OverviewView: NSView {
         if let palette {
             self.palette = palette
         }
-        if let thumbnails {
-            self.thumbnails = thumbnails
-        }
-        needsDisplay = true
-    }
-
-    func updateAnimationProgress(
-        _ progress: Double,
-        generation: UInt64,
-        sequence: UInt64
-    ) {
-        let activeTraceCaptureGeneration = OverviewFrameTrace.shared.captureGeneration
-        let traceActive = activeTraceCaptureGeneration != 0
-        let startTime = traceActive ? CACurrentMediaTime() : 0
-        presentationProgress = progress.isFinite ? min(max(progress, 0), 1) : 0
-        needsDisplay = true
-
-        guard traceActive else {
-            resetFrameTraceState()
-            traceCaptureGeneration = 0
-            return
-        }
-        if traceCaptureGeneration != activeTraceCaptureGeneration {
-            resetFrameTraceState()
-            traceCaptureGeneration = activeTraceCaptureGeneration
-        }
-        let endTime = CACurrentMediaTime()
-        if tracePendingInvalidations == 0 {
-            traceInvalidatedAt = endTime
-        }
-        traceGeneration = generation
-        traceSequence = sequence
-        tracePendingInvalidations += 1
-        OverviewFrameTrace.shared.record(
-            OverviewFrameTrace.Record(
-                event: .invalidation,
-                mediaTime: endTime,
-                displayId: displayId,
-                generation: generation,
-                sequence: sequence,
-                progress: presentationProgress,
-                durationMs: (endTime - startTime) * 1000,
-                waitMs: 0,
-                targetLeadMs: 0,
-                pendingInvalidations: tracePendingInvalidations,
-                endpointScheduled: false,
-                sessionCompleted: false
-            )
+        layerRenderer.updateLayout(
+            layout,
+            state: renderState,
+            caretAnimated: !state.isAnimating && state.isOpen && animationsEnabled,
+            update: update,
+            animationsEnabled: animationsEnabled
         )
+        needsDisplay = true
     }
 
-    func updateThumbnails(_ thumbnails: [Int: CGImage]) {
-        self.thumbnails = thumbnails
+    @discardableResult
+    func installAnimation(_ transition: OverviewNativeTransition, completion: OverviewAnimationCompletion) -> Bool {
+        if layerRenderer.root.bounds.isEmpty { updateLayer() }
+        presentationProgress = transition.target
+        needsDisplay = false
+        guard window != nil, transition.duration > 0 else {
+            cancelAnimation()
+            updateLayer()
+            return false
+        }
+        layerRenderer.installAnimation(transition, layout: layout, state: renderState, completion: completion)
+        return true
+    }
+
+    func cancelAnimation() {
+        layout = layerRenderer.freezingReflow(in: layout)
+        layerRenderer.cancelAnimation()
+    }
+
+    func presentProgress(_ progress: Double) {
+        presentationProgress = progress
         needsDisplay = true
+    }
+
+    func updatePreview(_ frame: OverviewPreviewFrame?, for handle: WindowHandle, animated: Bool = true) {
+        layerRenderer.updatePreview(frame, for: handle, animated: animated)
+    }
+
+    func clearPreviews() {
+        layerRenderer.clearPreviews()
+    }
+
+    override var wantsUpdateLayer: Bool {
+        true
+    }
+
+    override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        layerRenderer.updateContentsScale(window?.backingScaleFactor ?? 1)
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        layerRenderer.updateContentsScale(window?.backingScaleFactor ?? 1)
     }
 
     func updatePalette(_ palette: OverviewRenderPalette) {
@@ -180,7 +199,29 @@ final class OverviewView: NSView {
 
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
-        let hit = layout.windowHit(at: point)
+        if !searchQuery.isEmpty, layout.searchClearFrame.contains(point) {
+            onClearSearch?()
+            return
+        }
+        let layoutPoint = layerRenderer.layoutPoint(at: point, layout: layout)
+        if let pill = layout.overflowPill(at: layoutPoint) {
+            onOverflowPillPressed?(pill)
+            return
+        }
+        if let control = layerRenderer.tabControl(at: point, layout: layout) {
+            if let handle = control.steppedHandle(at: point) {
+                onTabSelected?(handle)
+            } else if control.frame(for: .picker).contains(point) {
+                showTabPicker(control)
+            }
+            return
+        }
+        let adjustedPoint = CGPoint(x: layoutPoint.x, y: layoutPoint.y + layout.scrollOffset)
+        if layout.newWorkspaceTarget?.frame.contains(adjustedPoint) == true {
+            onNewWorkspace?()
+            return
+        }
+        let hit = layerRenderer.windowHit(at: point, layout: layout)
 
         if let hit, hit.isCloseButton {
             onWindowClosed?(hit.window.handle)
@@ -188,13 +229,14 @@ final class OverviewView: NSView {
         }
 
         if let window = hit?.window {
-            if event.modifierFlags.contains(.option) {
-                dragCandidateHandle = window.handle
-                dragStartPoint = point
-                isDragging = false
-            } else {
-                onWindowSelected?(window.handle)
-            }
+            dragCandidateHandle = window.handle
+            dragStartPoint = point
+            isDragging = false
+            return
+        }
+
+        if let section = layout.ribbonSection(at: layoutPoint) {
+            onWorkspaceSelected?(section.workspaceId)
             return
         }
 
@@ -208,6 +250,8 @@ final class OverviewView: NSView {
 
         if !isDragging {
             guard distance >= dragThreshold else { return }
+            closeTabPicker()
+            layerRenderer.cancelReflow()
             isDragging = true
             onDragBegin?(handle, dragStartPoint)
         }
@@ -216,50 +260,42 @@ final class OverviewView: NSView {
     }
 
     override func mouseUp(with event: NSEvent) {
-        let point = convert(event.locationInWindow, from: nil)
-
-        if isDragging {
-            onDragEnd?(point)
-            cancelDragState()
-            return
-        }
-
-        guard dragCandidateHandle != nil else { return }
+        guard let handle = dragCandidateHandle else { return }
+        let dragged = isDragging
         cancelDragState()
-        let hit = layout.windowHit(at: point)
-
-        if let hit, hit.isCloseButton {
-            onWindowClosed?(hit.window.handle)
-            return
+        if dragged {
+            onDragEnd?(convert(event.locationInWindow, from: nil))
+        } else {
+            onWindowSelected?(handle)
         }
+    }
 
-        if let window = hit?.window {
-            onWindowSelected?(window.handle)
-            return
-        }
+    override func rightMouseDown(with event: NSEvent) {
+        rightDragPoint = convert(event.locationInWindow, from: nil)
+    }
 
-        onDismiss?()
+    override func rightMouseDragged(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        guard let previous = rightDragPoint else { return }
+        onStripPan?(layerRenderer.layoutPoint(at: point, layout: layout), point.x - previous.x)
+        rightDragPoint = point
+    }
+
+    override func rightMouseUp(with event: NSEvent) {
+        rightDragPoint = nil
     }
 
     override func scrollWheel(with event: NSEvent) {
-        let delta = OverviewScrollInput.dominantDelta(deltaX: event.scrollingDeltaX, deltaY: event.scrollingDeltaY)
-        if let onScrollWithModifiers {
-            onScrollWithModifiers(delta, event.modifierFlags, event.hasPreciseScrollingDeltas)
+        if let onScrollEvent {
+            onScrollEvent(OverviewScrollInput.Event(
+                deltaX: event.scrollingDeltaX,
+                deltaY: event.scrollingDeltaY,
+                modifiers: event.modifierFlags,
+                isPrecise: event.hasPreciseScrollingDeltas,
+                location: layerRenderer.layoutPoint(at: convert(event.locationInWindow, from: nil), layout: layout)
+            ))
         } else {
-            onScroll?(delta)
-        }
-    }
-
-    private func cancelDrag() {
-        if isDragging {
-            onDragCancel?()
-        }
-        cancelDragState()
-    }
-
-    func cancelPendingDragIfNeeded(optionPressed: Bool) {
-        if isDragging || dragCandidateHandle != nil, !optionPressed {
-            cancelDrag()
+            onScroll?(OverviewScrollInput.dominantDelta(deltaX: event.scrollingDeltaX, deltaY: event.scrollingDeltaY))
         }
     }
 
@@ -269,78 +305,75 @@ final class OverviewView: NSView {
     }
 
     private func updateHoverState(at point: CGPoint) {
-        let hit = layout.windowHit(at: point)
+        let hit = layerRenderer.windowHit(at: point, layout: layout)
         let nextHoveredHandle = hit?.window.handle
         let nextCloseButtonHovered = hit?.isCloseButton ?? false
         guard nextHoveredHandle != hoveredWindowHandle
             || nextCloseButtonHovered != closeButtonHovered
         else { return }
+        let previous = hoveredWindowHandle
         hoveredWindowHandle = nextHoveredHandle
         closeButtonHovered = nextCloseButtonHovered
-        needsDisplay = true
+        layerRenderer.updateHover(from: previous, layout: layout, state: renderState)
     }
 
-    override func draw(_ dirtyRect: NSRect) {
-        let activeTraceCaptureGeneration = OverviewFrameTrace.shared.captureGeneration
-        let traceActive = activeTraceCaptureGeneration != 0
-        if traceCaptureGeneration != activeTraceCaptureGeneration {
-            resetFrameTraceState()
-            traceCaptureGeneration = activeTraceCaptureGeneration
-        }
-        let startTime = traceActive ? CACurrentMediaTime() : 0
-        let generation = traceGeneration
-        let sequence = traceSequence
-        let pendingInvalidations = tracePendingInvalidations
-        let invalidatedAt = traceInvalidatedAt
-        defer {
-            if traceActive {
-                let endTime = CACurrentMediaTime()
-                OverviewFrameTrace.shared.record(
-                    OverviewFrameTrace.Record(
-                        event: .draw,
-                        mediaTime: endTime,
-                        displayId: displayId,
-                        generation: generation,
-                        sequence: sequence,
-                        progress: presentationProgress,
-                        durationMs: (endTime - startTime) * 1000,
-                        waitMs: invalidatedAt > 0 ? (startTime - invalidatedAt) * 1000 : 0,
-                        targetLeadMs: 0,
-                        pendingInvalidations: pendingInvalidations,
-                        endpointScheduled: false,
-                        sessionCompleted: false
-                    )
-                )
-                resetPendingFrameTraceState()
-            }
-        }
-
-        guard let context = NSGraphicsContext.current?.cgContext else { return }
-        OverviewRenderer.render(
-            context: context,
-            layout: layout,
-            thumbnails: thumbnails,
-            textLineCache: &textLineCache,
-            state: OverviewRenderState(
-                searchQuery: searchQuery,
-                selectedWindowHandle: selectedWindowHandle,
-                hoveredWindowHandle: hoveredWindowHandle,
-                closeButtonHovered: closeButtonHovered,
+    override func updateLayer() {
+        let traceActive = OverviewFrameTrace.shared.isActive
+        let start = traceActive ? CACurrentMediaTime() : 0
+        layerRenderer.updatePresentation(layout, state: renderState)
+        if traceActive {
+            let end = CACurrentMediaTime()
+            OverviewFrameTrace.shared.record(OverviewFrameTrace.Record(
+                event: .layerApply,
+                mediaTime: end,
+                displayId: displayId,
+                generation: layerRenderer.activeTransition?.generation ?? 0,
+                sequence: 0,
                 progress: presentationProgress,
-                bounds: bounds,
-                palette: palette
-            )
+                durationMs: (end - start) * 1000,
+                waitMs: 0,
+                targetLeadMs: 0,
+                pendingInvalidations: 0,
+                endpointScheduled: false,
+                sessionCompleted: false
+            ))
+        }
+    }
+}
+
+extension OverviewView {
+    func closeTabPicker() {
+        tabPicker?.cancel()
+        tabPicker = nil
+    }
+
+    private func showTabPicker(_ control: OverviewTabControl) {
+        let members = layout.tabMembers(for: control.handle)
+        guard members.count > 1 else { return }
+        let picker = OverviewTabPicker(handle: control.handle, members: members) { [weak self] handle in
+            guard let self,
+                  self.layout.tabMembers(for: control.handle).contains(where: { $0.handle == handle }) else { return }
+            self.onTabSelected?(handle)
+        }
+        tabPicker = picker
+        defer { if tabPicker === picker { tabPicker = nil } }
+        picker.menu.popUp(
+            positioning: nil,
+            at: CGPoint(x: control.frame.minX, y: control.frame.minY),
+            in: self
         )
     }
 
-    private func resetFrameTraceState() {
-        traceGeneration = 0
-        traceSequence = 0
-        resetPendingFrameTraceState()
-    }
-
-    private func resetPendingFrameTraceState() {
-        traceInvalidatedAt = 0
-        tracePendingInvalidations = 0
+    private var renderState: OverviewRenderState {
+        OverviewRenderState(
+            searchQuery: searchQuery,
+            selectedWindowHandle: selectedWindowHandle,
+            hoveredWindowHandle: hoveredWindowHandle,
+            closeButtonHovered: closeButtonHovered,
+            progress: presentationProgress,
+            bounds: bounds,
+            palette: palette,
+            selection: selection
+        )
     }
 }

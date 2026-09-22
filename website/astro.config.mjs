@@ -13,8 +13,11 @@ export default defineConfig({
         replacesTitle: true,
       },
       favicon: '/favicon.svg',
-      social: [{ icon: 'github', label: 'GitHub', href: 'https://github.com/BarutSRB/OmniWM' }],
-      editLink: { baseUrl: 'https://github.com/BarutSRB/OmniWM/edit/main/website/' },
+      social: [
+        { icon: 'github', label: 'GitHub', href: 'https://github.com/OmniNull/OmniWM' },
+        { icon: 'discord', label: 'Discord', href: 'https://discord.gg/yzkXFKPYhR' },
+      ],
+      editLink: { baseUrl: 'https://github.com/OmniNull/OmniWM/edit/main/website/' },
       lastUpdated: true,
       customCss: ['./src/styles/theme.css'],
       head: [

@@ -1,23 +1,59 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/BarutSRB/OmniWM
+// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import Foundation
 
 extension WindowActionHandler {
     @discardableResult
-    func navigateToWindowInternal(token: WindowToken, workspaceId: WorkspaceDescriptor.ID) -> Bool {
+    func navigateToWindowInternal(
+        token: WindowToken,
+        workspaceId: WorkspaceDescriptor.ID,
+        affectedWorkspaces: Set<WorkspaceDescriptor.ID> = []
+    ) -> Bool {
+        guard let controller,
+              let handle = prepareWindowNavigation(token: token, workspaceId: workspaceId)
+        else {
+            return false
+        }
+        commitWindowNavigation(
+            handle: handle, workspaceId: workspaceId,
+            affectedWorkspaces: affectedWorkspaces, controller: controller
+        )
+        return true
+    }
+
+    func prepareOverviewSelection(handle: WindowHandle, workspaceId: WorkspaceDescriptor.ID) {
+        guard let controller else { return }
+        let workspaceManager = controller.workspaceManager
+        guard workspaceManager.entry(for: handle)?.layoutReason == .standard else { return }
+        let previousWorkspaceId = workspaceManager.monitorForWorkspace(workspaceId)
+            .flatMap { workspaceManager.activeWorkspace(on: $0.id)?.id }
+        guard prepareWindowNavigation(token: handle.id, workspaceId: workspaceId, settlesMotion: true) != nil else {
+            return
+        }
+        controller.layoutRefreshController.requestImmediateRelayout(
+            reason: .overviewMutation,
+            affectedWorkspaceIds: Set([previousWorkspaceId, workspaceId].compactMap { $0 })
+        )
+    }
+
+    private func prepareWindowNavigation(
+        token: WindowToken,
+        workspaceId: WorkspaceDescriptor.ID,
+        settlesMotion: Bool = false
+    ) -> WindowHandle? {
         guard let controller,
               let handle = controller.workspaceManager.handle(for: token),
               let entry = controller.workspaceManager.entry(for: token),
               entry.workspaceId == workspaceId,
               !controller.workspaceManager.isAppHidden(pid: entry.pid)
         else {
-            return false
+            return nil
         }
         let targetLayoutKind = controller.workspaceManager.activeLayoutKind(for: workspaceId)
         if targetLayoutKind == .niri, controller.niriEngine == nil {
-            return false
+            return nil
         }
 
         let currentWsId = controller.activeWorkspace()?.id
@@ -43,11 +79,18 @@ extension WindowActionHandler {
                 )
             }
         case .niri:
-            guard let engine = controller.niriEngine else { return false }
+            guard let engine = controller.niriEngine else { return nil }
+            if settlesMotion {
+                controller.niriLayoutHandler.cancelAnimationMotion(for: workspaceId)
+                for (displayId, animatedWorkspaceId) in controller.niriLayoutHandler.scrollAnimationByDisplay
+                    where animatedWorkspaceId == workspaceId
+                {
+                    controller.layoutRefreshController.stopScrollAnimation(for: displayId)
+                }
+            }
             prepareNiriNavigationTarget(token, workspaceId: workspaceId, engine: engine, controller: controller)
         }
-        commitWindowNavigation(handle: handle, workspaceId: workspaceId, controller: controller)
-        return true
+        return handle
     }
 
     private func prepareNiriNavigationTarget(
@@ -99,7 +142,10 @@ extension WindowActionHandler {
     }
 
     private func commitWindowNavigation(
-        handle: WindowHandle, workspaceId: WorkspaceDescriptor.ID, controller: WMController
+        handle: WindowHandle,
+        workspaceId: WorkspaceDescriptor.ID,
+        affectedWorkspaces: Set<WorkspaceDescriptor.ID>,
+        controller: WMController
     ) {
         let newestFocusIntentId = controller.intentLedger.newestFocusIntentId()
         let focusTarget: LayoutRefreshController.PostLayoutAction = { [weak controller] in
@@ -121,6 +167,7 @@ extension WindowActionHandler {
             focusTarget()
         }
         controller.layoutRefreshController.commitWorkspaceTransition(
+            affectedWorkspaces: affectedWorkspaces,
             reason: .workspaceTransition,
             postLayoutGateWorkspaceIds: [workspaceId],
             postLayout: focusTarget,

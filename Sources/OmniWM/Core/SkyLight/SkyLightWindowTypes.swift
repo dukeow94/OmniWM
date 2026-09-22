@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/BarutSRB/OmniWM
+// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
 
 import CoreGraphics
 import Foundation
@@ -37,15 +37,6 @@ struct WindowCornerRadii: Equatable, Sendable {
 
     var isAllZero: Bool {
         topLeft == 0 && topRight == 0 && bottomLeft == 0 && bottomRight == 0
-    }
-
-    func adding(_ value: CGFloat) -> WindowCornerRadii {
-        WindowCornerRadii(
-            topLeft: topLeft + value,
-            topRight: topRight + value,
-            bottomLeft: bottomLeft + value,
-            bottomRight: bottomRight + value
-        )
     }
 
     func normalized(to size: CGSize) -> WindowCornerRadii {

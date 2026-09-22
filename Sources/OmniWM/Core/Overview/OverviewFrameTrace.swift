@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/BarutSRB/OmniWM
+// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
 
 import CoreGraphics
 import Foundation
@@ -8,9 +8,13 @@ import Synchronization
 
 enum OverviewFrameTrace {
     enum Event: String, Sendable {
-        case callback
-        case draw
-        case invalidation
+        case animationSubmit
+        case animationComplete
+        case layerApply
+        case previewDiscovery
+        case previewRequested
+        case previewStarted
+        case previewArrived
     }
 
     struct Record: Sendable {

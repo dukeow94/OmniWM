@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/BarutSRB/OmniWM
+// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import Carbon
@@ -49,8 +49,11 @@ final class OverviewMutationSession {
         pendingProjectionWorkspaceIds.removeAll(keepingCapacity: true)
     }
 
-    func completeStructuralMutation(_ mutation: StructuralMutation) {
+    func completeStructuralMutation(_ mutation: StructuralMutation, floatingPlacement: CGRect? = nil) {
         guard let wmController, activateStructuralDestination(mutation) else { return }
+        if let floatingPlacement {
+            wmController.placeFloatingWindow(mutation.selectedHandle, frame: floatingPlacement)
+        }
         let transferGeneration = serializesTransfer(mutation) ? beginStructuralTransfer() : nil
         let projectionGeneration = beginProjectionMutation(
             affectedWorkspaceIds: projectionWorkspaceIds(for: mutation)
@@ -70,7 +73,8 @@ final class OverviewMutationSession {
                 self?.finishStructuralMutation(
                     mutation,
                     projectionGeneration: projectionGeneration,
-                    transferGeneration: transferGeneration
+                    transferGeneration: transferGeneration,
+                    update: .immediate
                 )
             }
         )
@@ -90,7 +94,8 @@ final class OverviewMutationSession {
     private func finishStructuralMutation(
         _ mutation: StructuralMutation,
         projectionGeneration: UInt64,
-        transferGeneration: UInt64?
+        transferGeneration: UInt64?,
+        update: OverviewLayoutUpdate = .structural
     ) {
         defer { finishStructuralTransfer(transferGeneration) }
         guard projectionMutationGeneration == projectionGeneration else { return }
@@ -99,7 +104,9 @@ final class OverviewMutationSession {
         let affectedWorkspaceIds = pendingProjectionWorkspaceIds
         pendingProjectionWorkspaceIds.removeAll(keepingCapacity: true)
         overview?.refreshCachedOverviewProjection(
-            affectedWorkspaceIds: affectedWorkspaceIds
+            affectedWorkspaceIds: affectedWorkspaceIds,
+            preservingViewport: mutation.sourceWorkspaceId == mutation.destinationWorkspaceId,
+            update: update
         )
     }
 
@@ -207,7 +214,8 @@ extension OverviewMutationSession {
                 self?.finishDeferredDragMutation(
                     mutation,
                     transferGeneration: transferGeneration,
-                    projectionGeneration: projectionGeneration
+                    projectionGeneration: projectionGeneration,
+                    update: .immediate
                 )
             }
         )
@@ -229,7 +237,8 @@ extension OverviewMutationSession {
             finishDeferredDragMutation(
                 mutation,
                 transferGeneration: transferGeneration,
-                projectionGeneration: projectionGeneration
+                projectionGeneration: projectionGeneration,
+                update: .immediate
             )
             return
         }
@@ -240,7 +249,8 @@ extension OverviewMutationSession {
             finishDeferredDragMutation(
                 mutation,
                 transferGeneration: transferGeneration,
-                projectionGeneration: projectionGeneration
+                projectionGeneration: projectionGeneration,
+                update: .immediate
             )
             return
         }
@@ -258,7 +268,8 @@ extension OverviewMutationSession {
                 self?.finishDeferredDragMutation(
                     mutation,
                     transferGeneration: transferGeneration,
-                    projectionGeneration: projectionGeneration
+                    projectionGeneration: projectionGeneration,
+                    update: .immediate
                 )
             }
         )
@@ -302,7 +313,9 @@ extension OverviewMutationSession {
                 sizingPolicy: .workspaceDefault,
                 source: .mouse
             )
-        case .workspaceMove:
+        case .floatingPlacement,
+             .workspaceMove,
+             .newWorkspace:
             return false
         }
     }
@@ -310,7 +323,8 @@ extension OverviewMutationSession {
     private func finishDeferredDragMutation(
         _ mutation: StructuralMutation,
         transferGeneration: UInt64,
-        projectionGeneration: UInt64
+        projectionGeneration: UInt64,
+        update: OverviewLayoutUpdate = .structural
     ) {
         defer { finishStructuralTransfer(transferGeneration) }
         guard self.projectionMutationGeneration == projectionGeneration else { return }
@@ -319,7 +333,9 @@ extension OverviewMutationSession {
         let affectedWorkspaceIds = pendingProjectionWorkspaceIds
         pendingProjectionWorkspaceIds.removeAll(keepingCapacity: true)
         overview?.refreshCachedOverviewProjection(
-            affectedWorkspaceIds: affectedWorkspaceIds
+            affectedWorkspaceIds: affectedWorkspaceIds,
+            preservingViewport: mutation.sourceWorkspaceId == mutation.destinationWorkspaceId,
+            update: update
         )
     }
 }
