@@ -15,6 +15,13 @@ struct NiriLayoutDiffContext {
     var settledContext: (monitor: LayoutMonitorSnapshot, state: ViewportState)?
 }
 
+private struct NiriRelayoutProjection {
+    let frames: [WindowToken: CGRect]
+    let hiddenHandles: [WindowToken: HideSide]
+    let isSettled: Bool
+    let usesProxy: Bool
+}
+
 extension NiriLayoutHandler {
     func computeLayoutPlan(
         pass: NiriLayoutPass,
@@ -24,21 +31,7 @@ extension NiriLayoutHandler {
         snapshot: NiriWorkspaceSnapshot
     ) -> WorkspaceLayoutPlan {
         let rememberedFocusToken = arrival.rememberedFocusToken ?? selection.rememberedFocusToken
-        let isSettled = !(pass.motion.animationsEnabled && snapshot.removalSeed?.oldFrames.isEmpty == false)
-            && controller.map {
-                !hasPendingNiriAnimationWork(
-                    state: state,
-                    driver: $0.workspaceManager.animationDriver,
-                    engine: pass.engine,
-                    workspaceId: pass.wsId
-                )
-            } == true
-        let (frames, hiddenHandles) = calculateRelayoutFrames(
-            pass: pass,
-            state: state,
-            snapshot: snapshot,
-            isSettled: isSettled
-        )
+        let projection = relayoutProjection(pass: pass, state: state, snapshot: snapshot)
 
         var directives = relayoutAnimationDirectives(
             pass: pass, state: state, snapshot: snapshot,
@@ -47,23 +40,24 @@ extension NiriLayoutHandler {
 
         var diff = layoutDiff(
             windows: snapshot.windows,
-            frames: frames,
-            hiddenHandles: hiddenHandles,
+            frames: projection.frames,
+            hiddenHandles: projection.hiddenHandles,
             context: NiriLayoutDiffContext(
                 engine: pass.engine,
                 workspaceId: pass.wsId,
                 canRestoreHiddenWorkspaceWindows: snapshot.isActiveWorkspace,
                 reassertHidden: true,
                 excludedTokens: snapshot.excludedTokens,
-                settledContext: isSettled ? (snapshot.monitor, state) : nil
+                settledContext: projection.isSettled || projection.usesProxy ? (snapshot.monitor, state) : nil
             )
         )
         completeAnimationDirectives(&directives, pass: pass, state: state)
+        reconcileFocusScrollPreviewCache(snapshot: snapshot, frames: projection.frames, pass: pass)
         let startsScroll = directives.contains {
             if case .startNiriScroll = $0 { return true }
             return false
         }
-        if pass.motion.animationsEnabled && (!isSettled || startsScroll),
+        if !projection.usesProxy && pass.motion.animationsEnabled && (!projection.isSettled || startsScroll),
            let axManager = controller?.axManager
         {
             for index in diff.frameChanges.indices {
@@ -82,6 +76,49 @@ extension NiriLayoutHandler {
             diff: diff,
             animationDirectives: directives,
             isActiveWorkspace: snapshot.isActiveWorkspace
+        )
+    }
+
+    private func relayoutProjection(
+        pass: NiriLayoutPass,
+        state: ViewportState,
+        snapshot: NiriWorkspaceSnapshot
+    ) -> NiriRelayoutProjection {
+        let isSettled = !(pass.motion.animationsEnabled && snapshot.removalSeed?.oldFrames.isEmpty == false)
+            && controller.map {
+                !hasPendingNiriAnimationWork(
+                    state: state,
+                    driver: $0.workspaceManager.animationDriver,
+                    engine: pass.engine,
+                    workspaceId: pass.wsId
+                )
+            } == true
+        let sampledLayout = calculateRelayoutFrames(
+            pass: pass, state: state, snapshot: snapshot, isSettled: isSettled
+        )
+        let proxyLayout = controller?.layoutRefreshController.focusScrollProxy.targetLayout(for: pass.wsId)
+        return NiriRelayoutProjection(
+            frames: proxyLayout?.frames ?? sampledLayout.frames,
+            hiddenHandles: proxyLayout?.hiddenHandles ?? sampledLayout.hiddenHandles,
+            isSettled: isSettled,
+            usesProxy: proxyLayout != nil
+        )
+    }
+
+    private func reconcileFocusScrollPreviewCache(
+        snapshot: NiriWorkspaceSnapshot,
+        frames: [WindowToken: CGRect],
+        pass: NiriLayoutPass
+    ) {
+        guard let controller else { return }
+        if !pass.motion.animationsEnabled {
+            controller.layoutRefreshController.focusScrollProxy.cancel(for: pass.wsId)
+        }
+        controller.layoutRefreshController.focusScrollPreviewCache.reconcile(
+            snapshot: snapshot,
+            frames: frames,
+            workspaceManager: controller.workspaceManager,
+            animationsEnabled: pass.motion.animationsEnabled
         )
     }
 

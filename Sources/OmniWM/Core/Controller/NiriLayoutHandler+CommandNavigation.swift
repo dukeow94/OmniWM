@@ -146,6 +146,7 @@ extension NiriLayoutHandler {
         }
 
         let gap = controller.innerGap(for: monitor)
+        let oldFrames = focusScrollStartingFrames(in: wsId)
         let workingFrame = controller.insetWorkingFrame(for: monitor)
         let motion = controller.motionPolicy.snapshot()
         let orientation = controller.settings.monitors.effectiveOrientation(for: monitor)
@@ -179,6 +180,7 @@ extension NiriLayoutHandler {
                 plannedSeq: controller.workspaceManager.worldSeq
             )
         )
+        startFocusScrollProxy(in: wsId, monitor: monitor, oldFrames: oldFrames)
         controller.niriLayoutHandler.focusSelectedWindowAndRequestRelayout(in: wsId)
     }
 

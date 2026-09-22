@@ -213,6 +213,46 @@ final class NiriLayoutBuildMetricsRegressionTests: XCTestCase {
         )
     }
 
+    func testFocusProxyScrollTickUsesFinalVerifiedFrameInsteadOfIntermediateFrame() throws {
+        let fixture = try makeFixture()
+        let settledFrame = try addWindowAndTargetFrame(to: fixture)
+        let proxyTarget = settledFrame.offsetBy(dx: 120, dy: 0)
+        fixture.controller.axManager.confirmFrameWrite(
+            for: fixture.token.windowId,
+            frame: settledFrame.offsetBy(dx: -30, dy: 0)
+        )
+        fixture.controller.layoutRefreshController.focusScrollProxy.targetLayoutForTests = .init(
+            workspaceId: fixture.workspaceId,
+            frames: [fixture.token: proxyTarget],
+            hiddenHandles: [:]
+        )
+        let targetTime = CACurrentMediaTime()
+        let animationDriver = fixture.controller.workspaceManager.animationDriver
+        animationDriver.gestureLivenessNow = { targetTime }
+        XCTAssertNotNil(animationDriver.beginGesture(in: fixture.workspaceId, isTrackpad: false, timestamp: targetTime))
+        ScrollTickTrace.shared.beginCapture()
+        FrameApplyTrace.shared.beginCapture()
+        defer {
+            ScrollTickTrace.shared.endCapture()
+            FrameApplyTrace.shared.endCapture()
+        }
+
+        XCTAssertTrue(fixture.controller.layoutRefreshController.niriHandler.applyFramesOnDemand(
+            wsId: fixture.workspaceId,
+            state: fixture.controller.workspaceManager.niriViewportState(for: fixture.workspaceId),
+            engine: fixture.engine,
+            monitor: fixture.monitor,
+            animationTime: targetTime
+        ))
+
+        XCTAssertTrue(ScrollTickTrace.shared.dump().contains("anim=false"))
+        XCTAssertTrue(FrameApplyTrace.shared.dump().contains("target=\(TraceFormat.rect(proxyTarget))"))
+        XCTAssertEqual(
+            fixture.controller.axManager.recentFrameWriteFailureComponents(for: fixture.token.windowId),
+            .all
+        )
+    }
+
     private func addWindowAndTargetFrame(to fixture: Fixture) throws -> CGRect {
         fixture.controller.workspaceManager.withEngineMutationScope(in: fixture.workspaceId) {
             fixture.engine.addWindow(

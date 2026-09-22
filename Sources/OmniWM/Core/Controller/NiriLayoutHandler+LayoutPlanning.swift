@@ -104,18 +104,19 @@ extension NiriLayoutHandler {
         settlesAnimation: Bool
     ) -> WorkspaceLayoutPlan {
         let sampledAnimationTime = settlesAnimation ? nil : animationTime
-        let isSettled = settlesAnimation || (animationTime == nil && controller.map {
-            !hasPendingNiriAnimationWork(
-                state: snapshot.viewportState,
-                driver: $0.workspaceManager.animationDriver,
-                engine: engine,
-                workspaceId: snapshot.workspaceId
-            )
-        } == true)
-        let (frames, hiddenHandles) = calculateOnDemandFrames(
+        let isSettled = onDemandIsSettled(
+            snapshot: snapshot, engine: engine,
+            animationTime: animationTime, settlesAnimation: settlesAnimation
+        )
+        let sampledLayout = calculateOnDemandFrames(
             snapshot: snapshot, engine: engine, monitor: monitor,
             sampledAnimationTime: sampledAnimationTime, isSettled: isSettled
         )
+        let proxyLayout = controller?.layoutRefreshController.focusScrollProxy.targetLayout(
+            for: snapshot.workspaceId
+        )
+        let frames = proxyLayout?.frames ?? sampledLayout.frames
+        let hiddenHandles = proxyLayout?.hiddenHandles ?? sampledLayout.hiddenHandles
 
         var diff = layoutDiff(
             windows: snapshot.windows,
@@ -128,10 +129,11 @@ extension NiriLayoutHandler {
                 reassertHidden: animationTime == nil || settlesAnimation,
                 excludedTokens: snapshot.excludedTokens,
                 pendingParkWindowIds: controller?.axManager.pendingParkWindowIds ?? [],
-                settledContext: isSettled ? (snapshot.monitor, snapshot.viewportState) : nil
+                settledContext: isSettled || proxyLayout != nil
+                    ? (snapshot.monitor, snapshot.viewportState) : nil
             )
         )
-        enforceOnDemandFrameSizes(&diff, animated: !isSettled)
+        enforceOnDemandFrameSizes(&diff, animated: !isSettled && proxyLayout == nil)
         if animationTime != nil {
             diff.tabRailGeometryCommands = niriTabRailGeometryCommands(
                 engine: engine,
@@ -149,9 +151,25 @@ extension NiriLayoutHandler {
                 plannedSeq: snapshot.plannedSeq
             ),
             diff: diff,
-            isAnimationTick: sampledAnimationTime != nil,
+            isAnimationTick: sampledAnimationTime != nil && proxyLayout == nil,
             isActiveWorkspace: snapshot.isActiveWorkspace
         )
+    }
+
+    private func onDemandIsSettled(
+        snapshot: NiriWorkspaceSnapshot,
+        engine: NiriLayoutEngine,
+        animationTime: TimeInterval?,
+        settlesAnimation: Bool
+    ) -> Bool {
+        settlesAnimation || (animationTime == nil && controller.map {
+            !hasPendingNiriAnimationWork(
+                state: snapshot.viewportState,
+                driver: $0.workspaceManager.animationDriver,
+                engine: engine,
+                workspaceId: snapshot.workspaceId
+            )
+        } == true)
     }
 
     private func buildRelayoutPlan(
@@ -333,6 +351,12 @@ extension NiriLayoutHandler {
     }
 
     func settledFrames(in workspaceId: WorkspaceDescriptor.ID) -> [WindowToken: CGRect]? {
+        settledLayout(in: workspaceId)?.frames
+    }
+
+    func settledLayout(
+        in workspaceId: WorkspaceDescriptor.ID
+    ) -> (frames: [WindowToken: CGRect], hiddenHandles: [WindowToken: HideSide])? {
         guard let controller,
               let engine = controller.niriEngine,
               let monitor = controller.workspaceManager.monitor(for: workspaceId),
@@ -356,7 +380,7 @@ extension NiriLayoutHandler {
             monitor: monitor,
             sampledAnimationTime: nil,
             isSettled: true
-        ).frames
+        )
     }
 
     private func calculateOnDemandFrames(
@@ -386,11 +410,12 @@ extension NiriLayoutHandler {
             state: snapshot.viewportState,
             workingArea: area,
             animationTime: sampledAnimationTime,
-            viewOffsetOverride: controller?.workspaceManager.animationDriver.liveViewOffset(
-                in: snapshot.workspaceId,
-                semanticOffset: snapshot.viewportState.viewOffset,
-                at: sampledAnimationTime ?? CACurrentMediaTime()
-            ),
+            viewOffsetOverride: isSettled ? snapshot.viewportState.viewOffset : controller?
+                .workspaceManager.animationDriver.liveViewOffset(
+                    in: snapshot.workspaceId,
+                    semanticOffset: snapshot.viewportState.viewOffset,
+                    at: sampledAnimationTime ?? CACurrentMediaTime()
+                ),
             settledVisibilityOffset: controller?.workspaceManager.animationDriver.settledVisibilityOffset(
                 in: snapshot.workspaceId,
                 semanticOffset: snapshot.viewportState.viewOffset

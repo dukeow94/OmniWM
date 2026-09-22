@@ -33,6 +33,11 @@ enum RuntimeDiagnosticsReport {
             section("Hidden Window Physical State", hiddenWindowPhysicalSection(controller)),
             section("Recent AX Notifications", RawAXNotificationTrace.shared.recentDump()),
             section("Layout Build Metrics", controller.layoutRefreshController.layoutBuildMetricsDump()),
+            section(
+                "Focus Scroll Preview Cache",
+                controller.layoutRefreshController.focusScrollPreviewCache.diagnostics
+            ),
+            section("Focus Scroll Proxy", controller.layoutRefreshController.focusScrollProxy.diagnostics),
             section("Create-Focus Trace", controller.axEventHandler.createFocusTraceDump()),
             section("Managed Replacement Trace", controller.axEventHandler.managedReplacementTraceDump()),
             settingsSection(controller)

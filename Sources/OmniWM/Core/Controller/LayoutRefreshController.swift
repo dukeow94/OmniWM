@@ -93,11 +93,12 @@ import QuartzCore
 
     private(set) lazy var niriHandler = NiriLayoutHandler(controller: controller)
     private(set) lazy var dwindleHandler = DwindleLayoutHandler(controller: controller)
+    private(set) lazy var focusScrollPreviewCache = FocusScrollPreviewCache()
+    private(set) lazy var focusScrollProxy = FocusScrollProxyCoordinator(
+        controller: controller,
+        cache: focusScrollPreviewCache
+    )
     private lazy var diffExecutor = LayoutDiffExecutor(refreshController: self)
-
-    var isDiscoveryInProgress: Bool {
-        layoutState.activeFullEnumerationCount > 0
-    }
 
     init(controller: WMController) {
         self.controller = controller
@@ -117,6 +118,8 @@ import QuartzCore
     }
 
     func resetState() {
+        focusScrollProxy.cancel()
+        focusScrollPreviewCache.clear()
         let discardedScratchpadIndices = revealGroups.indices()
         layoutState.activeRefreshTask?.cancel()
         layoutState.activeRefreshTask = nil

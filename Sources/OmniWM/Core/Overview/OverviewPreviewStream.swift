@@ -95,7 +95,7 @@ final class OverviewNativePreviewStream: OverviewPreviewStreamControl {
         config.height = request.pixelHeight
         config.pixelFormat = kCVPixelFormatType_32BGRA
         config.captureDynamicRange = .SDR
-        config.minimumFrameInterval = CMTime(value: 1, timescale: 5)
+        config.minimumFrameInterval = CMTime(value: 1, timescale: Int32(request.framesPerSecond))
         config.queueDepth = 3
         config.showsCursor = false
         config.capturesAudio = false
