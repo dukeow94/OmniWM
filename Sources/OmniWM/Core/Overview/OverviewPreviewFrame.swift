@@ -2,8 +2,10 @@
 // Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
 
 import CoreGraphics
+import CoreMedia
 import CoreVideo
 import IOSurface
+import ScreenCaptureKit
 
 final class OverviewPreviewFrame: @unchecked Sendable {
     private let pixelBuffer: CVPixelBuffer
@@ -29,5 +31,24 @@ final class OverviewPreviewFrame: @unchecked Sendable {
         }
         self.surface = surface
         self.pixelBuffer = pixelBuffer
+    }
+
+    convenience init?(sampleBuffer: CMSampleBuffer) {
+        guard sampleBuffer.isValid,
+              let attachments = CMSampleBufferGetSampleAttachmentsArray(sampleBuffer, createIfNecessary: false)
+              as? [[SCStreamFrameInfo: Any]],
+              let metadata = attachments.first,
+              let status = metadata[.status] as? Int,
+              status == SCFrameStatus.complete.rawValue,
+              let pixelBuffer = sampleBuffer.imageBuffer
+        else { return nil }
+        let contentRect: CGRect?
+        if let dictionary = metadata[.contentRect] as? [String: Any] {
+            contentRect = CGRect(dictionaryRepresentation: dictionary as CFDictionary)
+        } else {
+            contentRect = metadata[.contentRect] as? CGRect
+        }
+        let scaleFactor = (metadata[.scaleFactor] as? NSNumber)?.doubleValue ?? 1
+        self.init(pixelBuffer: pixelBuffer, contentRect: contentRect, scaleFactor: scaleFactor)
     }
 }

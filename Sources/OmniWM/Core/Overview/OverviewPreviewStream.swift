@@ -51,25 +51,7 @@ final class OverviewPreviewStream: NSObject, SCStreamOutput, SCStreamDelegate, S
     }
 
     func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of type: SCStreamOutputType) {
-        guard type == .screen, sampleBuffer.isValid,
-              let attachments = CMSampleBufferGetSampleAttachmentsArray(sampleBuffer, createIfNecessary: false)
-              as? [[SCStreamFrameInfo: Any]],
-              let metadata = attachments.first,
-              let status = metadata[.status] as? Int, status == SCFrameStatus.complete.rawValue,
-              let pixelBuffer = sampleBuffer.imageBuffer
-        else { return }
-        let contentRect: CGRect?
-        if let dictionary = metadata[.contentRect] as? [String: Any] {
-            contentRect = CGRect(dictionaryRepresentation: dictionary as CFDictionary)
-        } else {
-            contentRect = metadata[.contentRect] as? CGRect
-        }
-        let scaleFactor = (metadata[.scaleFactor] as? NSNumber)?.doubleValue ?? 1
-        guard let frame = OverviewPreviewFrame(
-            pixelBuffer: pixelBuffer,
-            contentRect: contentRect,
-            scaleFactor: scaleFactor
-        ) else { return }
+        guard type == .screen, let frame = OverviewPreviewFrame(sampleBuffer: sampleBuffer) else { return }
         offer(frame)
     }
 

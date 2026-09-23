@@ -6,7 +6,7 @@ import CoreGraphics
 
 @MainActor
 final class FocusScrollPreviewCache {
-    private let capture: OverviewThumbnailCapture
+    private let capture: FocusScrollSnapshotCapture
     private let screenCaptureAccess: () -> Bool
     private let wallpaperCache = OverviewWallpaperCache()
     private var handlesByToken: [WindowToken: WindowHandle] = [:]
@@ -16,15 +16,10 @@ final class FocusScrollPreviewCache {
     private(set) var captureAllowed = false
 
     init(
-        capture: OverviewThumbnailCapture? = nil,
-        ownedWindowRegistry: OwnedWindowRegistry = .shared,
+        capture: FocusScrollSnapshotCapture = FocusScrollSnapshotCapture(),
         screenCaptureAccess: @escaping () -> Bool = { CGPreflightScreenCaptureAccess() }
     ) {
-        self.capture = capture ?? OverviewThumbnailCapture(
-            environment: OverviewEnvironment(),
-            ownedWindowRegistry: ownedWindowRegistry,
-            maximumRetainedBytes: 160 * 1_024 * 1_024
-        )
+        self.capture = capture
         self.screenCaptureAccess = screenCaptureAccess
     }
 
@@ -76,11 +71,7 @@ final class FocusScrollPreviewCache {
         displayId = snapshot.monitor.displayId
         handlesByToken = Dictionary(uniqueKeysWithValues: requests.map { ($0.token, $0.handle) })
         requestedTokens = requests.map(\.token)
-        capture.reconcile(
-            represented: Set(requests.map(\.handle)),
-            visible: requests,
-            prioritizing: selected.flatMap { handlesByToken[$0] }
-        )
+        capture.reconcile(requests)
         _ = wallpaperCache.image(for: snapshot.monitor.displayId, maxPixelSize: 4096)
     }
 
@@ -91,7 +82,7 @@ final class FocusScrollPreviewCache {
     func previews(for tokens: [WindowToken]) -> [WindowToken: OverviewPreviewFrame]? {
         var previews: [WindowToken: OverviewPreviewFrame] = [:]
         for token in tokens {
-            guard let handle = handlesByToken[token], let frame = capture.preview(for: handle) else { return nil }
+            guard handlesByToken[token] != nil, let frame = capture.preview(for: token) else { return nil }
             previews[token] = frame
         }
         return previews
@@ -99,7 +90,6 @@ final class FocusScrollPreviewCache {
 
     func clear() {
         capture.clear()
-        capture.releaseCache()
         wallpaperCache.clear()
         handlesByToken.removeAll()
         requestedTokens.removeAll()
@@ -110,10 +100,11 @@ final class FocusScrollPreviewCache {
 
     var diagnostics: String {
         let ready = requestedTokens.reduce(0) { count, token in
-            count + (handlesByToken[token].flatMap { capture.preview(for: $0) } == nil ? 0 : 1)
+            count + (capture.preview(for: token) == nil ? 0 : 1)
         }
         return "captureAllowed=\(captureAllowed) display=\(displayId.map(String.init) ?? "none")"
-            + " requested=\(requestedTokens.count) ready=\(ready) cachedBytes=\(capture.cachedByteCount)"
+            + " requested=\(requestedTokens.count) ready=\(ready) snapshots=\(capture.completedCaptureCount)"
+            + " cachedBytes=\(capture.cachedByteCount)"
     }
 
     static func candidates(
