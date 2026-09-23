@@ -6,6 +6,39 @@ import Foundation
 import QuartzCore
 
 extension NiriLayoutHandler {
+    func focusScrollStartingFrames(in workspaceId: WorkspaceDescriptor.ID) -> [WindowToken: CGRect]? {
+        guard let controller,
+              controller.motionPolicy.animationsEnabled,
+              controller.settings.niri.focusScrollAnimation == .smoothPreview,
+              controller.layoutRefreshController.focusScrollPreviewCache.workspaceId == workspaceId
+        else { return nil }
+        return settledFrames(in: workspaceId)
+    }
+
+    func startFocusScrollProxy(
+        in workspaceId: WorkspaceDescriptor.ID,
+        monitor: Monitor,
+        oldFrames: [WindowToken: CGRect]?
+    ) {
+        guard let controller,
+              controller.settings.niri.focusScrollAnimation == .smoothPreview
+        else { return }
+        let proxy = controller.layoutRefreshController.focusScrollProxy
+        guard let oldFrames,
+              let targetLayout = settledLayout(in: workspaceId),
+              proxy.start(
+                  workspaceId: workspaceId,
+                  displayId: monitor.displayId,
+                  workingFrame: controller.insetWorkingFrame(for: monitor),
+                  oldFrames: oldFrames,
+                  targetLayout: targetLayout
+              )
+        else {
+            proxy.cancel()
+            return
+        }
+    }
+
     func resolvedOrientation(
         for workspaceId: WorkspaceDescriptor.ID,
         monitor: Monitor,
@@ -230,6 +263,7 @@ extension NiriLayoutHandler {
 
     func cancelActiveAnimations(for workspaceId: WorkspaceDescriptor.ID) {
         guard let controller else { return }
+        controller.layoutRefreshController.focusScrollProxy.cancel(for: workspaceId)
 
         let hadScrollAnimation = scrollAnimationByDisplay.values.contains(workspaceId)
         let hadMotion = cancelAnimationMotion(for: workspaceId, gestureDisposition: .settleLiveOffset)

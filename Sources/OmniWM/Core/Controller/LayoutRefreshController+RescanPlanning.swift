@@ -6,6 +6,10 @@ import Foundation
 import QuartzCore
 
 extension LayoutRefreshController {
+    var isDiscoveryInProgress: Bool {
+        layoutState.activeFullEnumerationCount > 0
+    }
+
     func resolveNativeSpaceRescanEvidence(
         scope: RescanScope
     ) throws -> NativeSpaceRescanEvidence {
