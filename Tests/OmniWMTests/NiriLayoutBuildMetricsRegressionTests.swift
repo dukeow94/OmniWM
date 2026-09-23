@@ -5,6 +5,7 @@ import ApplicationServices
 import Foundation
 @testable import OmniWM
 import QuartzCore
+import Synchronization
 import XCTest
 
 @MainActor
@@ -251,6 +252,44 @@ final class NiriLayoutBuildMetricsRegressionTests: XCTestCase {
             fixture.controller.axManager.recentFrameWriteFailureComponents(for: fixture.token.windowId),
             .all
         )
+    }
+
+    func testDirectFocusAnimationDoesNotCheckScreenCaptureAccess() throws {
+        let fixture = try makeFixture()
+        let accessChecks = Mutex(0)
+        let cache = FocusScrollPreviewCache(screenCaptureAccess: {
+            accessChecks.withLock { $0 += 1 }
+            return false
+        })
+        let snapshot = try XCTUnwrap(fixture.controller.layoutRefreshController.niriHandler.makeWorkspaceSnapshot(
+            workspaceId: fixture.workspaceId,
+            monitor: fixture.monitor,
+            options: .init(
+                viewportState: nil,
+                useScrollAnimationPath: false,
+                removalSeed: nil,
+                isActiveWorkspace: true
+            )
+        ))
+        XCTAssertEqual(fixture.controller.workspaceManager.interactionMonitorId, fixture.monitor.id)
+
+        cache.reconcile(
+            snapshot: snapshot,
+            frames: [:],
+            workspaceManager: fixture.controller.workspaceManager,
+            animationsEnabled: true,
+            animationStyle: .direct
+        )
+        XCTAssertEqual(accessChecks.withLock { $0 }, 0)
+
+        cache.reconcile(
+            snapshot: snapshot,
+            frames: [:],
+            workspaceManager: fixture.controller.workspaceManager,
+            animationsEnabled: true,
+            animationStyle: .smoothPreview
+        )
+        XCTAssertEqual(accessChecks.withLock { $0 }, 1)
     }
 
     private func addWindowAndTargetFrame(to fixture: Fixture) throws -> CGRect {

@@ -35,7 +35,8 @@ enum RuntimeDiagnosticsReport {
             section("Layout Build Metrics", controller.layoutRefreshController.layoutBuildMetricsDump()),
             section(
                 "Focus Scroll Preview Cache",
-                controller.layoutRefreshController.focusScrollPreviewCache.diagnostics
+                "style=\(controller.settings.niri.focusScrollAnimation.rawValue) "
+                    + controller.layoutRefreshController.focusScrollPreviewCache.diagnostics
             ),
             section("Focus Scroll Proxy", controller.layoutRefreshController.focusScrollProxy.diagnostics),
             section("Create-Focus Trace", controller.axEventHandler.createFocusTraceDump()),

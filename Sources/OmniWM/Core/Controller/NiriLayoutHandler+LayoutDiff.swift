@@ -111,14 +111,16 @@ extension NiriLayoutHandler {
         pass: NiriLayoutPass
     ) {
         guard let controller else { return }
-        if !pass.motion.animationsEnabled {
+        let animationStyle = controller.settings.niri.focusScrollAnimation
+        if !pass.motion.animationsEnabled || animationStyle != .smoothPreview {
             controller.layoutRefreshController.focusScrollProxy.cancel(for: pass.wsId)
         }
         controller.layoutRefreshController.focusScrollPreviewCache.reconcile(
             snapshot: snapshot,
             frames: frames,
             workspaceManager: controller.workspaceManager,
-            animationsEnabled: pass.motion.animationsEnabled
+            animationsEnabled: pass.motion.animationsEnabled,
+            animationStyle: animationStyle
         )
     }
 

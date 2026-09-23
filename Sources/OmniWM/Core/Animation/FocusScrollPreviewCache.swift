@@ -7,6 +7,7 @@ import CoreGraphics
 @MainActor
 final class FocusScrollPreviewCache {
     private let capture: OverviewThumbnailCapture
+    private let screenCaptureAccess: () -> Bool
     private let wallpaperCache = OverviewWallpaperCache()
     private var handlesByToken: [WindowToken: WindowHandle] = [:]
     private var requestedTokens: [WindowToken] = []
@@ -16,29 +17,32 @@ final class FocusScrollPreviewCache {
 
     init(
         capture: OverviewThumbnailCapture? = nil,
-        ownedWindowRegistry: OwnedWindowRegistry = .shared
+        ownedWindowRegistry: OwnedWindowRegistry = .shared,
+        screenCaptureAccess: @escaping () -> Bool = { CGPreflightScreenCaptureAccess() }
     ) {
         self.capture = capture ?? OverviewThumbnailCapture(
             environment: OverviewEnvironment(),
             ownedWindowRegistry: ownedWindowRegistry,
             maximumRetainedBytes: 160 * 1_024 * 1_024
         )
+        self.screenCaptureAccess = screenCaptureAccess
     }
 
     func reconcile(
         snapshot: NiriWorkspaceSnapshot,
         frames: [WindowToken: CGRect],
         workspaceManager: WorkspaceManager,
-        animationsEnabled: Bool
+        animationsEnabled: Bool,
+        animationStyle: FocusScrollAnimationStyle
     ) {
-        guard animationsEnabled else {
+        guard animationsEnabled, animationStyle == .smoothPreview else {
             clear()
             return
         }
         guard snapshot.isActiveWorkspace,
               workspaceManager.interactionMonitorId == snapshot.monitor.monitorId
         else { return }
-        guard CGPreflightScreenCaptureAccess() else {
+        guard screenCaptureAccess() else {
             clear()
             return
         }

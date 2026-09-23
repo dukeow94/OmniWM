@@ -9,6 +9,7 @@ extension NiriLayoutHandler {
     func focusScrollStartingFrames(in workspaceId: WorkspaceDescriptor.ID) -> [WindowToken: CGRect]? {
         guard let controller,
               controller.motionPolicy.animationsEnabled,
+              controller.settings.niri.focusScrollAnimation == .smoothPreview,
               controller.layoutRefreshController.focusScrollPreviewCache.workspaceId == workspaceId
         else { return nil }
         return settledFrames(in: workspaceId)
@@ -19,7 +20,9 @@ extension NiriLayoutHandler {
         monitor: Monitor,
         oldFrames: [WindowToken: CGRect]?
     ) {
-        guard let controller else { return }
+        guard let controller,
+              controller.settings.niri.focusScrollAnimation == .smoothPreview
+        else { return }
         let proxy = controller.layoutRefreshController.focusScrollProxy
         guard let oldFrames,
               let targetLayout = settledLayout(in: workspaceId),

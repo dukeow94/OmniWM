@@ -23,6 +23,7 @@ final class LayoutSectionsSettingsExportTests: XCTestCase {
             "centerFocusedColumn": .string("never"),
             "alwaysCenterSingleColumn": .boolean(false),
             "singleWindowFit": .string("fill"),
+            "focusScrollAnimation": .string("direct"),
             "containerPrimarySpanPresets": .array([.float(1.0 / 3), .float(0.5), .float(2.0 / 3)]),
             "defaultContainerPrimarySpan": .float(0.5)
         ]))

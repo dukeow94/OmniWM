@@ -51,6 +51,10 @@ final class NiriSettings {
         didSet { onChange?() }
     }
 
+    var focusScrollAnimation = NiriSettings.defaults.focusScrollAnimation ?? .direct {
+        didSet { onChange?() }
+    }
+
     var monitorOverrides: [MonitorNiriSettings] = [] {
         didSet { onChange?() }
     }
@@ -62,6 +66,7 @@ final class NiriSettings {
             centerFocusedColumn: centerFocusedColumn,
             alwaysCenterSingleColumn: alwaysCenterSingleColumn,
             singleWindowFit: singleWindowFit,
+            focusScrollAnimation: focusScrollAnimation,
             containerPrimarySpanPresets: containerPrimarySpanPresets,
             defaultContainerPrimarySpan: defaultContainerPrimarySpan
         )
@@ -73,6 +78,7 @@ final class NiriSettings {
         centerFocusedColumn = niri.centerFocusedColumn
         alwaysCenterSingleColumn = niri.alwaysCenterSingleColumn
         singleWindowFit = niri.singleWindowFit
+        focusScrollAnimation = niri.focusScrollAnimation ?? baseline.focusScrollAnimation ?? .direct
         containerPrimarySpanPresets = NiriSettings.validatedContainerPrimarySpanPresets(
             niri.containerPrimarySpanPresets ?? baseline.containerPrimarySpanPresets ?? NiriSettings
                 .defaultContainerPrimarySpanPresets
