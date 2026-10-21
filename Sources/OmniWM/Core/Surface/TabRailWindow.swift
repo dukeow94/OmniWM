@@ -88,6 +88,10 @@ final class TabRailWindow: NSPanel {
         false
     }
 
+    override func constrainFrameRect(_ frameRect: NSRect, to _: NSScreen?) -> NSRect {
+        frameRect
+    }
+
     func update(info: TabRailInfo, forceOrdering: Bool, style: TabRailStyle = .compact) {
         let frame = Self.railFrame(for: info.visibleTileFrame, tabCount: info.tabCount, style: style)
         if self.style != style || frame != lastFrame || frame != self.frame || !isVisible {

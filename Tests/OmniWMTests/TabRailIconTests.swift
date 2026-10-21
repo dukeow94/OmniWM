@@ -82,6 +82,37 @@ final class TabRailIconTests: XCTestCase {
         XCTAssertTrue(icons.railLayout(in: view).items[5].hitRect.height == 28)
     }
 
+    func testPresentationPreservesTileAlignmentBeyondVisibleScreenBounds() throws {
+        let screen = try XCTUnwrap(NSScreen.main)
+        let manager = TabRailManager(motionPolicy: MotionPolicy(animationsEnabled: false))
+        defer { manager.removeAll() }
+        let origin = CGPoint(x: screen.visibleFrame.minX + 100, y: screen.visibleFrame.maxY - 100)
+
+        for style in [TabRailStyle.compact, .appIcons] {
+            let info = makeInfo(count: 5, height: 140, origin: origin)
+            manager.updateRails([info], style: style)
+            let window = try XCTUnwrap(manager.existingWindow(for: info.key))
+            let view = try XCTUnwrap(window.contentView as? TabRailView)
+            let expectedFrame = window.frame
+            XCTAssertEqual(window.frame.midY, info.tileFrame.midY)
+            XCTAssertEqual(window.frame.maxX, info.tileFrame.minX + style.reservedWidth)
+            XCTAssertGreaterThan(window.frame.maxY, screen.visibleFrame.maxY)
+
+            let children = try XCTUnwrap(view.accessibilityChildren() as? [NSAccessibilityElement])
+            let accessibilityFrames = children.map { $0.accessibilityFrame() }
+            for frame in accessibilityFrames {
+                XCTAssertTrue(window.frame.contains(frame))
+            }
+
+            manager.updateRails([info], forceOrdering: true, style: style)
+            XCTAssertEqual(window.frame, expectedFrame)
+            XCTAssertEqual(
+                (view.accessibilityChildren() as? [NSAccessibilityElement])?.map { $0.accessibilityFrame() },
+                accessibilityFrames
+            )
+        }
+    }
+
     func testIconRowsAndAccessibilitySurviveGeometryOnlyMovement() throws {
         let manager = TabRailManager(motionPolicy: MotionPolicy(animationsEnabled: false))
         defer { manager.removeAll() }
