@@ -100,7 +100,7 @@ open_copy() {
       command+=(--env "$key=$value")
     fi
   done
-  "${command[@]}" "$1"
+  env -u NO_COLOR "${command[@]}" "$1"
 }
 
 install_dev() {
