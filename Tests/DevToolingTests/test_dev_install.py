@@ -113,3 +113,46 @@ class DevInstallTests(unittest.TestCase):
         self.assertTrue(self.dev_config.is_dir())
         self.assertFalse((self.dev_config / "settings.toml").exists())
         self.assertTrue((self.root / "opened").exists())
+
+    def test_launch_removes_no_color_and_preserves_storage_overrides(self):
+        self.write_command(
+            self.root / "tools" / "open",
+            'printf "%s\\n" "${NO_COLOR+present}" > "$OMNIWM_TEST_ROOT/launch-no-color"\n'
+            'printf "%s\\n" "$@" > "$OMNIWM_TEST_ROOT/launch-arguments"\n',
+        )
+        self.environment["XDG_STATE_HOME"] = str(self.root / "state directory")
+        self.environment["OMNIWM_SOCKET"] = str(self.root / "test socket")
+        release_app = Path(self.environment["OMNIWM_RELEASE_APP"])
+        self.dev_app.mkdir(parents=True)
+        release_app.mkdir()
+
+        for arguments, app in (
+            (("install",), self.dev_app),
+            (("use", "dev"), self.dev_app),
+            (("use", "release"), release_app),
+        ):
+            for no_color in ("1", "", None):
+                with self.subTest(arguments=arguments, no_color=no_color):
+                    environment = self.environment.copy()
+                    environment.pop("NO_COLOR", None)
+                    if no_color is not None:
+                        environment["NO_COLOR"] = no_color
+                    result = subprocess.run(
+                        ["/bin/bash", str(self.script), *arguments],
+                        env=environment,
+                        text=True,
+                        capture_output=True,
+                        check=False,
+                    )
+
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual((self.root / "launch-no-color").read_text(), "\n")
+                    self.assertEqual(
+                        (self.root / "launch-arguments").read_text().splitlines(),
+                        [
+                            "--env", f"XDG_CONFIG_HOME={environment['XDG_CONFIG_HOME']}",
+                            "--env", f"XDG_STATE_HOME={environment['XDG_STATE_HOME']}",
+                            "--env", f"OMNIWM_SOCKET={environment['OMNIWM_SOCKET']}",
+                            str(app),
+                        ],
+                    )
