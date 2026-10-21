@@ -138,6 +138,9 @@ extension LayoutRefreshController {
         postLayout: PostLayoutAction? = nil,
         postLayoutInvalidated: PostLayoutAction? = nil
     ) {
+        if reason == .workspaceTransition {
+            focusScrollProxy.cancel()
+        }
         requestImmediateRelayout(
             reason: reason,
             affectedWorkspaceIds: affectedWorkspaces,

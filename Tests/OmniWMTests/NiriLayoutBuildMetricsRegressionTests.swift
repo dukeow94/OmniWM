@@ -5,6 +5,7 @@ import ApplicationServices
 import Foundation
 @testable import OmniWM
 import QuartzCore
+import Synchronization
 import XCTest
 
 @MainActor
@@ -63,6 +64,35 @@ final class NiriLayoutBuildMetricsRegressionTests: XCTestCase {
         fixture.controller.axManager.confirmFrameWrite(
             for: fixture.token.windowId,
             frame: target.offsetBy(dx: -30, dy: 0)
+        )
+
+        XCTAssertTrue(
+            fixture.controller.layoutRefreshController.niriHandler.applyFramesOnDemand(
+                wsId: fixture.workspaceId,
+                state: fixture.controller.workspaceManager.niriViewportState(for: fixture.workspaceId),
+                engine: fixture.engine,
+                monitor: fixture.monitor,
+                animationTime: CACurrentMediaTime()
+            )
+        )
+
+        XCTAssertEqual(
+            fixture.controller.axManager.recentFrameWriteFailureComponents(for: fixture.token.windowId),
+            .position
+        )
+    }
+
+    func testAnimationBuildUsesPositionOnlyAXWhenWindowSizeRoundsByOnePoint() throws {
+        let fixture = try makeFixture()
+        let target = try addWindowAndTargetFrame(to: fixture)
+        fixture.controller.axManager.confirmFrameWrite(
+            for: fixture.token.windowId,
+            frame: CGRect(
+                x: target.minX - 30,
+                y: target.minY,
+                width: target.width + 1,
+                height: target.height
+            )
         )
 
         XCTAssertTrue(
@@ -182,6 +212,84 @@ final class NiriLayoutBuildMetricsRegressionTests: XCTestCase {
             fixture.controller.axManager.recentFrameWriteFailureComponents(for: fixture.token.windowId),
             .position
         )
+    }
+
+    func testFocusProxyScrollTickUsesFinalVerifiedFrameInsteadOfIntermediateFrame() throws {
+        let fixture = try makeFixture()
+        let settledFrame = try addWindowAndTargetFrame(to: fixture)
+        let proxyTarget = settledFrame.offsetBy(dx: 120, dy: 0)
+        fixture.controller.axManager.confirmFrameWrite(
+            for: fixture.token.windowId,
+            frame: settledFrame.offsetBy(dx: -30, dy: 0)
+        )
+        fixture.controller.layoutRefreshController.focusScrollProxy.targetLayoutForTests = .init(
+            workspaceId: fixture.workspaceId,
+            frames: [fixture.token: proxyTarget],
+            hiddenHandles: [:]
+        )
+        let targetTime = CACurrentMediaTime()
+        let animationDriver = fixture.controller.workspaceManager.animationDriver
+        animationDriver.gestureLivenessNow = { targetTime }
+        XCTAssertNotNil(animationDriver.beginGesture(in: fixture.workspaceId, isTrackpad: false, timestamp: targetTime))
+        ScrollTickTrace.shared.beginCapture()
+        FrameApplyTrace.shared.beginCapture()
+        defer {
+            ScrollTickTrace.shared.endCapture()
+            FrameApplyTrace.shared.endCapture()
+        }
+
+        XCTAssertTrue(fixture.controller.layoutRefreshController.niriHandler.applyFramesOnDemand(
+            wsId: fixture.workspaceId,
+            state: fixture.controller.workspaceManager.niriViewportState(for: fixture.workspaceId),
+            engine: fixture.engine,
+            monitor: fixture.monitor,
+            animationTime: targetTime
+        ))
+
+        XCTAssertTrue(ScrollTickTrace.shared.dump().contains("anim=false"))
+        XCTAssertTrue(FrameApplyTrace.shared.dump().contains("target=\(TraceFormat.rect(proxyTarget))"))
+        XCTAssertEqual(
+            fixture.controller.axManager.recentFrameWriteFailureComponents(for: fixture.token.windowId),
+            .all
+        )
+    }
+
+    func testDirectFocusAnimationDoesNotCheckScreenCaptureAccess() throws {
+        let fixture = try makeFixture()
+        let accessChecks = Mutex(0)
+        let cache = FocusScrollPreviewCache(screenCaptureAccess: {
+            accessChecks.withLock { $0 += 1 }
+            return false
+        })
+        let snapshot = try XCTUnwrap(fixture.controller.layoutRefreshController.niriHandler.makeWorkspaceSnapshot(
+            workspaceId: fixture.workspaceId,
+            monitor: fixture.monitor,
+            options: .init(
+                viewportState: nil,
+                useScrollAnimationPath: false,
+                removalSeed: nil,
+                isActiveWorkspace: true
+            )
+        ))
+        XCTAssertEqual(fixture.controller.workspaceManager.interactionMonitorId, fixture.monitor.id)
+
+        cache.reconcile(
+            snapshot: snapshot,
+            frames: [:],
+            workspaceManager: fixture.controller.workspaceManager,
+            animationsEnabled: true,
+            animationStyle: .direct
+        )
+        XCTAssertEqual(accessChecks.withLock { $0 }, 0)
+
+        cache.reconcile(
+            snapshot: snapshot,
+            frames: [:],
+            workspaceManager: fixture.controller.workspaceManager,
+            animationsEnabled: true,
+            animationStyle: .smoothPreview
+        )
+        XCTAssertEqual(accessChecks.withLock { $0 }, 1)
     }
 
     private func addWindowAndTargetFrame(to fixture: Fixture) throws -> CGRect {

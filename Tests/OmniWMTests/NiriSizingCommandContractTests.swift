@@ -136,6 +136,42 @@ final class NiriSizingCommandContractTests: XCTestCase {
         XCTAssertEqual(decoded.niri.defaultContainerPrimarySpan, 0.5)
     }
 
+    func testFocusScrollAnimationStyleDefaultsAndRoundTrips() throws {
+        let defaults = SettingsExport.defaults()
+        XCTAssertEqual(defaults.niri.focusScrollAnimation, .direct)
+
+        var export = defaults
+        export.niri.focusScrollAnimation = .smoothPreview
+        let data = try SettingsTOMLCodec.encode(export)
+        let toml = String(decoding: data, as: UTF8.self)
+
+        XCTAssertTrue(toml.contains("focusScrollAnimation = \"smoothPreview\""))
+        XCTAssertEqual(try SettingsTOMLCodec.decode(data).niri.focusScrollAnimation, .smoothPreview)
+    }
+
+    @MainActor
+    func testMissingFocusScrollAnimationUsesDirectSettingBaseline() throws {
+        let defaults = SettingsExport.defaults()
+        let encoded = String(decoding: try SettingsTOMLCodec.encode(defaults), as: UTF8.self)
+        let legacy = encoded
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .filter { !$0.hasPrefix("focusScrollAnimation = ") }
+            .joined(separator: "\n")
+        let decoded = try SettingsTOMLCodec.decode(Data(legacy.utf8))
+
+        XCTAssertNil(decoded.niri.focusScrollAnimation)
+
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let settings = SettingsStore(
+            persistence: SettingsFilePersistence(directory: directory, startWatching: false, deferSaves: false),
+            runtimeState: RuntimeStateStore(directory: directory, deferSaves: false)
+        )
+        settings.applyExport(decoded)
+
+        XCTAssertEqual(settings.niri.focusScrollAnimation, .direct)
+    }
+
     func testCurrentProtocolVersion() {
         XCTAssertEqual(OmniWMIPCProtocol.version, 15)
     }

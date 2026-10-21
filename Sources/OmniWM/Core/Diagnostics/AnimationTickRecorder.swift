@@ -14,6 +14,8 @@ enum AnimationTickTrace {
         let dwindleMs: Double
         let closingMs: Double
         let reconcileMs: Double
+        let surfaceMs: Double
+        let transactionMs: Double
         let classification: DisplayTickClassification
 
         init(
@@ -25,6 +27,8 @@ enum AnimationTickTrace {
             dwindleMs: Double,
             closingMs: Double,
             reconcileMs: Double,
+            surfaceMs: Double = 0,
+            transactionMs: Double = 0,
             classification: DisplayTickClassification
         ) {
             self.mediaTime = mediaTime
@@ -35,6 +39,8 @@ enum AnimationTickTrace {
             self.dwindleMs = dwindleMs
             self.closingMs = closingMs
             self.reconcileMs = reconcileMs
+            self.surfaceMs = surfaceMs
+            self.transactionMs = transactionMs
             self.classification = classification
         }
     }
@@ -45,7 +51,8 @@ enum AnimationTickTrace {
     ) { record in
         let timing = String(
             format: "interval=%.2fms expected=%.2fms entry_slack=%.2fms completion_slack=%.2fms"
-                + " scroll=%.2fms dwindle=%.2fms closing=%.2fms reconcile=%.2fms total=%.2fms",
+                +
+                " scroll=%.2fms dwindle=%.2fms closing=%.2fms reconcile=%.2fms surface=%.2fms transaction=%.2fms total=%.2fms",
             record.timing.intervalMs,
             record.timing.expectedMs,
             record.timing.entrySlackMs,
@@ -54,6 +61,8 @@ enum AnimationTickTrace {
             record.dwindleMs,
             record.closingMs,
             record.reconcileMs,
+            record.surfaceMs,
+            record.transactionMs,
             record.timing.workMs
         )
         let flags = [

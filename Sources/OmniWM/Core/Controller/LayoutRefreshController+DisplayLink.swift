@@ -138,6 +138,8 @@ extension LayoutRefreshController {
                 dwindleMs: (phaseTiming.dwindleEndTime - phaseTiming.scrollEndTime) * 1000,
                 closingMs: (phaseTiming.closingEndTime - phaseTiming.dwindleEndTime) * 1000,
                 reconcileMs: (completionTime - phaseTiming.closingEndTime) * 1000,
+                surfaceMs: (phaseTiming.surfaceEndTime - phaseTiming.closingEndTime) * 1000,
+                transactionMs: (phaseTiming.transactionEndTime - phaseTiming.surfaceEndTime) * 1000,
                 classification: classification
             )
         )
@@ -372,6 +374,8 @@ extension LayoutRefreshController {
         let scrollEndTime: CFTimeInterval
         let dwindleEndTime: CFTimeInterval
         let closingEndTime: CFTimeInterval
+        let surfaceEndTime: CFTimeInterval
+        let transactionEndTime: CFTimeInterval
     }
 
     private func applyDisplayAnimationTick(
@@ -382,6 +386,7 @@ extension LayoutRefreshController {
         var scrollEndTime: CFTimeInterval = 0
         var dwindleEndTime: CFTimeInterval = 0
         var closingEndTime: CFTimeInterval = 0
+        var surfaceEndTime: CFTimeInterval = 0
 
         SkyLight.shared.withTransactionScope {
             niriHandler.tickScrollAnimation(targetTime: displayLink.targetTimestamp, displayId: displayId)
@@ -391,11 +396,14 @@ extension LayoutRefreshController {
             tickClosingAnimations(targetTime: displayLink.targetTimestamp, displayId: displayId)
             closingEndTime = traceActive ? CACurrentMediaTime() : 0
             controller?.surfaceReconciler.reconcileAnimationTick()
+            surfaceEndTime = traceActive ? CACurrentMediaTime() : 0
         }
         return DisplayAnimationPhaseTiming(
             scrollEndTime: scrollEndTime,
             dwindleEndTime: dwindleEndTime,
-            closingEndTime: closingEndTime
+            closingEndTime: closingEndTime,
+            surfaceEndTime: surfaceEndTime,
+            transactionEndTime: traceActive ? CACurrentMediaTime() : 0
         )
     }
 

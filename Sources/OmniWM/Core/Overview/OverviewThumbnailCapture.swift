@@ -12,12 +12,14 @@ struct OverviewPreviewRequest: Equatable {
     let token: WindowToken
     let pixelWidth: Int
     let pixelHeight: Int
+    let framesPerSecond: Int
 
-    init(handle: WindowHandle, pixelWidth: Int, pixelHeight: Int) {
+    init(handle: WindowHandle, pixelWidth: Int, pixelHeight: Int, framesPerSecond: Int = 5) {
         self.handle = handle
         token = handle.token
         self.pixelWidth = max(1, pixelWidth)
         self.pixelHeight = max(1, pixelHeight)
+        self.framesPerSecond = max(1, min(framesPerSecond, 60))
     }
 }
 
@@ -354,7 +356,8 @@ extension OverviewThumbnailCapture {
                 requests[key] = OverviewPreviewRequest(
                     handle: request.handle,
                     pixelWidth: max(previous.pixelWidth, request.pixelWidth),
-                    pixelHeight: max(previous.pixelHeight, request.pixelHeight)
+                    pixelHeight: max(previous.pixelHeight, request.pixelHeight),
+                    framesPerSecond: max(previous.framesPerSecond, request.framesPerSecond)
                 )
             } else {
                 requests[key] = request

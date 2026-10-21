@@ -20,17 +20,14 @@ extension NiriLayoutHandler {
 
         guard let monitor = controller.workspaceManager.monitor(for: wsId) else { return false }
         let geometry = controller.niriInteractionGeometry(for: monitor)
-        let orientation = resolvedOrientation(
-            for: wsId,
-            monitor: monitor,
-            engine: engine
-        )
+        let orientation = resolvedOrientation(for: wsId, monitor: monitor, engine: engine)
         let options = NodeActivationOptions(
             activateWindow: false,
             ensureVisible: false,
             layoutRefresh: false,
             axFocus: false
         )
+        let oldFrames = focusScrollStartingFrames(in: wsId)
 
         let target = controller.workspaceManager.withEngineMutationScope { () -> (node: NiriNode, suppressed: Bool)? in
             let context = NiriInteractionContext(
@@ -54,7 +51,10 @@ extension NiriLayoutHandler {
             workspaceId: wsId,
             state: state,
             options: options,
-            navigation: (direction, orientation)
+            navigation: (
+                direction.primaryStep(for: orientation) != nil,
+                oldFrames
+            )
         )
         return true
     }
@@ -112,7 +112,7 @@ extension NiriLayoutHandler {
         workspaceId wsId: WorkspaceDescriptor.ID,
         state: ViewportState,
         options: NodeActivationOptions,
-        navigation: (direction: Direction, orientation: Monitor.Orientation)
+        navigation: (isPrimary: Bool, oldFrames: [WindowToken: CGRect]?)
     ) {
         guard let controller else { return }
         completeNodeActivation(newNode, in: wsId, state: state, options: options)
@@ -124,11 +124,13 @@ extension NiriLayoutHandler {
                 plannedSeq: controller.workspaceManager.worldSeq
             )
         )
-        let isPrimaryNavigation = navigation.direction.primaryStep(for: navigation.orientation) != nil
+        if let monitor = controller.workspaceManager.monitor(for: wsId) {
+            startFocusScrollProxy(in: wsId, monitor: monitor, oldFrames: navigation.oldFrames)
+        }
         focusSelectedWindowAndRequestRelayout(
             in: wsId,
-            raisesWindow: !isPrimaryNavigation,
-            defersRetryRaise: isPrimaryNavigation
+            raisesWindow: !navigation.isPrimary,
+            defersRetryRaise: navigation.isPrimary
         )
     }
 

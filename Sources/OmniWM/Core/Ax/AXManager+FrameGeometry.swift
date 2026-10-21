@@ -50,8 +50,7 @@ extension AXManager {
     }
 
     private static func frameSizesMatch(_ lhs: CGSize, _ rhs: CGSize) -> Bool {
-        abs(lhs.width - rhs.width) < FrameTolerance.frameWrite
-            && abs(lhs.height - rhs.height) < FrameTolerance.frameWrite
+        lhs.isWithinFrameTolerance(of: rhs)
     }
 
     func recentFrameWriteFailure(for windowId: Int) -> AXFrameWriteFailureReason? {

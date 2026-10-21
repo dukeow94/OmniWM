@@ -126,6 +126,24 @@ private struct GlobalNiriSettingsSection: View {
             )
         }
 
+        Section("Focus Animation") {
+            Picker("Movement Style", selection: Bindable(settings.niri).focusScrollAnimation) {
+                ForEach(FocusScrollAnimationStyle.allCases) { style in
+                    Text(style.displayName).tag(style)
+                }
+            }
+            .onChange(of: settings.niri.focusScrollAnimation) { _, newValue in
+                controller.setFocusScrollAnimationStyle(newValue, persist: false)
+            }
+
+            SettingsCaption(
+                settings.niri.focusScrollAnimation == .smoothPreview
+                    ? "Animates captured previews while windows move to their final positions. "
+                    + "Requires Screen Recording permission and uses additional memory."
+                    : "Moves application windows directly. Responsiveness depends on how quickly each app applies window positions."
+            )
+        }
+
         Section("Default New Container Primary Span") {
             Picker("Span Mode", selection: useAutoDefaultContainerPrimarySpan) {
                 Text("Auto").tag(true)

@@ -138,6 +138,7 @@ struct SettingsExport: Equatable {
         var centerFocusedColumn: CenterFocusedColumn
         var alwaysCenterSingleColumn: Bool
         var singleWindowFit: SingleWindowFit
+        var focusScrollAnimation: FocusScrollAnimationStyle?
         var containerPrimarySpanPresets: [Double]?
         var defaultContainerPrimarySpan: Double?
     }
@@ -340,6 +341,7 @@ extension SettingsExport.Niri {
             centerFocusedColumn: .never,
             alwaysCenterSingleColumn: false,
             singleWindowFit: .fullScreen,
+            focusScrollAnimation: .direct,
             containerPrimarySpanPresets: BuiltInSettingsDefaults.niriContainerPrimarySpanPresets,
             defaultContainerPrimarySpan: 0.5
         )

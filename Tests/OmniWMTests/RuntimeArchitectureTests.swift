@@ -3288,6 +3288,14 @@ final class RuntimeArchitectureTests: XCTestCase {
         XCTAssertEqual(translated.components, .position)
         XCTAssertEqual(translated.frame, frame.offsetBy(dx: 30, dy: 0))
 
+        let roundedSize = manager.animationFrameChange(
+            change.writing(
+                CGRect(x: 70, y: 50, width: 299, height: 201),
+                components: .all
+            )
+        )
+        XCTAssertEqual(roundedSize.components, .position)
+
         let resized = manager.animationFrameChange(
             change.writing(frame.insetBy(dx: -20, dy: 0), components: .all)
         )

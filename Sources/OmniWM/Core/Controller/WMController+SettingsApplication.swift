@@ -12,6 +12,7 @@ extension WMController {
 
     func applyPersistedSettings(_ settings: SettingsStore, startServices: Bool = true) {
         setAnimationsEnabled(settings.animationsEnabled, persist: false)
+        setFocusScrollAnimationStyle(settings.niri.focusScrollAnimation, persist: false)
         applyCurrentAppearanceMode()
 
         updateHotkeyBindings(settings.hotkeyBindings)
@@ -61,6 +62,19 @@ extension WMController {
         guard motionPolicy.userAnimationsEnabled != enabled else { return }
 
         motionPolicy.userAnimationsEnabled = enabled
+    }
+
+    func setFocusScrollAnimationStyle(
+        _ style: FocusScrollAnimationStyle,
+        persist: Bool = true
+    ) {
+        if persist, settings.niri.focusScrollAnimation != style {
+            settings.niri.focusScrollAnimation = style
+        }
+
+        layoutRefreshController.focusScrollProxy.cancel()
+        layoutRefreshController.focusScrollPreviewCache.clear()
+        layoutRefreshController.requestRelayout(reason: .layoutConfigChanged)
     }
 
     var tabRailStyle: TabRailStyle {
