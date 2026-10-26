@@ -4,9 +4,6 @@
 import wchar_h
 import xlocale
 
-@_silgen_name("wcwidth_l")
-private func omniwm_wcwidth_l(_ character: Int32, _ locale: locale_t) -> Int32
-
 private struct TerminalWidthLocale: ~Copyable, @unchecked Sendable {
     let value: locale_t
 
@@ -26,7 +23,9 @@ enum TerminalCellWidth {
     private static let locale = TerminalWidthLocale()
 
     static func measure(_ string: some StringProtocol) -> Int {
-        string.reduce(into: 0) { width, character in
+        let previousLocale = uselocale(locale.value)
+        defer { uselocale(previousLocale) }
+        return string.reduce(into: 0) { width, character in
             width += measure(character)
         }
     }
@@ -56,7 +55,7 @@ enum TerminalCellWidth {
                 emojiCount += 1
             }
 
-            let scalarWidth = omniwm_wcwidth_l(Int32(scalar.value), locale.value)
+            let scalarWidth = wcwidth(Int32(scalar.value))
             if scalarWidth >= 0 {
                 width += Int(scalarWidth)
             } else if properties.generalCategory != .control,

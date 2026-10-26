@@ -44,7 +44,7 @@ final class EventInterpreter: EventIntakeSink {
             controller.serviceLifecycleManager.monitorConfiguration.handle(event)
 
         case let .hotkeyInvocation(invocation):
-            _ = controller.commandHandler.handleHotkeyInvocation(invocation)
+            handleHotkeyInvocation(invocation, sequence: stamped.seq, controller: controller)
 
         case let .intentExpired(intentId, deadlineGeneration):
             controller.axEventHandler.handleIntentExpired(
@@ -74,6 +74,9 @@ final class EventInterpreter: EventIntakeSink {
                 generation: generation
             )
 
+        case let .secureInputStateMayHaveChanged(session):
+            handleSecureInputNotification(session: session, controller: controller)
+
         case .systemSleep:
             _ = controller.workspaceManager.recordReconcileEvent(.systemSleep(source: .service))
             controller.mouseEventHandler.suspendMultitouchForSleep()
@@ -84,6 +87,28 @@ final class EventInterpreter: EventIntakeSink {
         case let .windowConstraintsResolved(fact):
             controller.layoutRefreshController.applyResolvedConstraints(fact)
         }
+    }
+
+    private func handleHotkeyInvocation(_ invocation: HotkeyInvocation, sequence: UInt64, controller: WMController) {
+        InputTrace.record(
+            "hotkey.dispatch.begin seq=\(sequence)"
+                + " source=\(TraceFormat.token(controller.workspaceManager.selectedManagedToken))"
+                + " repeat=\(invocation.trigger?.isRepeat.description ?? "unknown")"
+                + " cmd=\(invocation.command.displayName)"
+        )
+        let result = controller.commandHandler.handleHotkeyInvocation(invocation)
+        InputTrace.record(
+            "hotkey.dispatch.end seq=\(sequence)"
+                + " selected=\(TraceFormat.token(controller.workspaceManager.selectedManagedToken))"
+                + " pending=\(TraceFormat.token(controller.workspaceManager.pendingFocusedToken))"
+                + " result=\(result)"
+        )
+    }
+
+    private func handleSecureInputNotification(session: UInt32, controller: WMController) {
+        guard controller.secureInputMonitor.recordNotification(session: session) else { return }
+        controller.hotkeys.resetTransientInputState()
+        controller.secureInputMonitor.refresh()
     }
 
     private func acceptsCallbackGeneration(_ callbackGeneration: UInt64?, pid: pid_t) -> Bool {
@@ -107,7 +132,7 @@ final class EventInterpreter: EventIntakeSink {
         )
         switch visibility {
         case .hidden: controller.axEventHandler.handleAppHidden(pid: pid, source: .service)
-        case .visible: controller.axEventHandler.handleAppUnhidden(pid: pid, source: .service)
+        case .visible: controller.axEventHandler.handleNativeAppUnhide(pid: pid)
         }
     }
 
@@ -162,9 +187,13 @@ final class EventInterpreter: EventIntakeSink {
                 callbackGeneration: callbackGeneration
             )
 
-        case let .windowMiniaturized(pid, windowId, callbackGeneration):
+        case let .windowMiniaturized(pid, axRef, callbackGeneration):
             guard acceptsCallbackGeneration(callbackGeneration, pid: pid) else { return }
-            controller.axEventHandler.handleWindowMiniaturized(pid: pid, windowId: windowId)
+            controller.axEventHandler.handleWindowMinimized(pid: pid, axRef: axRef, minimized: true)
+
+        case let .windowDeminiaturized(pid, axRef, callbackGeneration):
+            guard acceptsCallbackGeneration(callbackGeneration, pid: pid) else { return }
+            controller.axEventHandler.handleWindowMinimized(pid: pid, axRef: axRef, minimized: false)
         }
     }
 }

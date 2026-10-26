@@ -89,6 +89,8 @@ struct SettingsExport: Equatable {
     var statusBar: StatusBar
     var hiddenBar: HiddenBar
     var animationsEnabled: Bool
+    var animationSpeed: Double
+    var language: String?
 
     var clipboard: Clipboard
 
@@ -140,6 +142,8 @@ struct SettingsExport: Equatable {
         var singleWindowFit: SingleWindowFit
         var containerPrimarySpanPresets: [Double]?
         var defaultContainerPrimarySpan: Double?
+        var edgeGaps: Bool?
+        var resizeStepPercent: Int?
     }
 
     struct Dwindle: Codable, Equatable {
@@ -152,6 +156,7 @@ struct SettingsExport: Equatable {
     }
 
     struct Overview: Codable, Equatable {
+        var enabled: Bool?
         var zoom: Double
         var backdrop: SettingsColor
         var windowBorders: OverviewWindowBorders
@@ -195,14 +200,14 @@ struct SettingsExport: Equatable {
         var scrollModifierKey: ScrollModifierKey
         var mouseMoveModifierKey: MouseMoveModifierKey
         var mouseResizeModifierKey: MouseResizeModifierKey
-        var fingerCount: GestureFingerCount
+        var fingerCount: ThreeOrFourFingerCount
         var invertDirection: Bool
         var trackpadScrollStyle: TrackpadScrollStyle
         var workspaceSwipeEnabled: Bool
         var workspaceSwipeFingerCount: GestureFingerCount
         var workspaceSwipeAxis: WorkspaceSwipeAxis
         var overviewGestureEnabled: Bool? = false
-        var overviewGestureFingerCount: OverviewGestureFingerCount? = .four
+        var overviewGestureFingerCount: ThreeOrFourFingerCount? = .four
         var windowMoveEnabled: Bool? = false
         var windowMoveFingerCount: GestureFingerCount? = .four
         var windowResizeEnabled: Bool? = false
@@ -214,6 +219,7 @@ struct SettingsExport: Equatable {
         var showWorkspaceName: Bool
         var showAppNames: Bool
         var useWorkspaceId: Bool
+        var showIcon: Bool? = true
     }
 
     struct HiddenBar: Codable, Equatable {
@@ -231,7 +237,39 @@ struct SettingsExport: Equatable {
         var maxItems: Int
         var maxItemBytes: Int
         var maxTotalBytes: Int
+        var ignoredTypes: [String]
+
+        init(
+            historyEnabled: Bool,
+            maxItems: Int,
+            maxItemBytes: Int,
+            maxTotalBytes: Int,
+            ignoredTypes: [String] = []
+        ) {
+            self.historyEnabled = historyEnabled
+            self.maxItems = maxItems
+            self.maxItemBytes = maxItemBytes
+            self.maxTotalBytes = maxTotalBytes
+            self.ignoredTypes = ignoredTypes
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: ClipboardCodingKey.self)
+            historyEnabled = try container.decode(Bool.self, forKey: .historyEnabled)
+            maxItems = try container.decode(Int.self, forKey: .maxItems)
+            maxItemBytes = try container.decode(Int.self, forKey: .maxItemBytes)
+            maxTotalBytes = try container.decode(Int.self, forKey: .maxTotalBytes)
+            ignoredTypes = try container.decodeIfPresent([String].self, forKey: .ignoredTypes) ?? []
+        }
     }
+}
+
+private enum ClipboardCodingKey: String, CodingKey {
+    case historyEnabled
+    case maxItems
+    case maxItemBytes
+    case maxTotalBytes
+    case ignoredTypes
 }
 
 // MARK: - Defaults & Diffing
@@ -269,6 +307,8 @@ extension SettingsExport {
             statusBar: StatusBar.defaults(),
             hiddenBar: HiddenBar.defaults(),
             animationsEnabled: true,
+            animationSpeed: 1,
+            language: nil,
             clipboard: Clipboard.defaults(),
             quakeTerminal: QuakeTerminal.defaults(),
             appearanceMode: .dark,
@@ -283,7 +323,8 @@ extension SettingsExport.Clipboard {
             historyEnabled: false,
             maxItems: 200,
             maxItemBytes: 8_388_608,
-            maxTotalBytes: 67_108_864
+            maxTotalBytes: 67_108_864,
+            ignoredTypes: []
         )
     }
 }
@@ -341,7 +382,9 @@ extension SettingsExport.Niri {
             alwaysCenterSingleColumn: false,
             singleWindowFit: .fullScreen,
             containerPrimarySpanPresets: BuiltInSettingsDefaults.niriContainerPrimarySpanPresets,
-            defaultContainerPrimarySpan: 0.5
+            defaultContainerPrimarySpan: 0.5,
+            edgeGaps: true,
+            resizeStepPercent: BuiltInSettingsDefaults.niriResizeStepPercent
         )
     }
 }
@@ -362,6 +405,7 @@ extension SettingsExport.Dwindle {
 extension SettingsExport.Overview {
     static func defaults() -> Self {
         Self(
+            enabled: true,
             zoom: 1.0,
             backdrop: SettingsColor(red: 0.05, green: 0.05, blue: 0.08, alpha: 0),
             windowBorders: SettingsExport.OverviewWindowBorders(

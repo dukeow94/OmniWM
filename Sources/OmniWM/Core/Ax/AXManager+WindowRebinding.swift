@@ -18,7 +18,7 @@ extension AXManager {
         } else {
             guard let app = NSRunningApplication(processIdentifier: newWindow.token.pid),
                   !app.isTerminated,
-                  let created = try? await AppAXContextRegistry.getOrCreate(app)
+                  let created = try? await AppAXContextRegistry.getOrCreate(app, pid: newWindow.token.pid)
             else {
                 return nil
             }
@@ -153,6 +153,7 @@ extension AXManager {
             reason: "rekey"
         )
         prepareFrameContextsForRebind(from: oldWindowId, to: newWindowId, acknowledgement: acknowledgement)
+        AppAXContextRegistry.rekeyNativeSuppressedWindow(from: oldWindow.token, to: newWindow.token)
         let isIncarnationReplacement = oldWindow.token.pid != newWindow.token.pid
             || oldWindowId == newWindowId
         let deliveries = resetFrameApplicationStateForRebind(

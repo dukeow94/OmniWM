@@ -51,8 +51,9 @@ extension WorkspaceNavigationHandler {
             ? controller.dwindleEngine
             : nil
         let candidates = controller.workspaceManager.tiledEntries(in: targetWorkspace.id)
+            .lazy
             .compactMap { entry -> (token: WindowToken, frame: CGRect)? in
-                if controller.isManagedWindowSuppressedByMacOSHide(entry.token)
+                if controller.isManagedWindowSuppressedByMacOS(entry.token)
                     || dwindleEngine?.isInactiveGroupMember(entry.token, in: targetWorkspace.id) == true
                 {
                     return nil
@@ -101,12 +102,16 @@ extension WorkspaceNavigationHandler {
         return controller.preferredKeyboardFocusFrame(for: sourceToken)
     }
 
-    static func spatialNeighborToken(
+    static func spatialNeighborToken<Candidates: Sequence>(
         from sourceFrame: CGRect?,
-        candidates: [(token: WindowToken, frame: CGRect)],
+        candidates: Candidates,
         direction: Direction,
-        targetFrame: CGRect
-    ) -> WindowToken? {
+        targetFrame: @autoclosure () -> CGRect
+    ) -> WindowToken? where Candidates.Element == (token: WindowToken, frame: CGRect) {
+        var iterator = candidates.makeIterator()
+        guard var chosen = iterator.next() else { return nil }
+        let targetFrame = targetFrame()
+
         func crossOverlaps(_ frame: CGRect) -> Bool {
             guard let sourceFrame else { return true }
             switch direction {
@@ -136,7 +141,7 @@ extension WorkspaceNavigationHandler {
         }
 
         let anchor = sourceFrame.map(crossCenter) ?? crossCenter(targetFrame)
-        return candidates.min { lhs, rhs in
+        func outranks(_ lhs: Candidates.Element, _ rhs: Candidates.Element) -> Bool {
             let lhsOverlap = crossOverlaps(lhs.frame) ? 0 : 1
             let rhsOverlap = crossOverlaps(rhs.frame) ? 0 : 1
             if lhsOverlap != rhsOverlap { return lhsOverlap < rhsOverlap }
@@ -144,7 +149,11 @@ extension WorkspaceNavigationHandler {
             let rhsEdge = edgeDistance(rhs.frame)
             if lhsEdge != rhsEdge { return lhsEdge < rhsEdge }
             return abs(crossCenter(lhs.frame) - anchor) < abs(crossCenter(rhs.frame) - anchor)
-        }?.token
+        }
+        while let candidate = iterator.next() {
+            if outranks(candidate, chosen) { chosen = candidate }
+        }
+        return chosen.token
     }
 
     @discardableResult

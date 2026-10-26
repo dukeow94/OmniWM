@@ -87,6 +87,7 @@ struct MenuActionRow: View {
     var isDestructive = false
     var dismissesMenu = true
     var isExpanded: Bool?
+    var iconTint: Color?
     let action: @MainActor () -> Void
 
     @Environment(MotionPolicy.self) private var motionPolicy
@@ -160,7 +161,10 @@ struct MenuActionRow: View {
             controlHover(hovered)
         }
         .animation(motionPolicy.animationsEnabled ? .easeOut(duration: 0.12) : nil, value: isHovered)
-        .accessibilityValue(isExpanded == true ? "Expanded" : "Collapsed", isEnabled: isExpanded != nil)
+        .accessibilityValue(
+            isExpanded == true ? String(localized: "Expanded") : String(localized: "Collapsed"),
+            isEnabled: isExpanded != nil
+        )
     }
 
     private func activate() {
@@ -180,7 +184,7 @@ struct MenuActionRow: View {
 
     private var iconColor: Color {
         if isDestructive, isHighlighted { return Color(nsColor: .systemRed) }
-        return isHighlighted ? .white : Color(nsColor: .secondaryLabelColor)
+        return isHighlighted ? .white : iconTint ?? Color(nsColor: .secondaryLabelColor)
     }
 
     private var labelColor: Color {
@@ -256,7 +260,7 @@ struct MenuToggleTile: View {
         .animation(motionPolicy.animationsEnabled ? .easeOut(duration: 0.12) : nil, value: isOn)
         .accessibilityLabel(control.accessibilityName)
         .accessibilityHint(control.explanation)
-        .accessibilityValue(isOn ? "on" : "off")
+        .accessibilityValue(isOn ? String(localized: "on") : String(localized: "off"))
         .accessibilityAddTraits(.isToggle)
     }
 
@@ -396,7 +400,7 @@ struct MenuToggleRow: View {
         }
         .animation(motionPolicy.animationsEnabled ? .easeOut(duration: 0.12) : nil, value: isHovered)
         .accessibilityLabel(label)
-        .accessibilityValue(isOn ? "on" : "off")
+        .accessibilityValue(isOn ? String(localized: "on") : String(localized: "off"))
         .accessibilityAddTraits(.isToggle)
     }
 

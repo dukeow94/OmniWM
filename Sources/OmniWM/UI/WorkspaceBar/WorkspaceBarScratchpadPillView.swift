@@ -17,6 +17,8 @@ struct ScratchpadPillView: View {
     let onActivateScratchpad: (Int) -> Void
 
     @State private var isHovered = false
+    @Environment(\.workspaceBarInteraction) private var interaction
+    @Environment(\.workspaceBarOrientation) private var orientation
 
     private var resolvedAccentColor: Color {
         accentColor ?? .accentColor
@@ -42,7 +44,7 @@ struct ScratchpadPillView: View {
         Button {
             onActivateScratchpad(item.index)
         } label: {
-            HStack(spacing: item.presentation == .compact ? 3 : 5) {
+            orientation.stack(spacing: item.presentation == .compact ? 3 : 5) {
                 if item.presentation == .expanded {
                     Image(systemName: "tray.fill")
                         .font(.system(size: max(10, iconSize * 0.64), weight: .semibold))
@@ -87,6 +89,9 @@ struct ScratchpadPillView: View {
                                 )
                             )
                             .accessibilityHidden(true)
+                            .overlay(alignment: .topLeading) {
+                                WorkspaceBarNotificationBadge(bundleId: window.bundleId, iconSize: iconSize)
+                            }
                     }
 
                     if hiddenAppIconCount > 0 {
@@ -99,8 +104,8 @@ struct ScratchpadPillView: View {
                     }
                 }
             }
-            .padding(.horizontal, item.presentation == .compact ? 5 : 8)
-            .frame(height: itemHeight)
+            .padding(orientation.isVertical ? .vertical : .horizontal, item.presentation == .compact ? 5 : 8)
+            .frame(width: orientation.isVertical ? itemHeight : nil, height: orientation.isVertical ? nil : itemHeight)
             .contentShape(Capsule(style: .continuous))
         }
         .buttonStyle(.plain)
@@ -125,12 +130,21 @@ struct ScratchpadPillView: View {
                     .strokeBorder(Color.secondary.opacity(item.isVisible ? 0.36 : 0.22), lineWidth: 0.8)
             }
         }
+        .workspaceBarHitRegion(.scratchpad(item.index))
         .onHover { hovering in
             isHovered = hovering
         }
         .accessibilityLabel("Scratchpad \(item.name)")
-        .accessibilityValue(accessibilityValue)
-        .help("Scratchpad \(item.name): \(windowSummary), \(item.isVisible ? "visible" : "hidden")")
+        .accessibilityAction(.showMenu) {
+            interaction?.onShowMenu(.scratchpad(item.index))
+        }
+        .modifier(WorkspaceBarBadgeAccessibility(
+            windows: item.presentation == .expanded ? shownWindows : [],
+            value: accessibilityValue,
+            help: item.isVisible
+                ? String(localized: "Scratchpad \(item.name): \(windowSummary), visible")
+                : String(localized: "Scratchpad \(item.name): \(windowSummary), hidden")
+        ))
     }
 
     private var scale: CGFloat {
@@ -146,13 +160,13 @@ struct ScratchpadPillView: View {
     private var windowSummary: String {
         item.windowCount == 1
             ? item.windows[0].appName
-            : "\(item.windowCount) windows"
+            : String(localized: "\(item.windowCount) windows")
     }
 
     private var accessibilityValue: String {
-        var parts = [windowSummary, item.isVisible ? "Visible" : "Hidden"]
+        var parts = [windowSummary, item.isVisible ? String(localized: "Visible") : String(localized: "Hidden")]
         if item.isFocused {
-            parts.append("Focused")
+            parts.append(String(localized: "Focused"))
         }
         return parts.joined(separator: ", ")
     }

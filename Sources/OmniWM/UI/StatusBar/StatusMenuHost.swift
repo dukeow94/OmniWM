@@ -35,12 +35,14 @@ final class StatusMenuHost {
     private let motionPolicy: MotionPolicy
     private let ownedWindowRegistry: OwnedWindowRegistry
     private let focusPolicyEngine: FocusPolicyEngine
+    private let onVisibilityChanged: () -> Void
+    private let sleep: @MainActor (Duration) async throws -> Void
     private let dismissalMonitor = PanelDismissalMonitor()
     private var root: HostedPanel?
     private var submenu: HostedPanel?
-    private var placement: (anchor: CGPoint, visibleFrame: CGRect)?
+    private var placement: (attachment: PopupAttachment, visibleFrame: CGRect)?
     private var rowFrames: [StatusMenuPage: CGRect] = [:]
-    private var hoverTask: Task<Void, Never>?
+    private(set) var hoverTask: Task<Void, Never>?
     private var hoverCandidate: StatusMenuPage?
     private var scrollObserver: NSObjectProtocol?
     private var rootScrollOrigin = CGPoint.zero
@@ -55,26 +57,35 @@ final class StatusMenuHost {
         submenu?.window
     }
 
-    init(model: StatusMenuModel, controller: WMController) {
+    init(
+        model: StatusMenuModel,
+        controller: WMController,
+        sleep: @escaping @MainActor (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
+    ) {
         self.model = model
         motionPolicy = controller.motionPolicy
         ownedWindowRegistry = controller.ownedWindowRegistry
         focusPolicyEngine = controller.focusPolicyEngine
+        onVisibilityChanged = { [weak controller] in controller?.workspaceBarManager.refreshAutoHide() }
+        self.sleep = sleep
     }
 
-    func toggle(from anchor: NSView) {
+    func toggle(from anchor: NSView, edge: PopupAttachment.Edge = .below) {
         if isVisible {
             dismiss()
             return
         }
         guard let window = anchor.window, let screen = window.screen else { return }
         let anchorFrame = window.convertToScreen(anchor.convert(anchor.bounds, to: nil))
-        show(anchor: CGPoint(x: anchorFrame.midX, y: anchorFrame.minY), visibleFrame: screen.visibleFrame)
+        show(
+            attachment: PopupAttachment(sourceFrame: anchorFrame, edge: edge),
+            visibleFrame: screen.visibleFrame
+        )
     }
 
-    func show(anchor: CGPoint, visibleFrame: CGRect) {
+    func show(attachment: PopupAttachment, visibleFrame: CGRect) {
         guard !isVisible else { return }
-        placement = (anchor, visibleFrame)
+        placement = (attachment, visibleFrame)
         presentation.expandedPage = nil
         presentation.rootFocusRequest = nil
         model.menuWillOpen()
@@ -92,6 +103,7 @@ final class StatusMenuHost {
             onDismiss: { [weak self] in self?.dismiss() }
         )
         observeRootScroll()
+        onVisibilityChanged()
     }
 
     func dismiss() {
@@ -110,6 +122,7 @@ final class StatusMenuHost {
         rowFrames.removeAll(keepingCapacity: true)
         model.menuDidClose()
         root?.view.rootView = AnyView(EmptyView())
+        onVisibilityChanged()
     }
 
     func openSubmenu(_ page: StatusMenuPage, enterKeyboard: Bool) {
@@ -166,13 +179,14 @@ final class StatusMenuHost {
         cancelHover()
         guard isVisible, page != presentation.expandedPage else { return }
         hoverCandidate = page
+        let sleep = sleep
         hoverTask = Task { @MainActor [weak self] in
             do {
-                try await Task.sleep(for: .milliseconds(150))
+                try await sleep(.milliseconds(150))
             } catch {
                 return
             }
-            guard let self, isVisible else { return }
+            guard !Task.isCancelled, let self, isVisible else { return }
             if let page {
                 openSubmenu(page, enterKeyboard: false)
             } else {
@@ -215,7 +229,7 @@ final class StatusMenuHost {
         panel.hidesOnDeactivate = false
         panel.isReleasedWhenClosed = false
         panel.isMovable = false
-        panel.title = "OmniWM Controls"
+        panel.title = String(localized: "OmniWM Controls")
         let hostingView = NSHostingView(rootView: AnyView(EmptyView()))
         hostingView.sizingOptions = [.intrinsicContentSize]
         let scrollView = NSScrollView()
@@ -270,14 +284,14 @@ final class StatusMenuHost {
         if hosted.view.frame.size != contentSize {
             hosted.view.setFrameSize(contentSize)
         }
-        let panelSize = StatusMenuGeometry.panelSize(contentSize: contentSize, visibleFrame: placement.visibleFrame)
+        var panelSize = StatusMenuGeometry.panelSize(contentSize: contentSize, visibleFrame: placement.visibleFrame)
+        if page == .root, placement.attachment.edge == .above {
+            let availableHeight = placement.visibleFrame.maxY - placement.attachment.anchor.y - 4
+            panelSize.height = min(panelSize.height, max(1, availableHeight))
+        }
         let frame: CGRect
         if page == .root {
-            frame = NonactivatingPanel.frame(
-                anchor: placement.anchor,
-                size: panelSize,
-                screenVisibleFrame: placement.visibleFrame
-            )
+            frame = placement.attachment.frame(size: panelSize, visibleFrame: placement.visibleFrame)
         } else {
             guard var rowFrame = rowFrames[page] else { return }
             if !root.view.isFlipped {

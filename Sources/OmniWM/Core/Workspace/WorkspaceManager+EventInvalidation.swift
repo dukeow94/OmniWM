@@ -5,7 +5,7 @@ import Foundation
 
 extension WorkspaceManager {
     func noteInvalidation(for event: WMEvent) {
-        switch ReconcileEventDomain.domain(for: event) {
+        switch event.reconcileDomain {
         case .window: noteWindowInvalidation(for: event)
         case .focus: noteFocusEventInvalidation(for: event)
         case .session: noteSessionEventInvalidation(for: event)
@@ -18,6 +18,8 @@ extension WorkspaceManager {
         case let .windowAdmitted(_, workspaceId, _, _, _, _, _, _, _, _, _),
              let .windowModeChanged(_, workspaceId, _, _, _),
              let .hiddenStateChanged(_, workspaceId, _, _, _),
+             let .windowMinimizedChanged(_, workspaceId, _, _),
+             let .windowNativeWithdrawalChanged(_, workspaceId, _, _),
              let .managedReplacementMetadataChanged(_, workspaceId, _, _, _):
             noteInvalidation(workspaceId: workspaceId, domains: [.workspace, .layout, .focus])
 
@@ -131,6 +133,8 @@ extension WorkspaceManager {
              .appVisibilityInvalidated,
              .floatingStateChanged,
              .hiddenApplicationsChanged,
+             .windowMinimizedChanged,
+             .windowNativeWithdrawalChanged,
              .layoutOperationPerformed,
              .manualLayoutOverrideChanged,
              .systemSleep,

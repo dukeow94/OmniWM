@@ -14,8 +14,8 @@ extension WMController {
         intentLedger.deadlineWheel = deadlineWheel
         focusPolicyEngine.intentLedger = intentLedger
         focusPolicyEngine.deadlineWheel = deadlineWheel
-        hotkeys.isOverviewMouseButtonCaptured = { [weak self] button in
-            self?.mouseEventHandler.state.capturedOverviewButton == button
+        hotkeys.isMouseButtonCaptured = { [weak self] button in
+            self?.mouseEventHandler.state.capturedOtherMouseButton == button
         }
         hotkeys.onCommand = { [weak self] invocation in
             guard let self else { return }
@@ -23,11 +23,24 @@ extension WMController {
                 _ = commandHandler.handleHotkeyInvocation(invocation)
             }
         }
+        settings.onWorkspaceHotkeysChanged = { [weak self] in
+            guard let self else { return }
+            updateHotkeyBindings(settings.hotkeyBindings)
+        }
+        settings.gestures.onWorkspaceSwipeEnabledChange = { [weak self] in
+            self?.layoutRefreshController.workspaceSwipe.syncAvailability()
+        }
+        motionPolicy.onAnimationsEnabledChange = { [weak self] in
+            self?.layoutRefreshController.workspaceSwipe.syncAvailability()
+        }
     }
 
     func configureSurfaceCallbacks() {
         traceCaptureCoordinator.onStateChange = { [weak self] in
             self?.statusBarController?.handleTraceCaptureStateChange()
+        }
+        secureInputIndicator.openHotkeysSettings = { [weak self] in
+            self?.statusBarController?.openSettings(section: .hotkeys)
         }
         tabRailManager.onSelect = { [weak self] info, visualIndex, token in
             guard let self else { return }
@@ -64,7 +77,10 @@ extension WMController {
             self?.axEventHandler.probeUnresolvedNativeFocus(after: handle.token)
         }
         workspaceManager.onWindowRemoved = { [weak self] entry in
+            self?.windowMarkRegistry.retire(entry.token)
             self?.windowActionHandlerStorage?.handleOverviewWindowRemoved(entry)
+            self?.layoutRefreshController.workspaceSwipe.windowRemoved(entry.token)
+            PreviewCaptureCoordinator.shared.windowRemoved(entry.token)
         }
         workspaceManager.onDeferredWorkspaceMonitorMove = { [weak self] outcome in
             self?.layoutRefreshController.commitWorkspaceMonitorTransition(outcome)
@@ -111,11 +127,12 @@ extension WMController {
                 self.focusPolicyEngine.endLease(owner: .nativeMenu)
             }
         }
+        self.hiddenBarController.configureMotion(motionPolicy)
         self.hiddenBarController.onCursorWarp = { [weak self] point in
             self?.mouseWarpHandler.noteProgrammaticCursorMove(to: point)
         }
-        self.hiddenBarController.statusItems.fallbackPlacementsProvider = { [weak self] in
-            self?.hiddenBarFallbackIconPlacements() ?? []
+        ownedWindowRegistry.onWindowWillClose = { [weak self] in
+            self?.releaseStaleOwnedSurfaceFocus()
         }
     }
 
@@ -128,18 +145,19 @@ extension WMController {
         Task { @MainActor in
             let alert = NSAlert()
             alert.alertStyle = .warning
-            alert.messageText = "Enable “Displays have separate Spaces”"
-            alert.informativeText = "OmniWM requires the macOS setting “Displays have separate Spaces.” "
-                + "Turn it on in System Settings > Desktop & Dock > Mission Control, then log out and back in. "
-                + "Window management stays paused until it is enabled."
-            alert.addButton(withTitle: "OK")
+            alert.messageText = String(localized: "Enable “Displays have separate Spaces”")
+            alert.informativeText = String(localized:
+                "OmniWM requires the macOS setting “Displays have separate Spaces.” Turn it on in System Settings > Desktop & Dock > Mission Control, then log out and back in. Window management stays paused until it is enabled."
+            )
+            alert.addButton(withTitle: String(localized: "OK"))
             _ = alert.runModal()
         }
     }
 
     func updateHotkeyBindings(_ bindings: [HotkeyBinding], force: Bool = false) {
+        let enabledBindings = bindings.filter { settings.isCommandFeatureEnabled($0.command) }
         hotkeys.updateBindings(
-            bindings,
+            enabledBindings,
             systemHyperTrigger: settings.systemHyperTrigger,
             force: force
         )

@@ -41,7 +41,10 @@ final class AXEventHandler {
     private var nextManagedReplacementEventSequence: UInt64 = 0
     var visibleWindowInfoProvider: () -> [WindowServerInfo]
     var windowInfoProvider: (UInt32) -> WindowServerInfo?
-    var windowInfoBatchProvider: (Set<UInt32>) -> [UInt32: WindowServerInfo]?
+    var windowInfoBatchProvider: (Set<UInt32>) async throws -> [UInt32: WindowServerInfo]?
+    var createdWindowAXRefProvider: (WindowToken) async throws -> AXWindowRef? = lookupCreatedWindowIdentity
+    var frameObservations = FrameObservations()
+    var lifecycleQueries = LifecycleQueries()
     var windowSubscriptionProvider: ([UInt32]) -> Bool
     var preparedWindowSubscriptionRetainCounts: [UInt32: Int] = [:]
     var windowSubscriptionIdentityRevision: UInt64 = 0
@@ -56,6 +59,8 @@ final class AXEventHandler {
     var frontmostApplicationPIDProvider: () -> pid_t? = {
         NSWorkspace.shared.frontmostApplication?.processIdentifier
     }
+
+    var applicationIsHiddenProvider: @MainActor (pid_t) -> Bool = AXEventHandler.nativeApplicationIsHidden
 
     var applicationIsTerminatedProvider: (pid_t) -> Bool = { pid in
         if AppAXContextRegistry.contexts[pid]?.nsApp.isTerminated == true {
@@ -75,8 +80,8 @@ final class AXEventHandler {
         windowInfoProvider: @escaping (UInt32) -> WindowServerInfo? = {
             SkyLight.shared.queryWindowInfo($0)
         },
-        windowInfoBatchProvider: @escaping (Set<UInt32>) -> [UInt32: WindowServerInfo]? = {
-            SkyLight.shared.queryWindowInfo(windowIds: $0)
+        windowInfoBatchProvider: @escaping (Set<UInt32>) async throws -> [UInt32: WindowServerInfo]? = {
+            try await SkyLight.shared.queryWindowInfoDeferred(windowIds: $0)
         },
         windowSubscriptionProvider: @escaping ([UInt32]) -> Bool = {
             CGSEventObserver.shared.subscribeToWindows($0)
@@ -91,6 +96,8 @@ final class AXEventHandler {
     }
 
     func cleanup() {
+        cancelLifecycleQueries()
+        cancelFrameObservations()
         resetCreatePlacementContextState()
         resetManagedReplacementState()
         endWindowCloseFocusRecovery(reason: "cleanup")
@@ -113,23 +120,21 @@ extension AXEventHandler {
 
     func hasPendingManagedReplacementDestroy(
         _ token: WindowToken,
-        workspaceId: WorkspaceDescriptor.ID
+        workspaceId: WorkspaceDescriptor.ID,
+        evidence: WindowDestroyEvidence? = nil
     ) -> Bool {
         let key = ManagedReplacementKey(pid: token.pid, workspaceId: workspaceId)
         return pendingManagedReplacementBursts[key]?.destroys.contains {
-            $0.candidate.token == token
+            $0.candidate.token == token && (evidence == nil || $0.candidate.evidence == evidence)
         } == true
     }
 
     func drainDeferredCreatedWindows(
-        spaceIdsForWindow: (UInt32) -> [UInt64] = { SkyLight.shared.spacesForWindow($0) }
+        spaceIdsForWindow: @escaping (UInt32) -> [UInt64] = { SkyLight.shared.spacesForWindow($0) }
     ) {
         guard !deferredCreatedWindowOrder.isEmpty else { return }
 
         let deferredWindowIds = deferredCreatedWindowOrder
-        deferredCreatedWindowOrder.removeAll()
-        deferredCreatedWindowIds.removeAll()
-
         for windowId in deferredWindowIds {
             guard let controller else { return }
             processDeferredCreatedWindow(windowId, controller: controller, spaceIdsForWindow: spaceIdsForWindow)
@@ -271,16 +276,16 @@ extension AXEventHandler {
             )
         )
         controller.scratchpadStacking.noteScratchpadStackingAppActivation(pid: pid, source: source)
-        let observationGeneration: UInt64
         if let causalGeneration {
-            observationGeneration = causalGeneration
-        } else {
-            observationGeneration = nextActivationObservationGeneration
-            nextActivationObservationGeneration &+= 1
-            latestActivationObservationGeneration = observationGeneration
+            return causalGeneration
         }
+        invalidateActivationObservations()
+        return latestActivationObservationGeneration
+    }
 
-        return observationGeneration
+    func invalidateActivationObservations() {
+        latestActivationObservationGeneration = nextActivationObservationGeneration
+        nextActivationObservationGeneration &+= 1
     }
 
     func isCurrentFocusedAdmissionContinuation(
@@ -347,13 +352,9 @@ extension AXEventHandler {
         return candidate.structuralReplacementMatch?.source == .pendingDestroy
     }
 
-    func enqueueManagedReplacementCreate(_ candidate: PreparedCreate) {
-        enqueueManagedReplacementCreate(candidate, focusedActivation: nil)
-    }
-
     func enqueueManagedReplacementCreate(
         _ candidate: PreparedCreate,
-        focusedActivation: PendingFocusedManagedActivation?
+        focusedActivation: PendingFocusedManagedActivation? = nil
     ) {
         guard let policy = managedReplacementCorrelationPolicy(for: candidate.replacementMetadata) else { return }
         recordDeferredManagedReplacementCreate(candidate)

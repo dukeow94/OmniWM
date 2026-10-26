@@ -5,6 +5,30 @@ import Foundation
 
 @MainActor
 struct TraceCaptureResources {
+    static let defaultRecorders: [any RuntimeTraceRecording] = [
+        AppVisibilityTrace.shared,
+        NativeFullscreenPlaceholderTrace.shared,
+        NativeFullscreenPlaceholderTrace.motion,
+        WindowAdmissionTrace.shared,
+        AnimationTickTrace.shared,
+        EventIntakeTrace.shared,
+        MainThreadAXSpanTrace.shared,
+        WindowFocusDispatchTrace.shared,
+        WindowFocusDispatchTrace.retryRaise,
+        MainRunLoopActivityTrace.shared,
+        RawAXNotificationTrace.shared,
+        FrameApplyTrace.shared,
+        NiriLayoutTrace.shared,
+        ParkVisibilityAudit.shared,
+        ScrollTickTrace.shared,
+        AXWriteLatencyTrace.shared,
+        OverviewFrameTrace.shared,
+        BorderOpMetricsRecorder.shared,
+        MouseTrace.shared,
+        TrackpadScrollTrace.shared,
+        InputTrace.shared
+    ]
+
     let recorders: [any RuntimeTraceRecording]
     private let diagnosticsEventRecorder: DiagnosticsEventRecorder
     let writer: TraceCaptureFileWriter
@@ -28,11 +52,13 @@ struct TraceCaptureResources {
             recorders.forEach { $0.beginCapture() }
             FrameEffectTraceContext.beginCapture(generation: generation)
             FrameEffectObservationTracker.shared.beginCapture(generation: generation)
+            MainRunLoopActivityTrace.beginCapture()
         }
     }
 
     func end(for profile: TraceCaptureProfile) {
         if profile == .problem {
+            MainRunLoopActivityTrace.endCapture()
             FrameEffectObservationTracker.shared.endCapture()
             FrameEffectTraceContext.endCapture()
             diagnosticsEventRecorder.endVerboseCapture()

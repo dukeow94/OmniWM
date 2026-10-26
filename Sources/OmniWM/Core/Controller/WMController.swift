@@ -32,6 +32,8 @@ final class WMController {
     @ObservationIgnored
     private var appliedBorderLayoutConfig: BorderLayoutConfig
     let workspaceManager: WorkspaceManager
+    @ObservationIgnored
+    let windowMarkRegistry = WindowMarkRegistry()
     let hotkeys = HotkeyCenter()
     private(set) var hotkeyRegistrationFailures: [HotkeyCommand: HotkeyRegistrationFailureReason] = [:]
     private(set) var systemHyperTriggerFailure: SystemHyperTriggerFailure?
@@ -40,6 +42,7 @@ final class WMController {
     }
 
     let secureInputMonitor = SecureInputMonitor()
+    let secureInputIndicator = SecureInputIndicatorController()
     let lockScreenObserver = LockScreenObserver()
     var isLockScreenActive: Bool = false {
         didSet {
@@ -100,9 +103,9 @@ final class WMController {
     @ObservationIgnored
     let floatDemotionTracker = FloatDemotionTracker()
     @ObservationIgnored
-    private var hiddenWorkspaceBarMonitorIds: Set<Monitor.ID> = []
+    private(set) var hiddenWorkspaceBarMonitorIds: Set<Monitor.ID> = []
     @ObservationIgnored
-    private var isWorkspaceBarRevealHeld = false
+    private(set) var isWorkspaceBarRevealHeld = false
     @ObservationIgnored
     private lazy var workspaceBarRevealMonitor: WorkspaceBarRevealMonitor = {
         let monitor = WorkspaceBarRevealMonitor()
@@ -197,6 +200,8 @@ final class WMController {
     @ObservationIgnored
     let ownedWindowRegistry: OwnedWindowRegistry
     @ObservationIgnored
+    let columnModeToast: ColumnModeToastController
+    @ObservationIgnored
     var warpMouseCursorPosition: (CGPoint) -> Void = { CGWarpMouseCursorPosition($0) }
     @ObservationIgnored
     var currentMouseLocation: () -> CGPoint = { NSEvent.mouseLocation }
@@ -213,6 +218,9 @@ final class WMController {
     var effectiveAppearanceObserver: NSKeyValueObservation?
     @ObservationIgnored
     var borderUsesDarkAppearance = false
+    @ObservationIgnored var cachedMonitorLayout: MonitorLayoutCacheEntry?
+    @ObservationIgnored var cachedInnerGap: InnerGapCacheEntry?
+    @ObservationIgnored var cachedBorderConfig: BorderConfigCacheEntry?
 
     init(
         settings: SettingsStore,
@@ -230,13 +238,17 @@ final class WMController {
         )
         self.workspaceBarIconResolver = workspaceBarIconResolver
             ?? WorkspaceBarIconResolver(settingsFileURL: settings.settingsFileURL)
-        motionPolicy = MotionPolicy(animationsEnabled: settings.animationsEnabled)
+        motionPolicy = MotionPolicy(
+            animationsEnabled: settings.animationsEnabled,
+            animationSpeed: settings.animationSpeed
+        )
         self.hiddenBarController = hiddenBarController ?? HiddenBarController(settings: settings)
         self.clipboardHistoryDirectory = clipboardHistoryDirectory
         self.diagnosticsDirectory = diagnosticsDirectory
         traceCaptureCoordinator = RuntimeTraceCaptureCoordinator(diagnosticsDirectory: diagnosticsDirectory)
         self.windowFocusOperations = windowFocusOperations
         self.ownedWindowRegistry = ownedWindowRegistry
+        columnModeToast = ColumnModeToastController(ownedWindowRegistry: ownedWindowRegistry)
         workspaceManager = WorkspaceManager(settings: settings)
         focusPolicyEngine = FocusPolicyEngine()
         if self.workspaceBarIconResolver.synchronize(
@@ -258,7 +270,7 @@ extension WMController {
         if enabled {
             serviceLifecycleManager.start()
         } else {
-            serviceLifecycleManager.stop()
+            serviceLifecycleManager.stopRestoringWindows()
         }
         reconcileEnabledAndHotkeysState()
     }
@@ -284,18 +296,18 @@ extension WMController {
 
     func reconcileEnabledAndHotkeysState() {
         isEnabled = desiredEnabled && accessibilityPermissionGranted
+            && !serviceLifecycleManager.isStoppingForUser && !serviceLifecycleManager.quitRequested
 
         let shouldEnableHotkeys = desiredHotkeysEnabled
             && isEnabled
             && hasStartedServices
-            && !serviceLifecycleManager.isSecureInputActive
         hotkeysEnabled = shouldEnableHotkeys
         if shouldEnableHotkeys {
             hotkeys.start()
         } else {
             hotkeys.stop()
         }
-        refreshHotkeyFailureSnapshots()
+        refreshHotkeyPresentation()
     }
 
     func borderSettingsChanged() {
@@ -303,6 +315,9 @@ extension WMController {
             enabled: settings.borders.enabled,
             width: CGFloat(settings.borders.width)
         )
+        if !current.enabled {
+            surfaceReconciler.cleanupBorder()
+        }
         let previous = appliedBorderLayoutConfig
         appliedBorderLayoutConfig = current
         let clearanceChanged = workspaceManager.monitors.contains { monitor in
@@ -332,6 +347,7 @@ extension WMController {
             hiddenWorkspaceBarMonitorIds.insert(monitor.id)
         }
 
+        cachedMonitorLayout = nil
         workspaceManager.invalidateAllLayouts()
         layoutRefreshController.requestRelayout(reason: .monitorSettingsChanged)
         surfaceReconciler.noteWorldChanged()
@@ -357,6 +373,7 @@ extension WMController {
 
     func setFocusFollowsMouse(_ enabled: Bool) {
         focusFollowsMouseEnabled = enabled
+        mouseEventHandler.reconcileMouseMoveSubscription()
         guard !enabled,
               let request = intentLedger.activeManagedRequest,
               request.origin == .focusFollowsMouse
@@ -387,6 +404,7 @@ extension WMController {
 
     func setWorkspaceBarRevealHeld(_ revealed: Bool) {
         guard isWorkspaceBarRevealHeld != revealed else { return }
+        workspaceBarManager.refreshAutoHide()
         isWorkspaceBarRevealHeld = revealed
         surfaceReconciler.noteWorldChanged()
     }
@@ -400,28 +418,8 @@ extension WMController {
         systemHyperTriggerFailure = hotkeys.systemHyperTriggerFailure
     }
 
-    var workspaceBarRefreshIsEnabled: Bool {
-        settings.workspaceBar.enabled || settings.workspaceBar.monitorOverrides.contains(where: { $0.enabled == true })
-    }
-
-    var statusBarRefreshIsEnabled: Bool {
-        statusBarController != nil && settings.statusBar.showWorkspaceName
-    }
-
-    var hasWorkspaceBarDataConsumers: Bool {
-        workspaceBarRefreshIsEnabled
-            || statusBarRefreshIsEnabled
-            || ipcApplicationBridge?.hasSubscribers(for: .workspaceBar) == true
-            || ipcApplicationBridge?.hasSubscribers(for: .windowsChanged) == true
-            || ipcApplicationBridge?.hasSubscribers(for: .layoutChanged) == true
-    }
-
-    func isWorkspaceBarConfiguredVisible(on monitor: Monitor, resolved: ResolvedBarSettings) -> Bool {
-        guard resolved.enabled, !hiddenWorkspaceBarMonitorIds.contains(monitor.id) else { return false }
-        return settings.workspaceBar.revealModifier == .off || isWorkspaceBarRevealHeld
-    }
-
     func pruneHiddenWorkspaceBarMonitorIds() {
+        cachedMonitorLayout = nil
         hiddenWorkspaceBarMonitorIds = hiddenWorkspaceBarMonitorIds.filter { monitorId in
             guard let monitor = workspaceManager.monitor(byId: monitorId) else { return false }
             return settings.workspaceBar.resolved(for: monitor).enabled
@@ -433,6 +431,7 @@ extension WMController {
         domains: InvalidationDomain,
         surfaceScope: SessionSurfaceInvalidationScope
     ) {
+        layoutRefreshController.workspaceSwipe.handleInvalidation(workspaceId: workspaceId, domains: domains)
         switch surfaceScope {
         case .full:
             surfaceReconciler.noteWorldChanged()
@@ -462,7 +461,8 @@ extension WMController {
             maxItems: settings.clipboard.maxItems,
             maxItemBytes: settings.clipboard.maxItemBytes,
             maxTotalBytes: settings.clipboard.maxTotalBytes,
-            storageDirectory: clipboardHistoryDirectory
+            storageDirectory: clipboardHistoryDirectory,
+            ignoredTypes: settings.clipboard.ignoredTypes
         )
     }
 
@@ -470,11 +470,10 @@ extension WMController {
     func syncMouseWarpPolicy(for monitors: [Monitor]? = nil) -> Bool {
         let effectiveMonitors = monitors ?? workspaceManager.monitors
         let shouldEnable = shouldUseMouseWarp(for: effectiveMonitors)
-
+        mouseEventHandler.reconcileMouseMoveSubscription()
         guard shouldEnable != isMouseWarpPolicyEnabled else {
             return shouldEnable
         }
-
         if shouldEnable {
             mouseWarpHandler.setup()
         } else {

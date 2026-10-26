@@ -27,7 +27,7 @@ final class InputDiagnosticsTests: XCTestCase {
         let snapshot = InputHealthSnapshot(
             hotkey: facts,
             mouseTapInstalled: true,
-            secureInputActive: false,
+            secureInput: SecureInputHealthFacts(observed: false, live: true, subscribed: true, notifications: 4),
             liveModifierFlags: NSEvent.ModifierFlags([.command, .shift]).rawValue,
             mouseTapDisableCount: 3,
             hyperTapDisableCount: 0,
@@ -39,6 +39,7 @@ final class InputDiagnosticsTests: XCTestCase {
         XCTAssertTrue(text.contains("systemHyperTrigger=CapsLock enabled=true failure=none"))
         XCTAssertTrue(text.contains("bindings=42 sideSpecific=0 registrationFailures=1 suppressedKeys=2"))
         XCTAssertTrue(text.contains("modifierFlags=cmd+shift"))
+        XCTAssertTrue(text.contains("secureInput observed=false live=true subscribed=true notifications=4"))
         XCTAssertTrue(text.contains("tapDisables mouse=3 hyper=0 last=never"))
         XCTAssertFalse(text.lowercased().contains("keycode"), "snapshot must not leak raw key identities")
     }
@@ -128,6 +129,14 @@ final class InputDiagnosticsTests: XCTestCase {
 
         InputTrace.record("hyper apply decision=inject")
         XCTAssertTrue(InputTrace.shared.dump().contains("decision=inject"))
+        XCTAssertTrue(InputTrace.shared.dump().contains("t_ns="))
+        EventIntakeTrace.shared.record(EventIntakeTrace.Record(
+            sequence: 21,
+            enqueuedNs: 1_000,
+            startedNs: 2_000,
+            endedNs: 3_000,
+            identity: .init(kind: "hotkey")
+        ))
 
         let outcome = await coordinator.toggle(desiredState: .inactive, reportProvider: { "report" })
         guard case let .stopped(artifact) = outcome else {
@@ -136,6 +145,8 @@ final class InputDiagnosticsTests: XCTestCase {
         let body = (try? String(contentsOf: artifact.url, encoding: .utf8)) ?? ""
         XCTAssertTrue(body.contains("== Input Trace =="))
         XCTAssertTrue(body.contains("decision=inject"))
+        XCTAssertTrue(body.contains("== Event Intake Timing =="))
+        XCTAssertTrue(body.contains("seq=21 kind=hotkey"))
         try? FileManager.default.removeItem(at: artifact.url)
 
         InputTrace.record("after")
@@ -160,7 +171,7 @@ final class InputDiagnosticsTests: XCTestCase {
         let snapshot = InputHealthSnapshot(
             hotkey: facts,
             mouseTapInstalled: false,
-            secureInputActive: false,
+            secureInput: SecureInputHealthFacts(observed: false, live: false, subscribed: false, notifications: 0),
             liveModifierFlags: 0,
             mouseTapDisableCount: 0,
             hyperTapDisableCount: 0,

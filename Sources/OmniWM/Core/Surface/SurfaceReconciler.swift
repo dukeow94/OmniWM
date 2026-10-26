@@ -114,7 +114,7 @@ final class SurfaceReconciler {
     }
 
     func reconcileAnimationTick() {
-        guard let controller else { return }
+        guard let controller, controller.settings.borders.enabled else { return }
         let world = WorldView(controller: controller)
         let desiredBorder = world.hasStartedServices
             ? SurfaceDerivation.deriveAnimationBorder(world: world, previous: appliedScene.border)
@@ -217,6 +217,11 @@ final class SurfaceReconciler {
         appliedScene = .empty
     }
 
+    func cleanupBorder() {
+        borderApplier.cleanup()
+        appliedScene.border = nil
+    }
+
     private func flushScheduledReconcile() {
         guard reconcileScheduled else { return }
         reconcileNow()
@@ -302,9 +307,7 @@ final class SurfaceReconciler {
         refreshCornerRadii: Bool
     ) -> BorderSurfaceApplyResult {
         controller.workspaceBarManager.apply(desired.bars)
-        if desired.bars != appliedScene.bars {
-            controller.publishWorkspaceDataChanged()
-        }
+        controller.publishWorkspaceDataChanges(from: appliedScene, to: desired)
         let borderOutcome = borderApplier.apply(
             desired.border,
             forceOrdering: forceOrdering,

@@ -9,8 +9,10 @@ enum SurfaceKind: String, CaseIterable, Hashable, Sendable {
     case parkingEdgeMask
     case workspaceBar
     case overview
+    case workspaceSwipe
     case nativeFullscreenPlaceholder
     case tabRail
+    case columnModeToast
     case dragGhost
     case utility
     case quake

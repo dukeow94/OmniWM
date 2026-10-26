@@ -15,7 +15,8 @@ enum WindowAdmissionTestSupport {
             activateApp: { _ in },
             focusSpecificWindow: { _, _, _ in },
             raiseWindow: { _ in }
-        )
+        ),
+        ownedWindowRegistry: OwnedWindowRegistry = .shared
     ) -> WMController {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("\(prefix)-\(UUID().uuidString)", isDirectory: true)
@@ -31,10 +32,14 @@ enum WindowAdmissionTestSupport {
             ),
             autosaveEnabled: false
         )
-        return WMController(
+        let controller = WMController(
             settings: settings,
-            windowFocusOperations: windowFocusOperations
+            windowFocusOperations: windowFocusOperations,
+            ownedWindowRegistry: ownedWindowRegistry
         )
+        let handler = controller.axEventHandler
+        handler.lifecycleQueries.query = { [weak handler] in handler?.windowInfoProvider($0) }
+        return controller
     }
 
     static func workspace(

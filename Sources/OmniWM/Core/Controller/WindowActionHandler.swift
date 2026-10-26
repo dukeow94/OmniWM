@@ -71,6 +71,10 @@ final class WindowActionHandler {
         floatingWindows.raiseAllFloatingWindows()
     }
 
+    func toggleFloatingFocus() -> ExternalCommandResult {
+        floatingWindows.toggleFloatingFocus()
+    }
+
     func hasRaisableFloatingWindows() -> Bool {
         floatingWindows.hasRaisableFloatingWindows()
     }
@@ -86,10 +90,15 @@ final class WindowActionHandler {
     }
 
     func toggleOverview() {
+        guard controller?.settings.overview.enabled == true else { return }
+        controller?.layoutRefreshController.workspaceSwipe.cancel(reason: "overview")
         overviewController.toggle()
     }
 
     func openOverview() {
+        guard controller?.settings.overview.enabled == true else { return }
+        controller?.layoutRefreshController.workspaceSwipe.cancel(reason: "overview")
+        overviewController.input.beginGestureScrollSuppression()
         overviewController.open()
     }
 
@@ -110,11 +119,17 @@ final class WindowActionHandler {
     }
 
     func beginOverviewGesture() -> Bool {
-        overviewController.beginInteractiveTransition()
+        guard controller?.settings.overview.enabled == true else { return false }
+        controller?.layoutRefreshController.workspaceSwipe.cancel(reason: "overview")
+        return overviewController.beginInteractiveTransition()
     }
 
-    func updateOverviewGesture(cumulativeUnits: Double, timestamp: TimeInterval) {
-        overviewControllerStorage?.updateInteractiveTransition(cumulativeUnits: cumulativeUnits, timestamp: timestamp)
+    func updateOverviewGesture(
+        cumulativeUnits: Double, timestamp: TimeInterval, recognitionMovement: SwipeEvent? = nil
+    ) {
+        overviewControllerStorage?.updateInteractiveTransition(
+            cumulativeUnits: cumulativeUnits, timestamp: timestamp, recognitionMovement: recognitionMovement
+        )
     }
 
     func endOverviewGesture(timestamp: TimeInterval?) {
@@ -131,6 +146,11 @@ final class WindowActionHandler {
 
     func invalidateOverviewDeferredActionsForServiceStop() {
         overviewControllerStorage?.invalidateDeferredActionsForServiceStop()
+    }
+
+    func releaseOverviewController() {
+        overviewControllerStorage?.invalidateDeferredActionsForServiceStop()
+        overviewControllerStorage = nil
     }
 
     func handleOverviewWindowRemoved(_ entry: WindowState) {
@@ -179,7 +199,7 @@ final class WindowActionHandler {
                     closeButton,
                     kAXPressAction as CFString,
                     noteKey: "performPressFailed"
-                )
+                ) == .success
             }
             return false
         } succeeded: { $0 }
@@ -193,12 +213,28 @@ final class WindowActionHandler {
     }
 
     @discardableResult
-    func navigateToExplicitlySelectedWindow(handle: WindowHandle) -> Bool {
+    func navigateToExplicitlySelectedWindow(
+        handle: WindowHandle,
+        focusOrigin: ManagedFocusOrigin = .keyboardOrProgrammatic
+    ) -> Bool {
         guard let controller else { return false }
         let destination: AppRevealFocusDestination = controller.workspaceManager
             .scratchpadIndex(for: handle.id)
             .map { .scratchpadWindow(index: $0, monitorId: nil) } ?? .window
-        return appReveal.requestIfNeeded(handle: handle, destination: destination)
+        return appReveal.requestIfNeeded(handle: handle, destination: destination, focusOrigin: focusOrigin)
+    }
+
+    @discardableResult
+    func revealScratchpadWindowFromBar(
+        handle: WindowHandle,
+        index: ScratchpadIndex,
+        monitorId: Monitor.ID
+    ) -> Bool {
+        appReveal.requestIfNeeded(
+            handle: handle,
+            destination: .scratchpadWindow(index: index, monitorId: monitorId),
+            focusOrigin: .pointerSelection
+        )
     }
 
     @discardableResult
@@ -221,22 +257,26 @@ final class WindowActionHandler {
         }
 
         guard let result = controller.workspaceManager.focusWorkspace(named: name) else { return false }
-        return completeWorkspaceFocusFromBar(result)
+        return completeWorkspaceFocusFromBar(result, focusOrigin: .keyboardOrProgrammatic)
     }
 
     @discardableResult
-    func focusWorkspaceFromBar(id workspaceId: WorkspaceDescriptor.ID) -> Bool {
+    func focusWorkspaceFromBar(
+        id workspaceId: WorkspaceDescriptor.ID,
+        focusOrigin: ManagedFocusOrigin = .keyboardOrProgrammatic
+    ) -> Bool {
         guard let controller else { return false }
         if let currentWorkspace = controller.activeWorkspace() {
             controller.workspaceNavigationHandler.saveNiriViewportState(for: currentWorkspace.id)
         }
 
         guard let result = controller.workspaceManager.focusWorkspace(id: workspaceId) else { return false }
-        return completeWorkspaceFocusFromBar(result)
+        return completeWorkspaceFocusFromBar(result, focusOrigin: focusOrigin)
     }
 
     private func completeWorkspaceFocusFromBar(
-        _ result: (workspace: WorkspaceDescriptor, monitor: Monitor)
+        _ result: (workspace: WorkspaceDescriptor, monitor: Monitor),
+        focusOrigin: ManagedFocusOrigin
     ) -> Bool {
         guard let controller else { return false }
         let focusedToken = controller.resolveAndSetWorkspaceFocusToken(for: result.workspace.id)
@@ -246,7 +286,7 @@ final class WindowActionHandler {
         controller.layoutRefreshController
             .commitWorkspaceTransition(reason: .workspaceTransition) { [weak controller] in
                 if let focusedToken {
-                    controller?.focusWindow(focusedToken)
+                    controller?.focusWindow(focusedToken, origin: focusOrigin)
                 }
             }
         return true
@@ -260,8 +300,11 @@ final class WindowActionHandler {
     }
 
     @discardableResult
-    func focusWindowFromBar(handle: WindowHandle) -> Bool {
-        let navigated = navigateToExplicitlySelectedWindow(handle: handle)
+    func focusWindowFromBar(
+        handle: WindowHandle,
+        focusOrigin: ManagedFocusOrigin = .keyboardOrProgrammatic
+    ) -> Bool {
+        let navigated = navigateToExplicitlySelectedWindow(handle: handle, focusOrigin: focusOrigin)
         if navigated,
            let controller,
            let originalToken = AppRevealActions.suspendedNativeFullscreenOriginalToken(

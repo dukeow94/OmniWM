@@ -39,18 +39,17 @@ extension AppAXContext {
     @MainActor
     static func createContext(
         _ nsApp: NSRunningApplication,
+        pid: pid_t,
         generation: UInt64
     ) async throws -> AppAXContext? {
-        let pid = nsApp.processIdentifier
-        guard let callbackGeneration = appAXCallbackGenerationRegistry.reserveCallbackGeneration(
-            serviceGeneration: generation
-        ) else {
-            return nil
-        }
+        let callbackGeneration = appAXCallbackGenerationRegistry
+            .reserveCallbackGeneration(serviceGeneration: generation)
+        guard let callbackGeneration else { return nil }
 
         return try await withCheckedThrowingContinuation { continuation in
             let state = AppAXContextCreationState(continuation)
             let timeoutTask = state.scheduleDeadline()
+            AppAXContextRegistry.workerLifetime.started(callbackGeneration)
 
             let thread = Thread {
                 $appThreadToken.withValue(AppThreadToken(pid: pid)) {
@@ -75,6 +74,7 @@ extension AppAXContext {
 
                         let context = AppAXContext(
                             nsApp,
+                            pid: pid,
                             guardedAxApp,
                             guardedWindows,
                             guardedObserver,
@@ -94,6 +94,7 @@ extension AppAXContext {
 
                     CFRunLoopRun()
                 }
+                scheduleOnMainRunLoop { AppAXContextRegistry.workerLifetime.finished(callbackGeneration) }
             }
             thread.name = "OmniWM-AX-\(nsApp.bundleIdentifier ?? "pid:\(pid)")"
             thread.start()

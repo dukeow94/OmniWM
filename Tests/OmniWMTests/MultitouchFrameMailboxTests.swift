@@ -6,6 +6,21 @@ import XCTest
 
 @MainActor
 final class MultitouchFrameMailboxTests: XCTestCase {
+    func testPartialLiftPreservesLatestMovementForEachFingerCount() {
+        let mailbox = MultitouchFrameMailbox()
+        mailbox.activate(generation: 7)
+        mailbox.beginPerformanceCapture()
+        for (index, fingers) in [4, 4, 4, 3, 3, 2, 1, 0].enumerated() {
+            _ = offer(mailbox, touches: fingers, at: 1 + Double(index) / 100, generation: 7)
+        }
+
+        let deliveries = mailbox.take().deliveries
+        XCTAssertEqual(deliveries.map(\.kind), [.began, .changed, .changed, .changed, .changed, .ended])
+        XCTAssertEqual(deliveries.map(\.frame.touches.count), [4, 4, 3, 2, 1, 0])
+        XCTAssertEqual(deliveries.map(\.frame.timestamp), [1, 1.02, 1.04, 1.05, 1.06, 1.07])
+        XCTAssertEqual(mailbox.endPerformanceCapture()?.overwrittenChanges, 2)
+    }
+
     func testBurstPreservesTransitionsAndKeepsLatestChange() {
         let mailbox = MultitouchFrameMailbox(capacity: 6)
         mailbox.activate(generation: 7)
@@ -259,6 +274,54 @@ final class MultitouchFrameMailboxTests: XCTestCase {
         XCTAssertEqual(replacement.contacts.generation, 8)
         XCTAssertEqual(replacement.contacts.sessions[0], 0)
         XCTAssertTrue(replacement.deliveries.isEmpty)
+    }
+
+    func testSteadyFramesBelowFloorScheduleNoDrainWhileCountChangesStillDeliver() {
+        let mailbox = MultitouchFrameMailbox()
+        mailbox.activate(generation: 7)
+        mailbox.setSteadyFrameFloor(3)
+        mailbox.beginPerformanceCapture()
+
+        XCTAssertTrue(offer(mailbox, touches: 1, at: 1.00, generation: 7))
+        XCTAssertEqual(mailbox.take().deliveries.map(\.kind), [.began])
+        for tick in 1 ... 100 {
+            XCTAssertFalse(offer(mailbox, touches: 1, at: 1 + Double(tick) / 1_000, generation: 7))
+        }
+        XCTAssertTrue(mailbox.take().deliveries.isEmpty)
+
+        XCTAssertTrue(offer(mailbox, touches: 2, at: 1.15, generation: 7))
+        XCTAssertEqual(mailbox.take().deliveries.map(\.frame.touches.count), [2])
+        XCTAssertFalse(offer(mailbox, touches: 2, at: 1.16, generation: 7))
+
+        XCTAssertTrue(offer(mailbox, touches: 3, at: 1.20, generation: 7))
+        _ = mailbox.take()
+        XCTAssertTrue(offer(mailbox, touches: 3, at: 1.21, generation: 7))
+        _ = mailbox.take()
+
+        XCTAssertTrue(offer(mailbox, touches: 1, at: 1.30, generation: 7))
+        _ = mailbox.take()
+        XCTAssertFalse(offer(mailbox, touches: 1, at: 1.31, generation: 7))
+        XCTAssertTrue(offer(mailbox, touches: 0, at: 1.40, generation: 7))
+        XCTAssertEqual(mailbox.take().deliveries.map(\.kind), [.ended])
+
+        let snapshot = mailbox.endPerformanceCapture()
+        XCTAssertEqual(snapshot?.overwrittenChanges, 0)
+        XCTAssertEqual(snapshot?.drainBatches, 6)
+    }
+
+    func testSkippedSteadyFramesKeepTheOwnerAliveAgainstASecondDevice() {
+        let mailbox = MultitouchFrameMailbox()
+        mailbox.activate(generation: 7)
+        mailbox.setSteadyFrameFloor(3)
+
+        XCTAssertTrue(offer(mailbox, touches: 1, at: 1.00, slot: 0, generation: 7))
+        _ = mailbox.take()
+        for tick in 1 ... 30 {
+            XCTAssertFalse(offer(mailbox, touches: 1, at: 1 + Double(tick) / 100, slot: 0, generation: 7))
+        }
+        _ = offer(mailbox, touches: 1, at: 1.30, slot: 1, generation: 7)
+
+        XCTAssertTrue(mailbox.take().deliveries.isEmpty)
     }
 
     private func offer(

@@ -7,6 +7,7 @@ import CoreGraphics
 import Foundation
 
 struct FullRescanAppTarget: Sendable {
+    let pid: pid_t
     let app: NSRunningApplication
     let route: FullRescanEnumerationRoute
     let inspectionContext: AXWindowInspectionContext

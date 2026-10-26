@@ -7,6 +7,28 @@ import CoreGraphics
 import Foundation
 
 extension AXManager {
+    func isWindowNativeSuppressed(_ token: WindowToken) -> Bool {
+        AppAXContextRegistry.nativeSuppressedWindowTokens.contains(token)
+    }
+
+    func setWindowNativeSuppressed(_ suppressed: Bool, token: WindowToken) {
+        guard AppAXContextRegistry.setWindowNativeSuppressed(suppressed, token: token) else { return }
+        clearSkyLightLivePosition(for: token.windowId)
+        if suppressed {
+            let deliveries = frameLedger.suppressFrameWrite(windowId: token.windowId)
+            cancelPendingFrameRetry(for: token.windowId)
+            parkLedger.cancelParkFrameJobs(
+                [(pid: token.pid, windowId: token.windowId)],
+                reason: "native-window-suppressed"
+            )
+            for delivery in deliveries {
+                delivery.deliver()
+            }
+        } else {
+            frameLedger.forceApplyNextFrame(for: token.windowId)
+        }
+    }
+
     func cancelPendingFrameJobs(_ entries: [(pid: pid_t, windowId: Int)], reason: String) {
         var deliveries: [AXFrameTerminalDelivery] = []
         var terminalFailures: [AXFrameApplyResult] = []
@@ -124,15 +146,35 @@ extension AXManager {
     @discardableResult
     func applyPositionsViaSkyLight(
         _ positions: [SkyLightPositionTarget],
-        allowInactive: Bool = false
+        allowInactive: Bool = false,
+        tracingPark: Bool = false
     ) -> SkyLight.TransactionSubmissionResult {
-        let filtered = positions.filter {
+        let filtered = positionsAllowedToWrite(positions, allowInactive: allowInactive)
+        let result: SkyLight.TransactionSubmissionResult = filtered.isEmpty
+            ? .submitted : SkyLight.shared.batchMoveWindows(Self.windowServerPositions(filtered))
+        if tracingPark, FrameApplyTrace.shared.isActive {
+            for position in positions {
+                let eligible = filtered.contains { $0.token == position.token }
+                FrameApplyTrace.recordEvent(
+                    pid: position.token.pid, windowId: position.token.windowId,
+                    outcome: "outcome=sls-park-submission/\(eligible ? String(describing: result) : "filtered")",
+                    target: position.frame, lane: .park
+                )
+            }
+        }
+        return result
+    }
+
+    func positionsAllowedToWrite(
+        _ positions: [SkyLightPositionTarget],
+        allowInactive: Bool
+    ) -> [SkyLightPositionTarget] {
+        positions.filter {
             (allowInactive || !inactiveWorkspaceWindowIds.contains($0.token.windowId))
                 && !macOSHiddenAppPIDs.contains($0.token.pid)
+                && !isWindowNativeSuppressed($0.token)
                 && !excludeFrameWriteForNativeTitleBarDrag(pid: $0.token.pid, windowId: $0.token.windowId)
         }
-        guard !filtered.isEmpty else { return .submitted }
-        return SkyLight.shared.batchMoveWindows(Self.windowServerPositions(filtered))
     }
 
     static func windowServerPositions(

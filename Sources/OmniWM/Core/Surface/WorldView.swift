@@ -59,7 +59,7 @@ struct WorldView {
     }
 
     var borderConfig: BorderConfig {
-        BorderConfig.from(settings: controller.settings, isDark: controller.borderUsesDarkAppearance)
+        controller.resolvedBorderConfig()
     }
 
     func entry(for token: WindowToken) -> WindowState? {
@@ -78,6 +78,10 @@ struct WorldView {
 
     func isManagedWindowDisplayable(_ token: WindowToken) -> Bool {
         controller.isManagedWindowDisplayable(token)
+    }
+
+    func hasPendingWindowClose(for entry: WindowState) -> Bool {
+        controller.axEventHandler.hasPendingWindowClose(entry.token, workspaceId: entry.workspaceId)
     }
 
     func isWorkspaceVisible(_ workspaceId: WorkspaceDescriptor.ID) -> Bool {
@@ -121,12 +125,24 @@ struct WorldView {
                         showAccentHighlights: resolved.showAccentHighlights,
                         barHeight: geometry.barHeight,
                         accentColor: resolved.accentColor,
-                        textColor: resolved.textColor
-                    )
+                        textColor: resolved.textColor,
+                        orientation: resolved.position.isVertical ? .vertical : .horizontal,
+                        secureInputActive: controller.isSecureInputIndicated
+                    ),
+                    retainWhileHidden: controller.canAutoHideWorkspaceBar(on: monitor, resolved: resolved)
                 )
             )
         }
         return bars
+    }
+
+    func niriColumnSummaries() -> [WorkspaceDescriptor.ID: NiriColumnSummary] {
+        guard controller.hasWindowOrLayoutEventSubscribers else { return [:] }
+        var summaries: [WorkspaceDescriptor.ID: NiriColumnSummary] = [:]
+        for workspace in controller.workspaceManager.workspaces {
+            summaries[workspace.id] = controller.niriLayoutHandler.columnSummary(for: workspace.id)
+        }
+        return summaries
     }
 
     func nativeFullscreenPlaceholders() -> [NativeFullscreenPlaceholderUpdate] {
@@ -159,7 +175,7 @@ struct WorldView {
     private func isPlaceholderDescriptorVisible(entry: WindowState) -> Bool {
         let workspaceManager = controller.workspaceManager
         guard isWorkspaceVisible(entry.workspaceId),
-              !workspaceManager.isAppHidden(pid: entry.pid),
+              !workspaceManager.isWindowSuppressedByMacOS(entry.token),
               !workspaceManager.isHiddenInCorner(entry.token)
         else { return false }
         guard spaceTopology.isPopulated,
@@ -214,7 +230,9 @@ struct WorldView {
             return liveBoundsProvider(windowId)
         }
         guard windowId > 0,
-              let bounds = SkyLight.shared.getWindowBounds(UInt32(windowId)),
+              let bounds = MainThreadAXSpanTrace.measure(.borderLiveBounds, windowId: windowId, {
+                  SkyLight.shared.getWindowBounds(UInt32(windowId))
+              }, succeeded: { $0 != nil }),
               bounds.width > 0, bounds.height > 0
         else {
             return nil

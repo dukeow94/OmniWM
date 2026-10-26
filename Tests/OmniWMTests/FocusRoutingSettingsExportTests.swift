@@ -36,18 +36,18 @@ final class FocusRoutingSettingsExportTests: XCTestCase {
 
     func testSchemaThreeFocusSectionMigratesMonitorCrossingFocusToSpatial() throws {
         let source = String(decoding: try SettingsTOMLCodec.encode(.defaults()), as: UTF8.self)
-            .replacingOccurrences(of: "schemaVersion = 4", with: "schemaVersion = 3")
+            .replacingOccurrences(of: "schemaVersion = 5", with: "schemaVersion = 3")
             .replacingOccurrences(of: "monitorCrossingFocus = \"spatial\"\n", with: "")
 
         let result = try SettingsTOMLCodec.decodeForLoad(Data(source.utf8))
 
         XCTAssertEqual(result.export.focus.monitorCrossingFocus, .spatial)
         XCTAssertEqual(result.migration?.fromVersion, 3)
-        XCTAssertEqual(result.migration?.toVersion, 4)
+        XCTAssertEqual(result.migration?.toVersion, 5)
         XCTAssertEqual(result.migration?.defaultedPaths, ["focus.monitorCrossingFocus"])
         XCTAssertTrue(
             String(decoding: try XCTUnwrap(result.migratedData), as: UTF8.self)
-                .contains("schemaVersion = 4")
+                .contains("schemaVersion = 5")
         )
     }
 

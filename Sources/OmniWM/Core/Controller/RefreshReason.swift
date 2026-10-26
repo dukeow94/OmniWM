@@ -115,6 +115,10 @@ enum RefreshReason: String, Sendable {
     case staleFullRescan
     case windowDestroyed
     case appHidden
+    case windowMinimized
+    case windowDeminiaturized
+    case windowWithdrawn
+    case windowReopened
     case appUnhidden
     case overviewMutation
 
@@ -146,7 +150,11 @@ enum RefreshReason: String, Sendable {
              .interactiveGesture,
              .overviewMutation:
             .immediateRelayout
-        case .appHidden,
+        case .windowMinimized,
+             .windowDeminiaturized,
+             .windowWithdrawn,
+             .windowReopened,
+             .appHidden,
              .appUnhidden:
             .visibilityRefresh
         case .windowDestroyed:
@@ -175,6 +183,10 @@ enum RefreshReason: String, Sendable {
              .observedConstraintsChanged,
              .layoutCommand,
              .interactiveGesture,
+             .windowMinimized,
+             .windowDeminiaturized,
+             .windowWithdrawn,
+             .windowReopened,
              .appHidden,
              .appUnhidden,
              .overviewMutation:
@@ -191,6 +203,6 @@ enum RefreshReason: String, Sendable {
     }
 
     var recoversFocusAfterVisibilityChange: Bool {
-        self == .appHidden
+        self == .appHidden || self == .windowMinimized || self == .windowWithdrawn
     }
 }

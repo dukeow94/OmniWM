@@ -17,8 +17,8 @@ func axFrameMatches(
     tolerance: CGFloat = FrameTolerance.frameWrite
 ) -> Bool {
     (!components.contains(.position)
-        || (abs(observed.origin.x - target.origin.x) < tolerance
-            && abs(observed.origin.y - target.origin.y) < tolerance))
+        || (abs(observed.minX - target.minX) < tolerance
+            && abs(observed.maxY - target.maxY) < tolerance))
         && (!components.contains(.size)
             || (abs(observed.width - target.width) < tolerance
                 && abs(observed.height - target.height) < tolerance))
@@ -167,6 +167,7 @@ struct AXFrameApplyResult: Equatable, Sendable {
     let targetFrame: CGRect
     let currentFrameHint: CGRect?
     let writeResult: AXFrameWriteResult
+    let didAttemptWrite: Bool
     let traceRequestId: UInt64
 
     init(
@@ -177,6 +178,7 @@ struct AXFrameApplyResult: Equatable, Sendable {
         targetFrame: CGRect,
         currentFrameHint: CGRect?,
         writeResult: AXFrameWriteResult,
+        didAttemptWrite: Bool = false,
         traceRequestId: UInt64 = 0
     ) {
         self.requestId = requestId
@@ -186,6 +188,7 @@ struct AXFrameApplyResult: Equatable, Sendable {
         self.targetFrame = targetFrame
         self.currentFrameHint = currentFrameHint
         self.writeResult = writeResult
+        self.didAttemptWrite = didAttemptWrite
         self.traceRequestId = traceRequestId
     }
 
@@ -211,6 +214,7 @@ struct AXFrameApplyResult: Equatable, Sendable {
             targetFrame: targetFrame,
             currentFrameHint: currentFrameHint,
             writeResult: writeResult,
+            didAttemptWrite: didAttemptWrite,
             traceRequestId: traceRequestId
         )
     }
@@ -223,5 +227,6 @@ struct AXFrameApplyResult: Equatable, Sendable {
             && lhs.targetFrame == rhs.targetFrame
             && lhs.currentFrameHint == rhs.currentFrameHint
             && lhs.writeResult == rhs.writeResult
+            && lhs.didAttemptWrite == rhs.didAttemptWrite
     }
 }

@@ -92,6 +92,7 @@ import QuartzCore
     }
 
     private(set) lazy var niriHandler = NiriLayoutHandler(controller: controller)
+    lazy var workspaceSwipe = WorkspaceSwipePresentation(refreshController: self)
     private(set) lazy var dwindleHandler = DwindleLayoutHandler(controller: controller)
     private lazy var diffExecutor = LayoutDiffExecutor(refreshController: self)
 
@@ -117,6 +118,7 @@ import QuartzCore
     }
 
     func resetState() {
+        workspaceSwipe.cancel(reason: "reset")
         let discardedScratchpadIndices = revealGroups.indices()
         layoutState.activeRefreshTask?.cancel()
         layoutState.activeRefreshTask = nil
@@ -154,6 +156,7 @@ import QuartzCore
         resetDisplayLinkAndAnimationState()
 
         controller?.axManager.clearInactiveWorkspaceWindows()
+        layoutState.backingScaleByDisplay = nil
 
         if let observer = layoutState.screenChangeObserver {
             NotificationCenter.default.removeObserver(observer)

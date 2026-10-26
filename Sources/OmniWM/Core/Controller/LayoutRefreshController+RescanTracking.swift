@@ -48,6 +48,13 @@ extension LayoutRefreshController {
             )
         }
 
+        controller.axEventHandler.applyObservedWindowOrdering(
+            candidate.windowServerInfo,
+            token: admittedToken,
+            appFullscreen: window.decision.appFullscreen,
+            requestRefresh: false
+        )
+
         if shouldPreservePreFullscreenState {
             _ = controller.reconcileScratchpadMemberAfterNativeFullscreenExit(admittedToken)
             progress.seenKeys.insert(admittedToken)
@@ -65,6 +72,9 @@ extension LayoutRefreshController {
         context: FullRescanMutationContext
     ) {
         let controller = context.controller
+        guard controller.workspaceManager.entry(for: admittedToken)?.observedState.isNativeSuppressed != true else {
+            return
+        }
         let candidate = window.candidate
         let oldMode = admission.refreshedEntry?.mode
         let wsForWindow = admission.assignment.workspaceId

@@ -1,7 +1,24 @@
 // SPDX-License-Identifier: GPL-2.0-only
 // Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
 
+import Foundation
 import Observation
+
+extension WorkspaceSwipeAxis {
+    var localizedDisplayName: String {
+        switch self {
+        case .horizontal: String(localized: "Horizontal")
+        case .vertical: String(localized: "Vertical")
+        }
+    }
+
+    var localizedSwipePhrase: String {
+        switch self {
+        case .horizontal: String(localized: "horizontal swipes")
+        case .vertical: String(localized: "vertical swipes")
+        }
+    }
+}
 
 enum GestureAssignmentAction: String, CaseIterable, Identifiable {
     case columns, workspaces, overview, move, resize
@@ -12,16 +29,22 @@ enum GestureAssignmentAction: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .columns: "Scroll columns"
-        case .workspaces: "Switch workspaces"
-        case .overview: "Overview"
-        case .move: "Move windows"
-        case .resize: "Resize windows"
+        case .columns: String(localized: "Scroll columns")
+        case .workspaces: String(localized: "Switch workspaces")
+        case .overview: String(localized: "Overview")
+        case .move: String(localized: "Move windows")
+        case .resize: String(localized: "Resize windows")
         }
     }
 
     var supportedFingerCounts: [Int] {
-        self == .overview ? [3, 4] : [2, 3, 4]
+        switch self {
+        case .columns,
+             .overview: [3, 4]
+        case .workspaces,
+             .move,
+             .resize: [2, 3, 4]
+        }
     }
 
     func isEnabled(in gestures: SettingsExport.Gestures) -> Bool {
@@ -57,9 +80,10 @@ struct GestureAssignmentEdit: Equatable {
 
     var summary: String {
         switch change {
-        case let .enabled(enabled): "\(enabled ? "Enable" : "Disable") \(action.title)"
-        case let .fingers(count): "Set \(action.title) to \(count) fingers"
-        case let .workspaceAxis(axis): "Set \(action.title) to \(axis.displayName.lowercased()) swipes"
+        case .enabled(true): String(localized: "Enable \(action.title)")
+        case .enabled(false): String(localized: "Disable \(action.title)")
+        case let .fingers(count): String(localized: "Set \(action.title) to \(count) fingers")
+        case let .workspaceAxis(axis): String(localized: "Set \(action.title) to \(axis.localizedSwipePhrase)")
         }
     }
 
@@ -76,13 +100,16 @@ struct GestureAssignmentEdit: Equatable {
             }
         case let .fingers(count):
             precondition(action.supportedFingerCounts.contains(count))
+            let threeOrFour = ThreeOrFourFingerCount(rawValue: count)
             guard let fingers = GestureFingerCount(rawValue: count) else {
                 preconditionFailure("Unsupported gesture finger count")
             }
             switch action {
-            case .columns: candidate.fingerCount = fingers
+            case .columns:
+                guard let threeOrFour else { preconditionFailure("Unsupported gesture finger count") }
+                candidate.fingerCount = threeOrFour
             case .workspaces: candidate.workspaceSwipeFingerCount = fingers
-            case .overview: candidate.overviewGestureFingerCount = OverviewGestureFingerCount(rawValue: count)
+            case .overview: candidate.overviewGestureFingerCount = threeOrFour
             case .move: candidate.windowMoveFingerCount = fingers
             case .resize: candidate.windowResizeFingerCount = fingers
             }
@@ -107,12 +134,19 @@ struct GestureAssignmentResolution: Equatable, Identifiable {
 
     func title(for edit: GestureAssignmentEdit) -> String {
         guard !disabledActions.isEmpty else { return edit.summary }
-        let names = disabledActions.map(\.title)
-        let joinedNames = names.count > 1
-            ? names.dropLast().joined(separator: ", ") + " and " + (names.last ?? "")
-            : names[0]
-        let request = edit.summary.prefix(1).lowercased() + edit.summary.dropFirst()
-        return "Turn off \(joinedNames) and \(request)"
+        let joinedNames = ListFormatter.localizedString(byJoining: disabledActions.map(\.title))
+        switch edit.change {
+        case .enabled(true):
+            return String(localized: "Turn off \(joinedNames) and enable \(edit.action.title)")
+        case .enabled(false):
+            return String(localized: "Turn off \(joinedNames) and disable \(edit.action.title)")
+        case let .fingers(count):
+            return String(localized: "Turn off \(joinedNames) and set \(edit.action.title) to \(count) fingers")
+        case let .workspaceAxis(axis):
+            return String(
+                localized: "Turn off \(joinedNames) and set \(edit.action.title) to \(axis.localizedSwipePhrase)"
+            )
+        }
     }
 
     func applying(to gestures: SettingsExport.Gestures) -> SettingsExport.Gestures {

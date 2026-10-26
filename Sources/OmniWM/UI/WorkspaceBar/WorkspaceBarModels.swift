@@ -133,8 +133,10 @@ struct WorkspaceBarSnapshot: Equatable {
     let showItemBackgrounds: Bool
     let showAccentHighlights: Bool
     let barHeight: CGFloat
+    let orientation: WorkspaceBarOrientation
     let accentColor: SettingsColor?
     let textColor: SettingsColor?
+    let secureInputActive: Bool
 
     init(
         projection: WorkspaceBarProjection,
@@ -148,7 +150,9 @@ struct WorkspaceBarSnapshot: Equatable {
         showAccentHighlights: Bool = true,
         barHeight: CGFloat,
         accentColor: SettingsColor?,
-        textColor: SettingsColor?
+        textColor: SettingsColor?,
+        orientation: WorkspaceBarOrientation = .horizontal,
+        secureInputActive: Bool = false
     ) {
         self.projection = projection
         self.showLabels = showLabels
@@ -160,8 +164,10 @@ struct WorkspaceBarSnapshot: Equatable {
         self.showItemBackgrounds = showItemBackgrounds
         self.showAccentHighlights = showAccentHighlights
         self.barHeight = barHeight
+        self.orientation = orientation
         self.accentColor = accentColor
         self.textColor = textColor
+        self.secureInputActive = secureInputActive
     }
 
     var items: [WorkspaceBarItem] {
@@ -201,7 +207,9 @@ struct WorkspaceBarSnapshot: Equatable {
             showAccentHighlights: showAccentHighlights,
             barHeight: barHeight,
             accentColor: accentColor,
-            textColor: textColor
+            textColor: textColor,
+            orientation: orientation,
+            secureInputActive: secureInputActive
         )
     }
 }
@@ -210,6 +218,10 @@ enum WorkspaceBarIslandSlice: Hashable {
     case all
     case active
     case secondary
+
+    var showsOmniWMButton: Bool {
+        self != .secondary
+    }
 
     func items(in snapshot: WorkspaceBarSnapshot) -> [WorkspaceBarItem] {
         switch self {
@@ -227,6 +239,8 @@ enum WorkspaceBarIslandSlice: Hashable {
 @MainActor @Observable
 final class WorkspaceBarModel {
     var snapshot: WorkspaceBarSnapshot
+    var presentedWindowList: WindowToken?
+    var hiddenBarJoinEdge: PopupAttachment.Edge?
 
     init(snapshot: WorkspaceBarSnapshot) {
         self.snapshot = snapshot

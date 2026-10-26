@@ -12,7 +12,7 @@ OmniWM is a free, open-source, Developer ID-signed and Apple-notarized tiling wi
 
 ## Demo Video
 
-[![Watch the demo](https://img.youtube.com/vi/WcHjGkuD2Fc/maxresdefault.jpg)](https://youtu.be/WcHjGkuD2Fc)
+[![Watch the demo](https://img.youtube.com/vi/SWzGMEKtdbI/maxresdefault.jpg)](https://www.youtube.com/watch?v=SWzGMEKtdbI)
 
 <!-- contributors:start -->
 ## Contributors
@@ -130,6 +130,23 @@ OmniWM is a free, open-source, Developer ID-signed and Apple-notarized tiling wi
       <sub>@MuhammadKh</sub>
     </td>
     <td align="center" valign="top">
+      <a href="https://github.com/liip">
+        <img src="https://avatars.githubusercontent.com/u/166102?v=4" width="72" alt="Liip">
+      </a>
+      <br>
+      <a href="https://github.com/liip"><strong>Liip</strong></a>
+      <br>
+      <sub>━━━━━━━━</sub>
+      <br>
+      <a href="https://github.com/Jonathanm10" title="Jonathan Macheret">
+        <img src="https://github.com/Jonathanm10.png?size=96" width="72" alt="Jonathan Macheret">
+      </a>
+      <br>
+      <a href="https://github.com/Jonathanm10"><strong>Jonathan Macheret</strong></a>
+      <br>
+      <sub>@Jonathanm10</sub>
+    </td>
+    <td align="center" valign="top">
       <a href="https://luxor.tech">
         <img src="https://github.com/LuxorLabs.png?size=96" width="72" alt="Luxor Labs">
       </a>
@@ -145,6 +162,23 @@ OmniWM is a free, open-source, Developer ID-signed and Apple-notarized tiling wi
       <a href="https://github.com/albertilagan"><strong>Albert Ilagan</strong></a>
       <br>
       <sub>@albertilagan</sub>
+    </td>
+    <td align="center" valign="top">
+      <a href="https://mooola.co.za/">
+        <img src="https://mooola.co.za/assets/webp/app-logo.webp" width="72" alt="mooola">
+      </a>
+      <br>
+      <a href="https://mooola.co.za/"><strong>mooola</strong></a>
+      <br>
+      <sub>━━━━━━━━</sub>
+      <br>
+      <a href="https://github.com/imprisonedmind" title="Luke Stephens">
+        <img src="https://github.com/imprisonedmind.png?size=96" width="72" alt="Luke Stephens">
+      </a>
+      <br>
+      <a href="https://github.com/imprisonedmind"><strong>Luke Stephens</strong></a>
+      <br>
+      <sub>@imprisonedmind</sub>
     </td>
     <td align="center" valign="top">
       <a href="https://github.com/nrwl">
@@ -247,6 +281,23 @@ OmniWM is a free, open-source, Developer ID-signed and Apple-notarized tiling wi
       <a href="https://github.com/YuriNachos"><strong>Yuri Chukhlib</strong></a>
       <br>
       <sub>@YuriNachos</sub>
+    </td>
+    <td align="center" valign="top">
+      <a href="https://walt.io">
+        <img src="https://walt.io/apple-touch-icon.png" width="72" alt="Walt">
+      </a>
+      <br>
+      <a href="https://walt.io"><strong>Walt</strong></a>
+      <br>
+      <sub>━━━━━━━━</sub>
+      <br>
+      <a href="https://github.com/pltanton" title="Anton Plotnikov">
+        <img src="https://github.com/pltanton.png?size=96" width="72" alt="Anton Plotnikov">
+      </a>
+      <br>
+      <a href="https://github.com/pltanton"><strong>Anton Plotnikov</strong></a>
+      <br>
+      <sub>@pltanton</sub>
     </td>
   </tr>
 </table>
@@ -368,11 +419,17 @@ OmniWM is a free, open-source, Developer ID-signed and Apple-notarized tiling wi
       <a href="https://github.com/minchik" title="Aliaksandr">
         <img src="https://github.com/minchik.png?size=96" width="72" alt="Aliaksandr">
       </a>
+      <a href="https://github.com/pltanton" title="Anton Plotnikov">
+        <img src="https://github.com/pltanton.png?size=96" width="72" alt="Anton Plotnikov">
+      </a>
       <a href="https://github.com/gloomy-breaker" title="Ayaan Sandhu">
         <img src="https://github.com/gloomy-breaker.png?size=96" width="72" alt="Ayaan Sandhu">
       </a>
       <a href="https://github.com/balazshevesi" title="Balazs Hevesi">
         <img src="https://github.com/balazshevesi.png?size=96" width="72" alt="Balazs Hevesi">
+      </a>
+      <a href="https://github.com/binghan1227" title="binghan1227">
+        <img src="https://github.com/binghan1227.png?size=96" width="72" alt="binghan1227">
       </a>
       <a href="https://github.com/bps" title="Brian Smyth">
         <img src="https://github.com/bps.png?size=96" width="72" alt="Brian Smyth">
@@ -386,11 +443,17 @@ OmniWM is a free, open-source, Developer ID-signed and Apple-notarized tiling wi
       <a href="https://github.com/cypressf" title="Cypress Frankenfeld">
         <img src="https://github.com/cypressf.png?size=96" width="72" alt="Cypress Frankenfeld">
       </a>
+      <a href="https://github.com/DereckAn" title="Dereck Angeles">
+        <img src="https://github.com/DereckAn.png?size=96" width="72" alt="Dereck Angeles">
+      </a>
       <a href="https://github.com/nekonora" title="Filippo Zaffoni">
         <img src="https://github.com/nekonora.png?size=96" width="72" alt="Filippo Zaffoni">
       </a>
       <a href="https://github.com/Fletcher-Alderton" title="Fletcher Alderton">
         <img src="https://github.com/Fletcher-Alderton.png?size=96" width="72" alt="Fletcher Alderton">
+      </a>
+      <a href="https://github.com/georgiansarghi" title="georgian">
+        <img src="https://github.com/georgiansarghi.png?size=96" width="72" alt="georgian">
       </a>
       <a href="https://github.com/henrikhestnes" title="Henrik Larsson Hestnes">
         <img src="https://github.com/henrikhestnes.png?size=96" width="72" alt="Henrik Larsson Hestnes">
@@ -404,11 +467,23 @@ OmniWM is a free, open-source, Developer ID-signed and Apple-notarized tiling wi
       <a href="https://github.com/jthomaschewski" title="Janek Thomaschewski">
         <img src="https://github.com/jthomaschewski.png?size=96" width="72" alt="Janek Thomaschewski">
       </a>
+      <a href="https://github.com/janosmiko" title="Janos Miko">
+        <img src="https://github.com/janosmiko.png?size=96" width="72" alt="Janos Miko">
+      </a>
+      <a href="https://github.com/Jonathanm10" title="Jonathan Macheret">
+        <img src="https://github.com/Jonathanm10.png?size=96" width="72" alt="Jonathan Macheret">
+      </a>
       <a href="https://github.com/jcardama" title="Jose Cardama">
         <img src="https://github.com/jcardama.png?size=96" width="72" alt="Jose Cardama">
       </a>
+      <a href="https://github.com/komarov-dc" title="KomarovD">
+        <img src="https://github.com/komarov-dc.png?size=96" width="72" alt="KomarovD">
+      </a>
       <a href="https://github.com/lgerlinski" title="Lukas Gerlinski">
         <img src="https://github.com/lgerlinski.png?size=96" width="72" alt="Lukas Gerlinski">
+      </a>
+      <a href="https://github.com/imprisonedmind" title="Luke Stephens">
+        <img src="https://github.com/imprisonedmind.png?size=96" width="72" alt="Luke Stephens">
       </a>
       <a href="https://github.com/zucram" title="Marcus Harlid Davin">
         <img src="https://github.com/zucram.png?size=96" width="72" alt="Marcus Harlid Davin">
@@ -428,6 +503,9 @@ OmniWM is a free, open-source, Developer ID-signed and Apple-notarized tiling wi
       <a href="https://github.com/zwo-bot" title="mm">
         <img src="https://github.com/zwo-bot.png?size=96" width="72" alt="mm">
       </a>
+      <a href="https://github.com/Mokhtar25" title="Mokhtar">
+        <img src="https://github.com/Mokhtar25.png?size=96" width="72" alt="Mokhtar">
+      </a>
       <a href="https://github.com/MuhammadKh" title="muhammadkh">
         <img src="https://github.com/MuhammadKh.png?size=96" width="72" alt="muhammadkh">
       </a>
@@ -445,6 +523,9 @@ OmniWM is a free, open-source, Developer ID-signed and Apple-notarized tiling wi
       </a>
       <a href="https://github.com/georgebastille" title="Rich Hanes">
         <img src="https://github.com/georgebastille.png?size=96" width="72" alt="Rich Hanes">
+      </a>
+      <a href="https://github.com/rickythefox" title="Richard Ginzburg">
+        <img src="https://github.com/rickythefox.png?size=96" width="72" alt="Richard Ginzburg">
       </a>
       <a href="https://github.com/1Pio" title="rPio">
         <img src="https://github.com/1Pio.png?size=96" width="72" alt="rPio">
@@ -470,6 +551,9 @@ OmniWM is a free, open-source, Developer ID-signed and Apple-notarized tiling wi
       <a href="https://github.com/YuriNachos" title="Yuri Chukhlib">
         <img src="https://github.com/YuriNachos.png?size=96" width="72" alt="Yuri Chukhlib">
       </a>
+      <a href="https://github.com/hezhizhen" title="Zhizhen He">
+        <img src="https://github.com/hezhizhen.png?size=96" width="72" alt="Zhizhen He">
+      </a>
       <a href="https://github.com/zicochaos" title="Zicochaos">
         <img src="https://github.com/zicochaos.png?size=96" width="72" alt="Zicochaos">
       </a>
@@ -477,6 +561,45 @@ OmniWM is a free, open-source, Developer ID-signed and Apple-notarized tiling wi
   </tr>
 </table>
 <!-- contributors:end -->
+
+<!-- bug-reporters:start -->
+### 🐞 Bug Reporters
+
+<p align="center">
+  Thank you to everyone whose bug reports led to fixes.
+</p>
+
+<table align="center">
+  <tr>
+    <td nowrap>
+      <a href="https://github.com/9j7axvsLuF" title="9j7axvsLuF">
+        <img src="https://github.com/9j7axvsLuF.png?size=96" width="72" alt="9j7axvsLuF">
+      </a>
+      <a href="https://github.com/monkeyjunglejuice" title="Dan Dee">
+        <img src="https://github.com/monkeyjunglejuice.png?size=96" width="72" alt="Dan Dee">
+      </a>
+      <a href="https://github.com/datarip" title="Datarip">
+        <img src="https://github.com/datarip.png?size=96" width="72" alt="Datarip">
+      </a>
+      <a href="https://github.com/0xGodspeed" title="Dhruv Jain">
+        <img src="https://github.com/0xGodspeed.png?size=96" width="72" alt="Dhruv Jain">
+      </a>
+      <a href="https://github.com/dna07rak" title="dna07rak">
+        <img src="https://github.com/dna07rak.png?size=96" width="72" alt="dna07rak">
+      </a>
+      <a href="https://github.com/macsmister" title="macsmister">
+        <img src="https://github.com/macsmister.png?size=96" width="72" alt="macsmister">
+      </a>
+      <a href="https://github.com/kashyapmanu" title="Manukashyap.U.V">
+        <img src="https://github.com/kashyapmanu.png?size=96" width="72" alt="Manukashyap.U.V">
+      </a>
+      <a href="https://github.com/maxandersen" title="Max Rydahl Andersen">
+        <img src="https://github.com/maxandersen.png?size=96" width="72" alt="Max Rydahl Andersen">
+      </a>
+    </td>
+  </tr>
+</table>
+<!-- bug-reporters:end -->
 
 <p align="center">
   <img src="https://img.shields.io/badge/macOS-26.0%2B-green?logo=apple&logoColor=white" alt="macOS">
@@ -498,7 +621,7 @@ OmniWM is a free, open-source, Developer ID-signed and Apple-notarized tiling wi
 - Local IPC and `omniwmctl` automation
 - Scratchpads and sticky windows for any app
 - Overview
-- Unified command palette for windows and app menus
+- Unified command palette for windows, app menus, clipboard history, OmniWM commands, applications, and files
 - Menu Anywhere
 - Niri-style tabbed containers and Dwindle tile groups
 - Niri-style scrolling and Hyprland-style Dwindle BSP layouts
@@ -530,6 +653,7 @@ OmniWM is built for high responsiveness and smooth, crisp animations.
 - Hidden Bar concealment and optional issue-report rewriting require macOS 27 or later; rewriting also requires enabled Apple Intelligence and an available local model
 - Accessibility and Input Monitoring permissions (required at launch)
 - Screen Recording permission for Overview thumbnails, drag previews, and captured Hidden Bar glyphs (optional)
+- Full Disk Access permission for Hidden Bar concealment (optional)
 - Displays have separate spaces **ON** (the macOS default; OmniWM pauses window management until it is enabled)
 
 ## Installation
@@ -594,13 +718,25 @@ After either installation, complete the macOS setup in steps 3-7 below.
 
 ### GitHub Releases
 
-1. Download the latest `OmniWM-v<version>.zip` app archive from [Releases](https://github.com/OmniNull/OmniWM/releases)
+1. Download the `OmniWM-v<version>.zip` app archive from the [latest release](https://github.com/OmniNull/OmniWM/releases/latest)
 2. Extract and move `OmniWM.app` to `/Applications`
 3. In System Settings > Desktop & Dock > Mission Control, turn **ON** `Displays have separate Spaces`
 4. Log out of macOS and log back in for that change to take effect unless you had it on already
 5. Launch OmniWM and grant Accessibility and Input Monitoring when prompted
 6. Optionally grant Screen Recording for capture-derived visuals
 7. Return to OmniWM’s permissions window and click **Start OmniWM** or **Continue Without Screen Recording**. If a required permission still appears missing, click **Check Again**
+
+### Canary builds
+
+Stable releases are recommended for everyday use. Canary builds let you try recent changes and help test fixes before the next release. They are built daily when `main` has new changes and are signed and notarized, but may contain regressions.
+
+To try one with a Homebrew or GitHub Releases install:
+
+1. Save a copy of `~/.config/omniwm/settings.toml`
+2. Quit OmniWM, then download the newest [canary build](https://github.com/OmniNull/OmniWM/releases?q=canary) and replace `OmniWM.app` in `/Applications` with the app from its ZIP
+3. Relaunch OmniWM. It uses your existing settings
+
+OmniWM's update check only tracks stable releases, so download newer canaries the same way. To return to stable, quit OmniWM. For a Homebrew install, run `brew reinstall --cask omniwm`; for a direct download, replace the app with the [latest release](https://github.com/OmniNull/OmniWM/releases/latest). If stable cannot read settings saved by a canary, quit OmniWM and restore your copy. When reporting a canary bug, include its release link.
 
 ## Updates
 
@@ -630,6 +766,8 @@ OmniWM ships with a bundled CLI, `omniwmctl`, for automation and scripting.
 IPC is disabled by default. Enable `Enable IPC` from the menu bar before using the CLI or any automation.
 
 Diagnostics can be scripted with `omniwmctl capture start trace`, `omniwmctl capture start performance`, `omniwmctl capture stop`, and `omniwmctl capture status`.
+
+`omniwmctl window mark` can name, list, focus, summon, and remove runtime window marks. See [Window Marks](https://omniwm.app/reference/cli/actions/#window-marks).
 
 For setup, installation options, commands, queries, rules, subscriptions, and security details, see the [IPC & CLI Reference](https://omniwm.app/reference/cli/overview/).
 
@@ -686,34 +824,38 @@ Layout legend:
 - `Niri` works only when the active workspace uses the Niri layout.
 - `Dwindle` works only when the active workspace uses the Dwindle layout.
 
-Settings hides advanced actions from the shortcut list by default. Turn on `Include Advanced Commands` in Settings > Hotkeys to see and bind them; the tables below include both standard and advanced actions.
+Settings > Hotkeys lists all actions that can be assigned a shortcut, including advanced actions.
+
+**If a shortcut does not fire:** Check **Settings > Hotkeys** and **Settings > Troubleshooting** for registration issues, then look for another hotkey tool, such as skhd or Raycast, still running with the same binding. [HotkeyClash](https://github.com/Wunderlandmedia/HotkeyClash) can help inspect possible conflicts in running apps, supported config files, and macOS shortcuts. It does not parse Raycast's shortcut settings. Disable or reassign the conflicting binding and retry before editing `settings.toml`.
 
 #### Workspace
 
 | Action | Default Shortcut | Layout |
 |--------|------------------|--------|
 | Switch to Workspace 1-9 | `Option + 1-9` | `Shared` |
-| Move to Workspace 1-9 | `Option + Shift + 1-9` | `Shared` |
+| Move Focused Window to Workspace 1-9 | `Option + Shift + 1-9` | `Shared` |
 | Switch to Workspace Slot 1-9 (position on the current monitor) | `Unassigned` | `Shared` |
-| Move to Workspace Slot 1-9 (position on the current monitor) | `Unassigned` | `Shared` |
+| Move Focused Window to Workspace Slot 1-9 (position on the current monitor) | `Unassigned` | `Shared` |
 | Switch to Last Active Workspace (Back and Forth) | `Control + Option + Tab` | `Shared` |
 | Switch to Next Workspace | `Unassigned` | `Shared` |
 | Switch to Previous Workspace (Sequential) | `Unassigned` | `Shared` |
-| Move Window to Workspace Up | `Control + Option + Shift + Up Arrow` | `Shared` |
-| Move Window to Workspace Down | `Control + Option + Shift + Down Arrow` | `Shared` |
-| Move Column to Workspace 1-9 | `Unassigned` | `Niri` |
-| Move Column to Workspace Up | `Control + Option + Shift + Page Up` | `Niri` |
-| Move Column to Workspace Down | `Control + Option + Shift + Page Down` | `Niri` |
+| Move Focused Window to Workspace Up | `Control + Option + Shift + Up Arrow` | `Shared` |
+| Move Focused Window to Workspace Down | `Control + Option + Shift + Down Arrow` | `Shared` |
+| Move Focused Column to Workspace 1-9 | `Unassigned` | `Niri` |
+| Move Focused Column to Workspace Up | `Control + Option + Shift + Page Up` | `Niri` |
+| Move Focused Column to Workspace Down | `Control + Option + Shift + Page Down` | `Niri` |
+
+When you create workspace 10 or higher, Settings > Hotkeys adds its Switch, Move, and Move Column actions as `Unassigned`.
 
 #### Focus
 
 | Action | Default Shortcut | Layout |
 |--------|------------------|--------|
 | Focus Left / Right / Up / Down | `Option + Arrow Keys` | `Shared` |
-| Focus Down or Top / Up or Bottom | `Unassigned` | `Shared` |
-| Focus Top Window / Bottom Window | `Unassigned` | `Niri` |
+| Focus Next / Previous Window (Wrap) | `Unassigned` | `Shared` |
+| Focus First / Last Window in Column | `Unassigned` | `Niri` |
 | Focus Window or Workspace Down / Up | `Unassigned` | `Niri` |
-| Focus Previous Window | `Option + Tab` | `Shared` |
+| Focus Previously Focused Window | `Option + Tab` | `Shared` |
 | Traverse Backward | `Unassigned` | `Niri` |
 | Traverse Forward | `Unassigned` | `Niri` |
 | Focus First Column | `Option + Home` | `Niri` |
@@ -722,9 +864,11 @@ Settings hides advanced actions from the shortcut list by default. Turn on `Incl
 | Focus Window 1-9 in Column | `Unassigned` | `Niri` |
 | Toggle Command Palette | `Control + Option + Space` | `Shared` |
 | Open Menu Anywhere | `Control + Option + M` | `Shared` |
+| Set Mark on Focused Window | `Unassigned` | `Shared` |
+| Remove Mark from Focused Window | `Unassigned` | `Shared` |
 | Close Focused Window | `Unassigned` | `Shared` |
 | Toggle Workspace Bar | `Unassigned` | `Shared` |
-| Toggle Hidden Icons Bar | `Unassigned` | `Shared` |
+| Toggle Hidden Icons Panel | `Unassigned` | `Shared` |
 | Toggle Quake Terminal | `` Option + ` `` | `Shared` |
 | Toggle Overview | `Option + Shift + O` | `Shared` |
 | Toggle System Stats | `Unassigned` | `Shared` |
@@ -734,19 +878,22 @@ Settings hides advanced actions from the shortcut list by default. Turn on `Incl
 | Action | Default Shortcut | Layout |
 |--------|------------------|--------|
 | Move Left / Right / Up / Down | `Option + Shift + Arrow Keys` | `Shared` |
-| Reorder Window Up / Down | `Unassigned` | `Shared` |
+| Move Window to Previous / Next Position | `Unassigned` | `Shared` |
 | Move Window Down or to Workspace Down / Up or to Workspace Up | `Unassigned` | `Niri` |
-| Consume Window into Column / Expel Window from Column | `Unassigned` | `Niri` |
+| Pull Top Window from Next Column into Focused Column | `Unassigned` | `Niri` |
+| Push Bottom Window from Focused Column into New Column | `Unassigned` | `Niri` |
+
+The pull action treats the focused column as the destination and does nothing when there is no next column. The push action moves the bottom window from the focused column into a new following column. Neither action wraps, and there is no pull-from-previous action.
 
 #### Monitor
 
 | Action | Default Shortcut | Layout |
 |--------|------------------|--------|
-| Focus Next Monitor | `Control + Command + Tab` | `Shared` |
-| Focus Previous Monitor | `Unassigned` | `Shared` |
-| Focus Last Monitor | `` Control + Command + ` `` | `Shared` |
-| Move Workspace to Left / Right / Up / Down Monitor | `Unassigned` | `Shared` |
-| Move Window to Left / Right / Up / Down Monitor | `Unassigned` | `Shared` |
+| Focus Next Monitor in Order | `Control + Command + Tab` | `Shared` |
+| Focus Previous Monitor in Order | `Unassigned` | `Shared` |
+| Focus Last Active Monitor | `` Control + Command + ` `` | `Shared` |
+| Move Workspace to Monitor on Left / Right / Above / Below | `Unassigned` | `Shared` |
+| Move Focused Window to Monitor on Left / Right / Above / Below | `Unassigned` | `Shared` |
 
 The workspace-to-monitor actions target the active workspace and intentionally use the same temporary runtime override as `omniwmctl workspace move-to-monitor --force`. They do not rewrite the workspace's Home Monitor or swap workspaces, and unsafe fullscreen, hidden-app, scratchpad, or focus states still block the move.
 
@@ -756,7 +903,7 @@ The window-to-monitor actions send the focused window directly to the current wo
 
 | Action | Default Shortcut | Layout |
 |--------|------------------|--------|
-| Toggle Fullscreen | `Option + Return` | `Shared` |
+| Toggle OmniWM Fullscreen | `Option + Return` | `Shared` |
 | Toggle Native Fullscreen | `Unassigned` | `Shared` |
 | Balance Sizes | `Option + Shift + B` | `Shared` |
 | Cycle Size Forward | `Option + .` | `Shared` |
@@ -770,9 +917,10 @@ The window-to-monitor actions send the focused window directly to the current wo
 | Preselect Left / Right / Up / Down | `Unassigned` | `Dwindle` |
 | Clear Preselection | `Unassigned` | `Dwindle` |
 | Raise All Floating Windows | `Option + Shift + R` | `Shared` |
+| Toggle Floating/Tiled Focus | `Unassigned` | `Shared` |
 | Rescue Off-Screen Floating Windows | `Unassigned` | `Shared` |
 | Toggle Focused Window Floating | `Unassigned` | `Shared` |
-| Assign Focused Window to Scratchpad 1-10 | `Unassigned` | `Shared` |
+| Toggle Scratchpad 1-10 Assignment for Focused Window | `Unassigned` | `Shared` |
 | Toggle Scratchpad 1-10 | `Unassigned` | `Shared` |
 | Toggle Workspace Layout | `Option + Shift + L` | `Shared` |
 
@@ -782,19 +930,21 @@ The window-to-monitor actions send the focused window directly to the current wo
 |--------|------------------|--------|
 | Move Container Left / Right | `Control + Option + Shift + Left / Right Arrow` | `Shared` |
 | Move Container Up / Down | `Unassigned` | `Dwindle` |
-| Toggle Column Tabbed | `Option + T` | `Niri` |
+| Toggle Tabbed Mode for Focused Column | `Option + T` | `Niri` |
 | Toggle Container Full Primary Span | `Option + Shift + F` | `Niri` |
 | Expand Container to Available Primary Span | `Control + Option + F` | `Niri` |
-| Move Column to First / Last | `Control + Option + Home / End` | `Niri` |
-| Move Column to Index 1-9 | `Unassigned` | `Niri` |
-| Set Container Primary Span -10% / +10% | `Option + -` / `Option + =` | `Niri` |
-| Set Window Secondary Span -10% / +10% | `Option + Shift + -` / `Option + Shift + =` | `Niri` |
-| Set Window Primary Span -10% / +10% | `Unassigned` | `Niri` |
+| Move Focused Column to First / Last Position | `Control + Option + Home / End` | `Niri` |
+| Move Focused Column to Position 1-9 | `Unassigned` | `Niri` |
+| Shrink / Grow Container Primary Span | `Option + -` / `Option + =` | `Niri` |
+| Shrink / Grow Window Secondary Span | `Option + Shift + -` / `Option + Shift + =` | `Niri` |
+| Shrink / Grow Window Primary Span | `Unassigned` | `Niri` |
 | Reset Window Secondary Span | `Control + Option + R` | `Niri` |
 | Cycle Window Primary Span Forward / Backward | `Unassigned` | `Niri` |
 | Cycle Window Secondary Span Forward / Backward | `Unassigned` | `Niri` |
-| Center Column | `Unassigned` | `Niri` |
+| Center Focused Column | `Unassigned` | `Niri` |
 | Center Visible Columns | `Unassigned` | `Niri` |
+
+Niri grow/shrink actions use a configurable increment, defaulting to 5% instead of 10%. Change **Resize Increment** in Niri settings or `[niri].resizeStepPercent` in TOML (1–100). Explicit `omniwmctl` size arguments keep their specified amounts.
 
 `Consume or Expel Window Left / Right` exist as automation-only actions. They are reachable from `omniwmctl` but never appear in Settings > Hotkeys, because they intentionally cannot be bound to a shortcut.
 
@@ -815,11 +965,22 @@ Dwindle groups use the existing Focus and Move bindings, so there are no separat
 
 Moving a tab directly from one existing group into another is intentionally a two-step operation: extract it first, then move the resulting singleton toward the destination group. A singleton at a genuine workspace edge can still use the normal cross-monitor Move behavior; a rejected group mutation does not fall through to tile swapping or monitor movement.
 
-The unassigned advanced actions are available in Settings > Hotkeys. `Focus Down or Top / Up or Bottom` always wraps within the active Niri column or Dwindle group. `Reorder Window Up / Down` changes the active member's position by one without wrapping. `Move Container` is the whole-structure escape hatch and never transfers to another monitor at a workspace edge. Dwindle join/extract and Move Container operations are intentionally unavailable while Overview is open; leave Overview before changing a Dwindle tree.
+The unassigned advanced actions are available in Settings > Hotkeys. `Focus Next / Previous Window (Wrap)` always wraps within the active Niri column or Dwindle group. `Move Window to Previous / Next Position` changes the active member's position by one without wrapping. `Move Container` is the whole-structure escape hatch and never transfers to another monitor at a workspace edge. Dwindle join/extract and Move Container operations are intentionally unavailable while Overview is open; leave Overview before changing a Dwindle tree.
 
 #### Quake Terminal (Inside Terminal)
 
-| Action | Shortcut |
+Customize tab and pane shortcuts with Ghostty `keybind` entries in `~/.config/ghostty/config.ghostty` (or your existing Ghostty config). User bindings override the defaults below; `unbind` removes a binding. Reload inside Quake with `Cmd + Shift + ,`, or relaunch OmniWM. The global toggle stays in **Settings → Hotkeys** and OmniWM's `settings.toml`.
+
+```ini
+keybind = cmd+t=unbind
+keybind = ctrl+shift+t=new_tab
+keybind = cmd+enter=new_split:right
+keybind = cmd+shift+enter=close_surface
+```
+
+See [Ghostty's keybinding syntax](https://ghostty.org/docs/config/keybind). Quake supports `new_tab`, `close_tab`, `goto_tab`, `next_tab`, `previous_tab`, `last_tab`, `new_split`, `goto_split`, `close_surface`, and `equalize_splits`, alongside Ghostty's terminal actions such as copy, paste, and font sizing.
+
+| Action | Default Shortcut |
 |--------|----------|
 | New Tab | `Cmd + T` |
 | Close Tab | `Cmd + W` |
@@ -855,20 +1016,26 @@ Quake Terminal loads Ghostty's normal configuration files and their included fil
 
 #### Command Palette
 
-Quickly search windows, app menus, or clipboard history from one shared palette:
+Quickly search windows, app menus, clipboard history, OmniWM commands, applications, or files from one shared palette:
+
 - Open it from the global shortcut shown in `Keyboard Shortcuts`
 - Use `Tab` / `Shift + Tab` to cycle forward or backward through the available modes
-- Use `Cmd + 1` for `Windows`, `Cmd + 2` for `Menu`, and `Cmd + 3` for `Clipboard`
-- Type to search by substring; window-title matches rank first, followed by app-name and workspace-name matches
+- Use `Cmd + 1` for `Windows`, `Cmd + 2` for `Menu`, `Cmd + 3` for `Clipboard`, `Cmd + 4` for `Commands`, `Cmd + 5` for `Applications`, and `Cmd + 6` for `Files`
+- Type to search; mark-name matches come first in Windows mode, then window title, app name, and workspace name, with focus recency breaking ties
+- Windows mode shows window marks and finds windows by mark name; its Mark and Remove Mark buttons act on the selected window
 - Menu results always show keyboard shortcuts when available
+- Commands are grouped by category until you search; each row shows its layout and current shortcut, including unassigned commands
+- In Commands mode, `Enter` runs the selected command; commands for another layout stay visible but cannot be selected
 - `Up` / `Down` move the selection
 - `Enter` activates the selected result
 - Windows from macOS-hidden apps remain searchable with a Hidden badge; selecting one unhides its app and focuses that exact window
-- In Windows mode, `Shift + Enter` summons the selected window to the right when available
-- In Clipboard mode, `Enter` copies the selected entry and pastes it into the previous app when that target is still available; `Shift + Enter` copies without pasting
+- In Windows mode, `Shift + Enter` summons the selected window to the right when available, or moves it into an empty current workspace, including floating windows. Floating windows cannot be summoned right
+- In Clipboard mode, `Enter` copies the selected entry; `Shift + Enter` pastes it into the previous app when that target is still available
+- Applications and Files open in a browse grid; switch either mode to a list from the view menu
+- Files shows recent documents before typing, supports type filters, and can reveal a selection in Finder with `Cmd + Enter`
 - `Escape` dismisses the palette
 
-Clipboard history starts disabled. Open Clipboard mode (`Cmd + 3`) and click **Enable**, or set `clipboard.historyEnabled = true` in `settings.toml`. History retains supported text, rich text, HTML, images, and file references within the configured limits; items marked concealed, transient, or autogenerated, including recognized password-manager markers, are skipped. Each row has Copy and Delete actions, and the trash button clears the history. See the [command palette guide](https://omniwm.app/features/command-palette/#clipboard-history) for storage details.
+Clipboard history starts disabled. Open Clipboard mode (`Cmd + 3`) and click **Enable**, or set `clipboard.historyEnabled = true` in `settings.toml`. History retains text, rich text, HTML, images, file references, and safe native formats within the configured limits; concealed, transient, and recognized password-manager content is skipped. A selected item has a preview, each row can be pasted or pinned, and Clear removes unpinned history. See the [command palette guide](https://omniwm.app/features/command-palette/#clipboard-history) for storage details.
 
 #### Menu Anywhere
 
@@ -903,18 +1070,21 @@ A visual indicator showing your workspaces:
 - When `Deduplicate App Icons` is enabled, multiple windows from one app share an icon; click a grouped icon to open their window list, while a single-window icon focuses that window directly
 - Marks macOS-hidden windows with an eye-slash badge; selecting a hidden window unhides its app and focuses that exact window
 - Configure position, height, and appearance in Settings
+- Choose **Notch Mode → Right of Notch** to center the bar on displays without a notch and place it 8 points to the right of the notch on displays with one (`workspaceBar.notchMode = "rightOfNotch"`). Horizontal and vertical offsets still apply; reset them to zero for automatic placement.
 - Optionally show a System Stats button that opens a CPU, memory, GPU, disk, and uptime popup. `Toggle System Stats` and `omniwmctl command toggle-system-stats` drive the same popup, and both do nothing unless a monitor currently shows that workspace-bar button
 - Optionally hide the bar on a monitor while that monitor shows a macOS native fullscreen window, and bring it back on exit (`Hide in Native Fullscreen`); reserved tiled layout space is left untouched so windows do not shuffle around the fullscreen session
 - Exclude individual apps or choose alternate app icons across all monitors in Settings
 
 Workspace-bar appearance controls are optional and also support per-monitor overrides:
 
+- **Automatically hide and show** reveals the bar when the pointer touches its edge and hides it after the pointer moves inward past the bar and interactions end, without reserving layout space. Set `workspaceBar.autoHide = true`; the default is `false`.
 - **Transparent Background** removes the outer bar material, tint, and border; icons remain clickable. It takes precedence over **Solid Black Background**.
 - **Solid Black Background** uses opaque black instead of the outer bar's material and tint.
 - **Inactive Icon Opacity** adjusts non-focused app icons. Leaving it unset preserves the standard opacity for each kind of item; hidden-app icons retain their hidden-state appearance. Values are limited to 0–1, and nonfinite values are treated as unset.
 - Disable **Show Item Backgrounds** to remove the backgrounds behind workspace groups, floating windows, scratchpads, and the stats button.
 - Disable **Show Accent Highlights** to remove focused-item accent outlines and glows without changing focus behavior.
-- **Fill Left of Notch** covers the menu-bar band from the display's left edge to the notch, or to the display midpoint when no notch is present. This deliberately covers application menus; choose another notch mode to access them again. This mode uses the menu-bar height, ignores position/offset/height controls, and does not reserve extra tiled layout space. It always hides on displays showing native fullscreen content; other modes continue to follow **Hide in Native Fullscreen**.
+- **Bottom / Left / Right placement** docks at the usable display edge. Side bars stack upright content and scroll when needed; **Bar Thickness** controls their width. See [Workspace Bar](website/src/content/docs/features/workspace-bar.md) for details.
+- **Fill Left of Notch** covers the menu-bar band from the display's left edge to the notch, or to the display midpoint when no notch is present. This deliberately covers application menus; choose another notch mode to access them again. At top positions, this mode uses the menu-bar height, overrides position/offset/height controls, and does not reserve extra tiled layout space. It always hides on displays showing native fullscreen content. Bottom/Left/Right ignore notch modes and follow **Hide in Native Fullscreen**.
 
 Existing appearance stays unchanged until you opt in. For example, edit these keys inside the existing `[workspaceBar]` table (do not replace the complete configuration with this fragment):
 
@@ -927,7 +1097,7 @@ showAccentHighlights = false
 notchMode = "fillLeftOfNotch"
 ```
 
-These optional settings keep configuration schema 3. Omitted keys preserve the existing appearance without migrating the settings file.
+Omitted keys preserve the existing appearance.
 
 Workspace-bar icon overrides can also be configured in `settings.toml`. Quote bundle IDs so TOML treats each dotted identifier as one key:
 
@@ -942,11 +1112,14 @@ Workspace-bar icon overrides can also be configured in `settings.toml`. Quote bu
 #### Hidden Bar
 
 Conceal selected menu-bar icons and reach them from a panel:
-- Concealment requires macOS 27 or later; core window management supports macOS 26
+- Concealment requires macOS 27 or later and Full Disk Access; core window management supports macOS 26
 - Pick the apps to hide in `Settings > Hidden Bar`
+- Hidden Bar runs while the workspace bar is on; turning the bar off shows the hidden icons again
 - Right-click (or Option-click) the OmniWM menu bar icon to open the Hidden Icons Bar; click an icon to reveal and use it
 - Revealed icons re-hide automatically after a configurable interval
 - An optional global hotkey is available and starts unassigned
+
+If you need more features for hiding status bar icons, I recommend [Thaw](https://github.com/thaw-app/Thaw). It also supports macOS 26, where OmniWM's built-in Hidden Bar is for macOS 27.
 
 ### Tips
 
@@ -978,6 +1151,7 @@ Most configuration is also editable in Settings. **Start at Login** is managed b
 - **Reveal Settings File** and **Edit Settings File** open the canonical TOML file and recreate it from the running settings if it was deleted.
 - `updateChecksEnabled` is part of the persisted settings model, so it round-trips through `settings.toml`.
 - `focus.monitorCrossingFocus` controls directional focus when `focus.crossesMonitorAtEdge = true`. It accepts `"spatial"` (the default, selecting the nearest spatial neighbor) or `"last"` (restoring the destination workspace's last-focused eligible window).
+- This fork uses settings schema 5 to retain `focus.monitorCrossingFocus` alongside upstream 0.7.6. Existing upstream and fork settings migrate automatically with an original-file backup; restore that backup before returning to upstream.
 - Clipboard history, last-check timestamps, skipped-release state, and the persisted window restore catalog live in `${XDG_STATE_HOME:-$HOME/.local/state}/omniwm` and stay out of dotfile-oriented config storage.
 
 ## Scratchpads
@@ -986,7 +1160,7 @@ A scratchpad is a slot that holds any number of floating windows and overlays th
 you are looking at. There are ten slots, numbered 1 to 10; a slot with no windows in it is inert and
 invisible.
 
-- **Assign Focused Window to Scratchpad N** moves the focused window into slot N, floating it if it
+- **Toggle Scratchpad N Assignment for Focused Window** moves the focused window into slot N, floating it if it
   was tiled. It stays visible if slot N is already revealed; otherwise it is parked off-screen. Pressing
   the same shortcut again on a window already in slot N returns it to the layout.
 - **Toggle Scratchpad N** reveals eligible windows in slot N on the monitor you are interacting with, or

@@ -8,8 +8,10 @@ import Foundation
 
 @MainActor
 enum AppAXContextRegistry {
+    static let workerLifetime = AppAXWorkerLifetime()
     private(set) static var contexts: [pid_t: AppAXContext] = [:]
     private static var macOSHiddenPIDs: Set<pid_t> = []
+    private(set) static var nativeSuppressedWindowTokens: Set<WindowToken> = []
     private static var inFlightCreations: [pid_t: (
         generation: UInt64,
         task: Task<AppAXContext?, Error>
@@ -22,11 +24,9 @@ enum AppAXContextRegistry {
     }
 
     @MainActor
-    static func getOrCreate(_ nsApp: NSRunningApplication) async throws -> AppAXContext? {
-        let pid = nsApp.processIdentifier
-
+    static func getOrCreate(_ nsApp: NSRunningApplication, pid: pid_t) async throws -> AppAXContext? {
+        guard pid > 0, pid != ProcessInfo.processInfo.processIdentifier else { return nil }
         if let existing = contexts[pid] { return existing }
-        if pid == ProcessInfo.processInfo.processIdentifier { return nil }
 
         try Task.checkCancellation()
 
@@ -42,13 +42,16 @@ enum AppAXContextRegistry {
                 }
             }
 
-            let context = try await AppAXContext.createContext(nsApp, generation: generation)
+            let context = try await AppAXContext.createContext(nsApp, pid: pid, generation: generation)
             guard appAXCallbackGenerationRegistry.isCurrent(generation) else {
                 context?.destroy()
                 return nil
             }
             if let context {
                 context.setMacOSAppHidden(macOSHiddenPIDs.contains(pid), for: [])
+                for token in nativeSuppressedWindowTokens where token.pid == pid {
+                    context.setWindowNativeSuppressed(true, for: token.windowId)
+                }
                 contexts[pid] = context
             }
             return context
@@ -59,16 +62,16 @@ enum AppAXContextRegistry {
     }
 
     @MainActor
-    static func shutdownAll() {
+    static func shutdownAll(completion: (@MainActor @Sendable () -> Void)? = nil) {
         appAXCallbackGenerationRegistry.advance()
         for (_, inFlight) in inFlightCreations {
             inFlight.task.cancel()
         }
         inFlightCreations.removeAll()
-        for (_, context) in contexts {
-            context.destroy()
-        }
+        for context in Array(contexts.values) { context.destroy() }
         macOSHiddenPIDs.removeAll()
+        nativeSuppressedWindowTokens.removeAll()
+        if let completion { workerLifetime.whenFinished(completion) }
     }
 
     @MainActor
@@ -84,6 +87,36 @@ enum AppAXContextRegistry {
     @MainActor
     static func isMacOSAppHidden(pid: pid_t) -> Bool {
         macOSHiddenPIDs.contains(pid)
+    }
+
+    @discardableResult
+    static func setWindowNativeSuppressed(_ suppressed: Bool, token: WindowToken) -> Bool {
+        let changed = suppressed
+            ? nativeSuppressedWindowTokens.insert(token).inserted
+            : nativeSuppressedWindowTokens.remove(token) != nil
+        guard changed else { return false }
+        contexts[token.pid]?.setWindowNativeSuppressed(suppressed, for: token.windowId)
+        return true
+    }
+
+    static func rekeyNativeSuppressedWindow(from oldToken: WindowToken, to newToken: WindowToken) {
+        let wasSuppressed = nativeSuppressedWindowTokens.remove(oldToken) != nil
+        if wasSuppressed {
+            nativeSuppressedWindowTokens.insert(newToken)
+        }
+        if oldToken != newToken {
+            contexts[oldToken.pid]?.setWindowNativeSuppressed(false, for: oldToken.windowId)
+        }
+        contexts[newToken.pid]?.setWindowNativeSuppressed(
+            nativeSuppressedWindowTokens.contains(newToken),
+            for: newToken.windowId
+        )
+    }
+
+    static func clearNativeSuppressedWindows(for pid: pid_t) {
+        for token in nativeSuppressedWindowTokens.filter({ $0.pid == pid }) {
+            setWindowNativeSuppressed(false, token: token)
+        }
     }
 
     static func remove(_ context: AppAXContext) {

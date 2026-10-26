@@ -17,7 +17,7 @@ extension LayoutRefreshController {
         let winId = candidate.windowId
         let token = WindowToken(pid: pid, windowId: winId)
         progress.observedTopLevelInventoryTokens.insert(token)
-        let existingEntry: WindowState?
+        var existingEntry: WindowState?
         switch controller.axEventHandler.resolveFullRescanIdentity(
             axRef: ax,
             pid: pid,
@@ -35,6 +35,7 @@ extension LayoutRefreshController {
             }
             return nil
         }
+        existingEntry = updateFullRescanNativeVisibility(candidate, entry: existingEntry, context: context)
         if let existingEntry {
             progress.affectedWorkspaceIds.insert(existingEntry.workspaceId)
         }
@@ -47,6 +48,33 @@ extension LayoutRefreshController {
             controller: controller
         ) else { return nil }
         return FullRescanCandidateIdentity(token: token, existingEntry: existingEntry, bundleId: bundleId)
+    }
+
+    private func updateFullRescanNativeVisibility(
+        _ candidate: FullRescanWindowCandidate,
+        entry: WindowState?,
+        context: FullRescanMutationContext
+    ) -> WindowState? {
+        let controller = context.controller
+        var existingEntry = entry
+        if let entry = existingEntry, let minimized = candidate.minimizedAttribute {
+            controller.axEventHandler.updateWindowMinimizedState(
+                minimized,
+                token: entry.token,
+                requestRefresh: false
+            )
+            existingEntry = controller.workspaceManager.entry(for: entry.token)
+        }
+        if let entry = existingEntry {
+            controller.axEventHandler.applyObservedWindowOrdering(
+                candidate.windowServerInfo,
+                token: entry.token,
+                appFullscreen: candidate.isFullscreen(screenFrames: context.screenFrames),
+                requestRefresh: false
+            )
+            existingEntry = controller.workspaceManager.entry(for: entry.token)
+        }
+        return existingEntry
     }
 
     private func isEligibleFullRescanCandidate(

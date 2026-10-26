@@ -5,7 +5,6 @@ import AppKit
 import Carbon
 import Foundation
 import QuartzCore
-import ScreenCaptureKit
 
 @MainActor
 final class OverviewWindowFacts {
@@ -31,8 +30,8 @@ final class OverviewWindowFacts {
         return OverviewWindowLayoutData(
             token: entry.token,
             workspaceId: entry.workspaceId,
-            title: title.isEmpty ? (appInfo?.name ?? "Window") : title,
-            appName: appInfo?.name ?? "Unknown",
+            title: title.isEmpty ? (appInfo?.name ?? String(localized: "Window")) : title,
+            appName: appInfo?.name ?? String(localized: "Unknown"),
             appIcon: appInfo?.icon,
             frame: preferredFrame ?? environment.windowFrame(entry) ?? .zero,
             isNativeFullscreen: entry.layoutReason == .nativeFullscreen,
@@ -60,7 +59,7 @@ final class OverviewWindowFacts {
         _ entry: WindowState,
         workspaceManager: WorkspaceManager
     ) -> Bool {
-        !workspaceManager.isAppHidden(pid: entry.pid)
+        !workspaceManager.isWindowSuppressedByMacOS(entry.token)
     }
 
     func isStructurallyMutable(_ entry: WindowState) -> Bool {

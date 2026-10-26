@@ -54,6 +54,8 @@ if command -v plutil >/dev/null 2>&1; then
 fi
 cp "$ROOT_DIR/Resources/AppIcon.icns" "$APP_DIR/Contents/Resources/AppIcon.icns"
 cp -R "$BUILD_DIR/OmniWM_OmniWM.bundle" "$APP_DIR/Contents/Resources/"
+python3 "$ROOT_DIR/Scripts/localization.py" package \
+  --bundle "$BUILD_DIR/OmniWM_OmniWM.bundle" --app "$APP_DIR"
 
 if command -v plutil >/dev/null 2>&1; then
   plutil -lint "$APP_DIR/Contents/Info.plist" >/dev/null
@@ -74,7 +76,7 @@ if [ "$SIGN_AND_NOTARIZE" = "true" ]; then
   ditto -c -k --keepParent "$APP_DIR" "$ZIP_PATH"
 
   echo "Submitting for notarization (this may take a few minutes)..."
-  xcrun notarytool submit "$ZIP_PATH" --keychain-profile "$NOTARIZE_PROFILE" --wait
+  xcrun notarytool submit "$ZIP_PATH" --keychain-profile "$NOTARIZE_PROFILE" --wait --timeout "${OMNIWM_NOTARIZE_TIMEOUT:-30m}"
 
   echo "Stapling notarization ticket..."
   xcrun stapler staple "$APP_DIR"

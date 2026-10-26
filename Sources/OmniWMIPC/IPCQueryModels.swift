@@ -172,6 +172,7 @@ public struct IPCFocusedWindowSnapshot: Codable, Equatable, Sendable {
     public let app: IPCAppRef?
     public let title: String?
     public let frame: IPCRect?
+    public let isFullscreen: Bool?
 
     public init(
         id: String,
@@ -180,7 +181,8 @@ public struct IPCFocusedWindowSnapshot: Codable, Equatable, Sendable {
         display: IPCDisplayRef?,
         app: IPCAppRef?,
         title: String?,
-        frame: IPCRect?
+        frame: IPCRect?,
+        isFullscreen: Bool? = nil
     ) {
         self.id = id
         self.pid = pid
@@ -189,6 +191,7 @@ public struct IPCFocusedWindowSnapshot: Codable, Equatable, Sendable {
         self.app = app
         self.title = title
         self.frame = frame
+        self.isFullscreen = isFullscreen
     }
 }
 
@@ -213,11 +216,13 @@ public struct IPCWindowQuerySnapshot: Codable, Equatable, Sendable {
     public let layoutReason: IPCLayoutReason?
     public let manualOverride: IPCManualWindowOverride?
     public let isFocused: Bool?
+    public let isFullscreen: Bool?
     public let isVisible: Bool?
     public let isAppHidden: Bool?
     public let isScratchpad: Bool?
     public let scratchpadIndex: Int?
     public let hiddenReason: IPCHiddenReason?
+    public let columnIndex: Int?
 
     public init(
         id: String? = nil,
@@ -232,11 +237,13 @@ public struct IPCWindowQuerySnapshot: Codable, Equatable, Sendable {
         layoutReason: IPCLayoutReason? = nil,
         manualOverride: IPCManualWindowOverride? = nil,
         isFocused: Bool? = nil,
+        isFullscreen: Bool? = nil,
         isVisible: Bool? = nil,
         isAppHidden: Bool? = nil,
         isScratchpad: Bool? = nil,
         scratchpadIndex: Int? = nil,
-        hiddenReason: IPCHiddenReason? = nil
+        hiddenReason: IPCHiddenReason? = nil,
+        columnIndex: Int? = nil
     ) {
         self.id = id
         self.pid = pid
@@ -250,11 +257,13 @@ public struct IPCWindowQuerySnapshot: Codable, Equatable, Sendable {
         self.layoutReason = layoutReason
         self.manualOverride = manualOverride
         self.isFocused = isFocused
+        self.isFullscreen = isFullscreen
         self.isVisible = isVisible
         self.isAppHidden = isAppHidden
         self.isScratchpad = isScratchpad
         self.scratchpadIndex = scratchpadIndex
         self.hiddenReason = hiddenReason
+        self.columnIndex = columnIndex
     }
 }
 
@@ -263,6 +272,16 @@ public struct IPCWindowsQueryResult: Codable, Equatable, Sendable {
 
     public init(windows: [IPCWindowQuerySnapshot]) {
         self.windows = windows
+    }
+}
+
+public struct IPCWorkspaceColumn: Codable, Equatable, Sendable {
+    public let index: Int
+    public let viewport: IPCColumnViewport
+
+    public init(index: Int, viewport: IPCColumnViewport) {
+        self.index = index
+        self.viewport = viewport
     }
 }
 
@@ -278,6 +297,7 @@ public struct IPCWorkspaceQuerySnapshot: Codable, Equatable, Sendable {
     public let isCurrent: Bool?
     public let counts: IPCWorkspaceWindowCounts?
     public let focusedWindowId: String?
+    public let columns: [IPCWorkspaceColumn]?
 
     public init(
         id: String? = nil,
@@ -290,7 +310,8 @@ public struct IPCWorkspaceQuerySnapshot: Codable, Equatable, Sendable {
         isVisible: Bool? = nil,
         isCurrent: Bool? = nil,
         counts: IPCWorkspaceWindowCounts? = nil,
-        focusedWindowId: String? = nil
+        focusedWindowId: String? = nil,
+        columns: [IPCWorkspaceColumn]? = nil
     ) {
         self.id = id
         self.rawName = rawName
@@ -303,6 +324,7 @@ public struct IPCWorkspaceQuerySnapshot: Codable, Equatable, Sendable {
         self.isCurrent = isCurrent
         self.counts = counts
         self.focusedWindowId = focusedWindowId
+        self.columns = columns
     }
 }
 

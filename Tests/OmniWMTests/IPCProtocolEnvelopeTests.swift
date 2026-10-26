@@ -22,8 +22,8 @@ final class IPCProtocolEnvelopeTests: XCTestCase {
         """.utf8)
     }
 
-    func testCurrentProtocolVersionIsFifteen() {
-        XCTAssertEqual(OmniWMIPCProtocol.version, 15)
+    func testCurrentProtocolVersionIsEighteen() {
+        XCTAssertEqual(OmniWMIPCProtocol.version, 19)
     }
 
     func testScratchpadCommandDecodesLiteralScratchpadIndexField() throws {
@@ -200,6 +200,37 @@ final class IPCProtocolEnvelopeTests: XCTestCase {
         withExtendedLifetime(controller) {}
     }
 
+    func testV18ConnectionRejectsWindowQueriesButAllowsVersionRequests() async throws {
+        var sockets = [Int32](repeating: -1, count: 2)
+        guard socketpair(AF_UNIX, SOCK_STREAM, 0, &sockets) == 0 else {
+            throw ConnectionTestError.socketPairFailed
+        }
+        let serverHandle = FileHandle(fileDescriptor: sockets[0], closeOnDealloc: true)
+        let clientHandle = FileHandle(fileDescriptor: sockets[1], closeOnDealloc: true)
+        let controller = makeController()
+        let bridge = makeBridge(controller: controller)
+        let connection = IPCConnection(handle: serverHandle, bridge: bridge, onClose: { _ in })
+
+        for kind in ["query", "version"] {
+            let request = requestLine(
+                version: 18, kind: kind, payload: kind == "query" ? #"{"name":"windows"}"# : "{}"
+            )
+            await connection.process(String(decoding: request, as: UTF8.self))
+            let responseData = try Self.readResponseLine(from: clientHandle.fileDescriptor)
+            let response = try IPCWire.decodeResponse(from: responseData)
+
+            XCTAssertEqual(response.id, "req-1")
+            XCTAssertEqual(response.kind, kind == "query" ? .query : .version)
+            XCTAssertEqual(response.ok, kind == "version")
+            XCTAssertEqual(response.code, kind == "query" ? .protocolMismatch : nil)
+            XCTAssertEqual(protocolVersion(in: response), 19)
+        }
+
+        await connection.stop()
+        try clientHandle.close()
+        withExtendedLifetime(controller) {}
+    }
+
     private nonisolated static func readResponseLine(from fileDescriptor: Int32) throws -> Data {
         var descriptor = pollfd(fd: fileDescriptor, events: Int16(POLLIN), revents: 0)
         while true {
@@ -237,7 +268,7 @@ final class IPCProtocolEnvelopeTests: XCTestCase {
 
     func testVersionResultCarriesTheBuildFingerprintOnTheWire() throws {
         let result = IPCVersionResult(
-            protocolVersion: 15,
+            protocolVersion: 19,
             appVersion: "0.6.5",
             gitHash: "5a82c1f5",
             buildConfiguration: "release",
