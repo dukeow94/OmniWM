@@ -167,6 +167,18 @@ extension CommandHandler {
             controller.niriLayoutHandler.expandContainerToAvailablePrimarySpan()
         case .resetWindowSecondarySpan:
             controller.niriLayoutHandler.resetWindowSecondarySpan()
+        case let .resizeContainerPrimarySpan(grow):
+            controller.niriLayoutHandler.setContainerPrimarySpan(
+                niriResizeChange(grow: grow, controller: controller)
+            )
+        case let .resizeWindowPrimarySpan(grow):
+            controller.niriLayoutHandler.setWindowPrimarySpan(
+                niriResizeChange(grow: grow, controller: controller)
+            )
+        case let .resizeWindowSecondarySpan(grow):
+            controller.niriLayoutHandler.setWindowSecondarySpan(
+                niriResizeChange(grow: grow, controller: controller)
+            )
         case let .setContainerPrimarySpan(change):
             controller.niriLayoutHandler.setContainerPrimarySpan(change)
         case let .setWindowPrimarySpan(change):
@@ -179,8 +191,12 @@ extension CommandHandler {
         return .executed
     }
 
+    private func niriResizeChange(grow: Bool, controller: WMController) -> NiriSizeChange {
+        .adjustProportion(CGFloat(controller.settings.niri.resizeStepPercent) * (grow ? 1 : -1))
+    }
+
     func perform(_ action: DwindleAction, controller: WMController) -> ExternalCommandResult {
-        switch action {
+        let changed = switch action {
         case .moveToRoot:
             controller.dwindleLayoutHandler.moveToRootInDwindle()
         case .toggleSplit:
@@ -196,7 +212,7 @@ extension CommandHandler {
         case .preselectClear:
             controller.dwindleLayoutHandler.clearPreselectInDwindle()
         }
-        return .executed
+        return changed ? .executed : .noChange
     }
 
     func perform(_ action: ScratchpadAction, controller: WMController) -> ExternalCommandResult {
@@ -217,12 +233,42 @@ extension CommandHandler {
         case .hiddenBar:
             controller.toggleHiddenBarPanel()
         case .quakeTerminal:
+            guard controller.settings.quakeTerminal.enabled else { return .ignoredDisabled }
             controller.toggleQuakeTerminal()
         case .overview:
+            guard controller.settings.overview.enabled else { return .ignoredDisabled }
             controller.toggleOverview()
         case .systemStats:
             controller.toggleSystemStats()
         }
         return .executed
+    }
+
+    func toggleColumnTabbedInNiri() {
+        guard let controller else { return }
+        controller.niriLayoutHandler.withNiriWorkspaceContext { engine, wsId, motion, state, _, _, _, orientation in
+            if engine.toggleColumnTabbed(
+                in: wsId,
+                state: state,
+                motion: motion,
+                orientation: orientation
+            ) {
+                controller.workspaceManager.recordReconcileEvent(
+                    .layoutOperationPerformed(workspaceId: wsId, operation: .displayModeChanged, source: .command)
+                )
+                controller.layoutRefreshController.requestLayoutCommandRelayout(
+                    affectedWorkspaceIds: [wsId]
+                )
+                if engine.hasAnyWindowAnimationsRunning(in: wsId) {
+                    controller.layoutRefreshController.startScrollAnimation(for: wsId)
+                }
+                controller.niriLayoutHandler.showColumnModeToast(
+                    engine: engine,
+                    workspaceId: wsId,
+                    state: state,
+                    motion: motion
+                )
+            }
+        }
     }
 }

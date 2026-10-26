@@ -24,6 +24,7 @@ enum CenterFocusedColumn: String, CaseIterable, Codable, Identifiable {
 
 struct WorkingAreaContext {
     var workingFrame: CGRect
+    var singleWindowFrame: CGRect
     var borderSafeFillFrame: CGRect
     var fullscreenLayoutFrame: CGRect
     var viewFrame: CGRect
@@ -31,12 +32,14 @@ struct WorkingAreaContext {
 
     init(
         workingFrame: CGRect,
+        singleWindowFrame: CGRect? = nil,
         borderSafeFillFrame: CGRect? = nil,
         fullscreenLayoutFrame: CGRect? = nil,
         viewFrame: CGRect,
         scale: CGFloat
     ) {
         self.workingFrame = workingFrame
+        self.singleWindowFrame = singleWindowFrame ?? workingFrame
         self.borderSafeFillFrame = borderSafeFillFrame ?? fullscreenLayoutFrame ?? workingFrame
         self.fullscreenLayoutFrame = fullscreenLayoutFrame ?? workingFrame
         self.viewFrame = viewFrame
@@ -44,7 +47,7 @@ struct WorkingAreaContext {
     }
 }
 
-struct Struts {
+struct Struts: Equatable {
     var left: CGFloat = 0
     var right: CGFloat = 0
     var top: CGFloat = 0
@@ -96,6 +99,8 @@ final class NiriWorkspaceState {
     let root: NiriRoot
     var nodesByToken: [WindowToken: NiriWindow] = [:]
     var attachedMonitorId: Monitor.ID?
+    var manualWidthColumnCount: Int?
+    var manualHeightColumnCount: Int?
 
     init(workspaceId: WorkspaceDescriptor.ID) {
         root = NiriRoot(workspaceId: workspaceId)

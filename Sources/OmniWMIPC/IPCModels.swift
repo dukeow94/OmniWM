@@ -4,7 +4,7 @@
 import Foundation
 
 public enum OmniWMIPCProtocol {
-    public static let version = 15
+    public static let version = 19
 }
 
 public struct IPCNoPayload: Codable, Equatable, Sendable {
@@ -20,6 +20,7 @@ public enum IPCRequestKind: String, Codable, Equatable, Sendable {
     case rule
     case workspace
     case window
+    case windowMark = "window-mark"
     case subscribe
 }
 
@@ -32,6 +33,7 @@ public enum IPCResponseKind: String, Codable, Equatable, Sendable {
     case rule
     case workspace
     case window
+    case windowMark = "window-mark"
     case subscribe
     case error
 
@@ -53,6 +55,8 @@ public enum IPCResponseKind: String, Codable, Equatable, Sendable {
             self = .workspace
         case .window:
             self = .window
+        case .windowMark:
+            self = .windowMark
         case .subscribe:
             self = .subscribe
         }
@@ -82,6 +86,14 @@ public enum IPCErrorCode: String, Codable, Equatable, Sendable, Error {
     case workspaceAssignmentConflict = "workspace_assignment_conflict"
     case workspaceStateConflict = "workspace_state_conflict"
     case captureStateConflict = "capture_state_conflict"
+    case staleMark = "stale_mark"
+    case unknownMark = "unknown_mark"
+    case noFocusedWindow = "no_focused_window"
+    case selfSummon = "self_summon"
+    case hiddenWindow = "hidden_window"
+    case unsupportedLayout = "unsupported_layout"
+    case duplicateMark = "duplicate_mark"
+    case invalidMark = "invalid_mark"
     case internalError = "internal_error"
 }
 
@@ -108,10 +120,26 @@ public enum IPCWorkspaceLayout: String, Codable, Equatable, Sendable {
     case dwindle
 }
 
+public enum IPCCommandPaletteMode: String, Codable, CaseIterable, Equatable, Sendable {
+    case windows
+    case menu
+    case clipboard
+    case commands
+    case applications
+    case files
+}
+
 public enum IPCHiddenReason: String, Codable, Equatable, Sendable {
     case workspaceInactive = "workspace-inactive"
+    case tabInactive = "tab-inactive"
     case layoutTransient = "layout-transient"
     case scratchpad
+}
+
+public enum IPCColumnViewport: String, Codable, CaseIterable, Equatable, Sendable {
+    case before
+    case intersecting
+    case after
 }
 
 public enum IPCLayoutReason: String, Codable, Equatable, Sendable {

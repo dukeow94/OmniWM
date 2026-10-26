@@ -32,30 +32,20 @@ private final class LockedRunLoopJobSet: @unchecked Sendable {
 
 @MainActor
 final class MenuBarItemService {
-    private var scanThread: Thread?
     private var itemThread: Thread?
     private var activationThread: Thread?
-    private var stopped = false
+    private var stopped = true
     private var epoch = 0
     private let inFlightJobs = LockedRunLoopJobSet()
 
-    func start() {
-        stopped = false
-        epoch += 1
+    var isRunning: Bool {
+        !stopped
     }
 
-    func scan(candidates: [MenuBarAppCandidate], ownBundleID: String?) async -> [DetectedMenuBarApp] {
-        guard !stopped else { return [] }
-        let epoch = self.epoch
-        nonisolated(unsafe) let worker = scannerThread()
-        let jobs = inFlightJobs
-        let apps = (try? await worker.runInLoop(timeout: .seconds(15)) { job -> [DetectedMenuBarApp] in
-            jobs.insert(job)
-            defer { jobs.remove(job) }
-            return try MenuBarExtrasScanner.scan(candidates: candidates, ownBundleID: ownBundleID, job: job)
-        }) ?? []
-        guard isCurrent(epoch) else { return [] }
-        return apps
+    func start() {
+        guard stopped else { return }
+        stopped = false
+        epoch += 1
     }
 
     func resolveItems(
@@ -109,10 +99,10 @@ final class MenuBarItemService {
     }
 
     func stop() {
+        guard !stopped else { return }
         stopped = true
         inFlightJobs.cancelAll()
-        let threads = [scanThread, itemThread, activationThread].compactMap { $0 }
-        scanThread = nil
+        let threads = [itemThread, activationThread].compactMap { $0 }
         itemThread = nil
         activationThread = nil
         for thread in threads {
@@ -124,15 +114,6 @@ final class MenuBarItemService {
 
     private func isCurrent(_ epoch: Int) -> Bool {
         !stopped && self.epoch == epoch
-    }
-
-    private func scannerThread() -> Thread {
-        if let scanThread {
-            return scanThread
-        }
-        let thread = makeThread(name: "OmniWM-MenuBarScan")
-        scanThread = thread
-        return thread
     }
 
     private func menuItemThread() -> Thread {

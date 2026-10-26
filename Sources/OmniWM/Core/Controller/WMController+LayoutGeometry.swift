@@ -11,10 +11,17 @@ extension WMController {
     }
 
     func innerGap(for monitor: Monitor, scale: CGFloat) -> CGFloat {
+        let key = InnerGapCacheEntry.Key(
+            monitor: monitor, scale: scale, revision: settings.layoutConfigurationRevision,
+            runtimeGap: workspaceManager.gaps
+        )
+        if let cachedInnerGap, cachedInnerGap.key == key { return cachedInnerGap.value }
         let rawGap = settings.gaps.settings(for: monitor)?.innerGap == nil
             ? CGFloat(workspaceManager.gaps)
             : settings.gaps.resolved(for: monitor).innerGap
-        return max(rawGap, borderClearance(scale: scale))
+        let value = max(rawGap, borderClearance(scale: scale))
+        cachedInnerGap = InnerGapCacheEntry(key: key, value: value)
+        return value
     }
 
     func innerGap(for workspaceId: WorkspaceDescriptor.ID) -> CGFloat {
@@ -44,19 +51,29 @@ extension WMController {
         for monitor: Monitor,
         scale: CGFloat
     ) -> MonitorLayoutFrames {
-        let reservedTopInset = workspaceBarReservedTopInset(for: monitor)
+        let key = MonitorLayoutCacheEntry.Key(
+            monitor: monitor, scale: scale, revision: settings.layoutConfigurationRevision
+        )
+        if let cachedMonitorLayout, cachedMonitorLayout.key == key { return cachedMonitorLayout.value }
+        let value = buildLayoutFrames(for: monitor, scale: scale)
+        cachedMonitorLayout = MonitorLayoutCacheEntry(key: key, value: value)
+        return value
+    }
+
+    private func buildLayoutFrames(for monitor: Monitor, scale: CGFloat) -> MonitorLayoutFrames {
+        let reserved = workspaceBarReservedInsets(for: monitor)
         let gaps = settings.gaps.resolved(for: monitor)
         let menuBarInset = max(0, monitor.frame.maxY - monitor.visibleFrame.maxY)
         let normalizedTop = normalizedTopStrut(
             top: gaps.outerGapTop,
             menuBarInset: menuBarInset,
-            reservedTopInset: reservedTopInset
+            reservedTopInset: reserved.top
         )
         let rawStruts = Struts(
-            left: gaps.outerGapLeft,
-            right: gaps.outerGapRight,
+            left: gaps.outerGapLeft + reserved.left,
+            right: gaps.outerGapRight + reserved.right,
             top: normalizedTop,
-            bottom: gaps.outerGapBottom
+            bottom: gaps.outerGapBottom + reserved.bottom
         )
         let clearance = borderClearance(scale: scale)
         let effectiveStruts = Struts(
@@ -82,7 +99,7 @@ extension WMController {
             borderSafeFillFrame = workingFrame
         } else {
             (fullscreenLayoutFrame, borderSafeFillFrame) = ungappedFullscreenFrames(
-                for: monitor, scale: scale, reservedTopInset: reservedTopInset, clearance: clearance
+                for: monitor, scale: scale, reserved: reserved, clearance: clearance
             )
         }
         return MonitorLayoutFrames(
@@ -102,10 +119,10 @@ extension WMController {
         for monitor: Monitor,
         scale: CGFloat
     ) -> NiriInteractionGeometry {
-        let workingFrame = layoutFrames(for: monitor, scale: scale).workingFrame
+        let gap = innerGap(for: monitor, scale: scale)
         return NiriInteractionGeometry(
-            workingFrame: workingFrame,
-            innerGap: innerGap(for: monitor, scale: scale),
+            workingFrame: niriWorkingFrame(layoutFrames(for: monitor, scale: scale).workingFrame, gap: gap),
+            innerGap: gap,
             scale: scale
         )
     }
@@ -113,6 +130,18 @@ extension WMController {
     func insetWorkingFrame(for monitor: Monitor) -> CGRect {
         let scale = backingScaleFactor(for: monitor)
         return layoutFrames(for: monitor, scale: scale).workingFrame
+    }
+
+    func niriWorkingFrame(for monitor: Monitor) -> CGRect {
+        let scale = backingScaleFactor(for: monitor)
+        return niriWorkingFrame(
+            layoutFrames(for: monitor, scale: scale).workingFrame,
+            gap: innerGap(for: monitor, scale: scale)
+        )
+    }
+
+    func niriWorkingFrame(_ workingFrame: CGRect, gap: CGFloat) -> CGRect {
+        settings.niri.edgeGaps ? workingFrame : workingFrame.insetBy(dx: -gap, dy: -gap)
     }
 
     func fullscreenLayoutFrame(for monitor: Monitor) -> CGRect {
@@ -126,7 +155,7 @@ extension WMController {
     }
 
     func backingScaleFactor(for monitor: Monitor) -> CGFloat {
-        NSScreen.screens.first(where: { $0.displayId == monitor.displayId })?.backingScaleFactor ?? 2.0
+        layoutRefreshController.backingScale(for: monitor)
     }
 
     private func borderClearance(scale: CGFloat) -> CGFloat {
@@ -137,35 +166,35 @@ extension WMController {
         )
     }
 
-    private func workspaceBarReservedTopInset(for monitor: Monitor) -> CGFloat {
-        guard settings.workspaceBar.revealModifier == .off else { return 0 }
+    private func workspaceBarReservedInsets(for monitor: Monitor) -> Struts {
+        guard settings.workspaceBar.revealModifier == .off else { return .zero }
         let resolved = settings.workspaceBar.resolved(for: monitor)
         return WorkspaceBarGeometry.resolve(
             monitor: monitor,
             resolved: resolved,
             isVisible: isWorkspaceBarConfiguredVisible(on: monitor, resolved: resolved)
-        ).reservedTopInset
+        ).reservedInsets
     }
 
     private func ungappedFullscreenFrames(
         for monitor: Monitor,
         scale: CGFloat,
-        reservedTopInset: CGFloat,
+        reserved: Struts,
         clearance: CGFloat
     ) -> (layout: CGRect, borderSafe: CGRect) {
         let layout = computeWorkingArea(
             parentArea: monitor.visibleFrame,
             scale: scale,
-            struts: Struts(top: reservedTopInset)
+            struts: reserved
         )
         let borderSafe = computeWorkingArea(
             parentArea: monitor.visibleFrame,
             scale: scale,
             struts: Struts(
-                left: clearance,
-                right: clearance,
-                top: max(reservedTopInset, clearance),
-                bottom: clearance
+                left: max(reserved.left, clearance),
+                right: max(reserved.right, clearance),
+                top: max(reserved.top, clearance),
+                bottom: max(reserved.bottom, clearance)
             )
         )
         return (layout, borderSafe)

@@ -4,7 +4,7 @@
 import AppKit
 import Foundation
 
-private let niriWheelScrollTickAmount: CGFloat = 120.0
+let niriWheelScrollTickAmount: CGFloat = 120.0
 
 struct MouseInputState {
     enum InteractionSource: Hashable {
@@ -61,6 +61,7 @@ struct MouseInputState {
     var runLoopSource: CFRunLoopSource?
     var moveTap: CFMachPort?
     var moveTapRunLoopSource: CFRunLoopSource?
+    var moveTapDeliversMouseMoved = false
     var currentHoveredEdges: ResizeEdge = []
     var isResizing: Bool = false
     var isMoving: Bool = false
@@ -75,7 +76,7 @@ struct MouseInputState {
     }
 
     var capturedInteractionButton: MouseEventHandler.MouseButton?
-    var capturedOverviewButton: Int64?
+    var capturedOtherMouseButton: Int64?
     var resizeLayout: LayoutType?
     var moveLayout: LayoutType?
     var awaitsNativeTitleBarDragTarget = false
@@ -93,6 +94,7 @@ struct MouseInputState {
     var gestureStartY: CGFloat = 0.0
     var gestureLastAverageX: CGFloat = 0.0
     var gestureLastAverageY: CGFloat = 0.0
+    var gestureLastTimestamp: TimeInterval = 0
     var lockedGestureContext: LockedGestureContext?
     var activeGestureMode: TrackpadGestureMode?
     var gestureFingerCountMismatchSince: TimeInterval?

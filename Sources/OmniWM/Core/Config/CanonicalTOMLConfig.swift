@@ -41,6 +41,8 @@ struct CanonicalTOMLConfig: Codable, Equatable {
         var updateChecksEnabled: Bool
         var ipcEnabled: Bool
         var animationsEnabled: Bool
+        var animationSpeed: Double?
+        var language: String?
     }
 
     struct Monitors: Codable, Equatable {
@@ -74,6 +76,7 @@ extension CanonicalTOMLConfig {
         monitors = try container.decodeIfPresent(Monitors.self, forKey: .monitors)
         gaps = try container.decode(SettingsExport.Gaps.self, forKey: .gaps)
         niri = try container.decode(SettingsExport.Niri.self, forKey: .niri)
+        niri.edgeGaps = niri.edgeGaps ?? true
         dwindle = try container.decode(SettingsExport.Dwindle.self, forKey: .dwindle)
         borders = try container.decode(SettingsExport.Borders.self, forKey: .borders)
         overview = try container.decode(SettingsExport.Overview.self, forKey: .overview)
@@ -111,7 +114,9 @@ extension CanonicalTOMLConfig {
             preventSleepEnabled: export.preventSleepEnabled,
             updateChecksEnabled: export.updateChecksEnabled,
             ipcEnabled: export.ipcEnabled,
-            animationsEnabled: export.animationsEnabled
+            animationsEnabled: export.animationsEnabled,
+            animationSpeed: AnimationSpeed.normalized(export.animationSpeed),
+            language: export.language
         )
         focus = export.focus
         mouseWarp = export.mouseWarp
@@ -141,19 +146,7 @@ extension CanonicalTOMLConfig {
     }
 
     func toSettingsExport() -> SettingsExport {
-        var overview = overview
-        overview.matchFocusBorder = overview.matchFocusBorder ?? true
-        overview.invertScrollDirection = overview.invertScrollDirection ?? false
-        overview.mouseScrollSpeed = overview.mouseScrollSpeed ?? 1
-        var gestures = gestures
-        gestures.overviewGestureEnabled = gestures.overviewGestureEnabled ?? false
-        gestures.overviewGestureFingerCount = gestures.overviewGestureFingerCount ?? .four
-        gestures.windowMoveEnabled = gestures.windowMoveEnabled ?? false
-        gestures.windowMoveFingerCount = gestures.windowMoveFingerCount ?? .four
-        gestures.windowResizeEnabled = gestures.windowResizeEnabled ?? false
-        gestures.windowResizeFingerCount = gestures.windowResizeFingerCount ?? .three
-        gestures.windowGestureSensitivity = gestures.windowGestureSensitivity ?? 1.0
-        return SettingsExport(
+        SettingsExport(
             hotkeysEnabled: general.hotkeysEnabled,
             focus: focus,
             mouseWarp: mouseWarp,
@@ -164,7 +157,7 @@ extension CanonicalTOMLConfig {
             workspaceConfigurations: workspaces,
             defaultLayoutType: general.defaultLayoutType,
             borders: borders,
-            overview: overview,
+            overview: overviewForExport(),
             hotkeyBindings: hotkeys,
             systemHyperTrigger: general.systemHyperTrigger,
             hyperKeyModifiers: general.hyperKeyModifiers,
@@ -180,14 +173,43 @@ extension CanonicalTOMLConfig {
             preventSleepEnabled: general.preventSleepEnabled,
             updateChecksEnabled: general.updateChecksEnabled,
             ipcEnabled: general.ipcEnabled,
-            gestures: gestures,
-            statusBar: statusBar,
+            gestures: gesturesForExport(),
+            statusBar: statusBarForExport(),
             hiddenBar: hiddenBar,
             animationsEnabled: general.animationsEnabled,
+            animationSpeed: AnimationSpeed.normalized(general.animationSpeed ?? 1),
+            language: general.language,
             clipboard: clipboard,
             quakeTerminal: quakeTerminal,
             appearanceMode: appearance.mode,
             tabRailAppIcons: appearance.tabRailAppIcons
         )
+    }
+
+    private func overviewForExport() -> SettingsExport.Overview {
+        var overview = overview
+        overview.enabled = overview.enabled ?? true
+        overview.matchFocusBorder = overview.matchFocusBorder ?? true
+        overview.invertScrollDirection = overview.invertScrollDirection ?? false
+        overview.mouseScrollSpeed = overview.mouseScrollSpeed ?? 1
+        return overview
+    }
+
+    private func statusBarForExport() -> SettingsExport.StatusBar {
+        var statusBar = statusBar
+        statusBar.showIcon = statusBar.showIcon ?? true
+        return statusBar
+    }
+
+    private func gesturesForExport() -> SettingsExport.Gestures {
+        var gestures = gestures
+        gestures.overviewGestureEnabled = gestures.overviewGestureEnabled ?? false
+        gestures.overviewGestureFingerCount = gestures.overviewGestureFingerCount ?? .four
+        gestures.windowMoveEnabled = gestures.windowMoveEnabled ?? false
+        gestures.windowMoveFingerCount = gestures.windowMoveFingerCount ?? .four
+        gestures.windowResizeEnabled = gestures.windowResizeEnabled ?? false
+        gestures.windowResizeFingerCount = gestures.windowResizeFingerCount ?? .three
+        gestures.windowGestureSensitivity = gestures.windowGestureSensitivity ?? 1.0
+        return gestures
     }
 }

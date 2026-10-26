@@ -24,11 +24,22 @@ final class SettingsStore {
     private let autosaveEnabled: Bool
     private var isApplyingExport = false
     private var isApplyingRuntimeState = false
+    @ObservationIgnored private var lastEffectiveTrackpadAvailability: Bool?
+    @ObservationIgnored private(set) var layoutConfigurationRevision: UInt64 = 0
+
+    var effectiveTrackpadGesturesEnabled: Bool {
+        gestures.scrollEnabled || gestures.workspaceSwipeEnabled ||
+            (gestures.overviewGestureEnabled && overview.enabled) ||
+            gestures.windowMoveEnabled || gestures.windowResizeEnabled
+    }
 
     var onIPCEnabledChanged: (@MainActor (Bool) -> Void)?
     var onExternalSettingsReloaded: (@MainActor () -> Void)?
     var onConfigNoticeChanged: (@MainActor () -> Void)?
     var onTrackpadGestureAvailabilityChanged: (@MainActor (Bool) -> Void)?
+    var onPointerSettingsChanged: (@MainActor () -> Void)?
+    var onWorkspaceHotkeysChanged: (@MainActor () -> Void)?
+    var liveWorkspaceNamesForHotkeys: (@MainActor () -> [String])?
     private(set) var configNotice: SettingsConfigNotice?
 
     var hotkeysEnabled = SettingsStore.defaultExport.hotkeysEnabled {
@@ -125,7 +136,57 @@ final class SettingsStore {
         didSet { runtimeState.commandPaletteLastMode = commandPaletteLastMode }
     }
 
+    var commandPaletteApplicationsViewStyle: LauncherViewStyle {
+        get { runtimeState.commandPaletteViewStyle(for: .applications) }
+        set { runtimeState.setCommandPaletteViewStyle(newValue, for: .applications) }
+    }
+
+    var commandPaletteFilesViewStyle: LauncherViewStyle {
+        get { runtimeState.commandPaletteViewStyle(for: .files) }
+        set { runtimeState.setCommandPaletteViewStyle(newValue, for: .files) }
+    }
+
+    func recordLauncherLaunch(targetID: String, query: String, displayName: String? = nil) {
+        runtimeState.recordLauncherLaunch(
+            targetID: targetID,
+            displayName: displayName ?? URL(fileURLWithPath: targetID).lastPathComponent,
+            query: query
+        )
+    }
+
+    func launcherShortcutTarget(for query: String) -> String? {
+        runtimeState.launcherShortcutTarget(for: query)
+    }
+
+    func launcherLaunches(for targetID: String) -> [LauncherLaunch] {
+        runtimeState.launcherLaunches(for: targetID)
+    }
+
+    var launcherLaunchesSnapshot: [String: [LauncherLaunch]] {
+        runtimeState.launcherLaunchesSnapshot
+    }
+
+    var launcherHiddenSuggestions: Set<String> {
+        get { runtimeState.launcherHiddenSuggestions }
+        set { runtimeState.launcherHiddenSuggestions = newValue }
+    }
+
     var animationsEnabled = SettingsStore.defaultExport.animationsEnabled {
+        didSet { scheduleSave() }
+    }
+
+    var animationSpeed = SettingsStore.defaultExport.animationSpeed {
+        didSet {
+            let normalized = AnimationSpeed.normalized(animationSpeed)
+            guard animationSpeed == normalized else {
+                animationSpeed = normalized
+                return
+            }
+            scheduleSave()
+        }
+    }
+
+    var language = SettingsStore.defaultExport.language {
         didSet { scheduleSave() }
     }
 
@@ -213,24 +274,28 @@ final class SettingsStore {
         syncQuakeTerminalCustomFrameToRuntimeState()
 
         focus.onChange = { [weak self] in self?.scheduleSave() }
-        pointer.onChange = { [weak self] in self?.scheduleSave() }
+        pointer.onChange = { [weak self] in self?.pointerSettingsDidChange() }
         monitors.onChange = { [weak self] in self?.scheduleSave() }
-        gaps.onChange = { [weak self] in self?.scheduleSave() }
+        gaps.onChange = { [weak self] in self?.layoutConfigurationDidChange() }
         niri.onChange = { [weak self] in self?.scheduleSave() }
         dwindle.onChange = { [weak self] in self?.scheduleSave() }
-        gestures.onChange = { [weak self] in self?.scheduleSave() }
-        workspaceBar.onChange = { [weak self] in self?.scheduleSave() }
-        workspaces.onChange = { [weak self] in self?.scheduleSave() }
-        borders.onChange = { [weak self] in self?.scheduleSave() }
-        overview.onChange = { [weak self] in self?.scheduleSave() }
+        gestures.onChange = { [weak self] in
+            self?.notifyTrackpadAvailabilityIfChanged()
+            self?.scheduleSave()
+        }
+        workspaceBar.onChange = { [weak self] in self?.layoutConfigurationDidChange() }
+        workspaceBar.onNotificationBadgesChange = { [weak self] in self?.scheduleSave() }
+        workspaces.onChange = { [weak self] in self?.workspacesDidChange() }
+        borders.onChange = { [weak self] in self?.layoutConfigurationDidChange() }
+        overview.onChange = { [weak self] in
+            self?.notifyTrackpadAvailabilityIfChanged()
+            self?.scheduleSave()
+        }
         statusBar.onChange = { [weak self] in self?.scheduleSave() }
         hiddenBar.onChange = { [weak self] in self?.scheduleSave() }
         clipboard.onChange = { [weak self] in self?.scheduleSave() }
         quakeTerminal.onChange = { [weak self] in self?.scheduleSave() }
-        gestures.onAvailabilityChanged = { [weak self] available in
-            guard let self, !self.isApplyingExport else { return }
-            self.onTrackpadGestureAvailabilityChanged?(available)
-        }
+        lastEffectiveTrackpadAvailability = effectiveTrackpadGesturesEnabled
 
         let outcome = persistence.loadOutcome()
         transitionConfigNotice(to: outcome.notice)
@@ -296,6 +361,17 @@ final class SettingsStore {
         persistence.scheduleSave(toExport())
     }
 
+    func scratchpadLabel(for index: Int) -> String? {
+        scratchpadLabels[String(index)]
+    }
+}
+
+extension SettingsStore {
+    private func layoutConfigurationDidChange() {
+        layoutConfigurationRevision &+= 1
+        scheduleSave()
+    }
+
     static func normalizedScratchpadLabels(_ labels: [String: String]) -> [String: String] {
         labels.reduce(into: [:]) { normalized, entry in
             guard let index = Int(entry.key.trimmingCharacters(in: .whitespacesAndNewlines)),
@@ -309,58 +385,13 @@ final class SettingsStore {
         }
     }
 
-    func scratchpadLabel(for index: Int) -> String? {
-        scratchpadLabels[String(index)]
-    }
-}
-
-extension SettingsStore {
-    func toExport() -> SettingsExport {
-        SettingsExport(
-            hotkeysEnabled: hotkeysEnabled,
-            focus: focus.export(),
-            mouseWarp: pointer.export(),
-            routing: monitors.export(),
-            monitorRanking: monitors.ranking,
-            gaps: gaps.export(),
-            niri: niri.export(),
-            workspaceConfigurations: workspaces.configurations,
-            defaultLayoutType: workspaces.defaultLayoutType,
-            borders: borders.export(),
-            overview: overview.export(),
-            hotkeyBindings: hotkeyBindings,
-            systemHyperTrigger: systemHyperTrigger,
-            hyperKeyModifiers: hyperKeyModifiersStorage,
-            workspaceBar: workspaceBar.export(),
-            scratchpads: SettingsExport.Scratchpads(labels: scratchpadLabels),
-            monitorBarSettings: workspaceBar.monitorOverrides,
-            appRules: appRules,
-            monitorOrientationSettings: monitors.orientationOverrides,
-            monitorNiriSettings: niri.monitorOverrides,
-            dwindle: dwindle.export(),
-            monitorDwindleSettings: dwindle.monitorOverrides,
-            monitorGapSettings: gaps.monitorOverrides.filter(\.hasOverrides),
-            preventSleepEnabled: preventSleepEnabled,
-            updateChecksEnabled: updateChecksEnabled,
-            ipcEnabled: ipcEnabled,
-            gestures: gestures.export(),
-            statusBar: statusBar.export(),
-            hiddenBar: hiddenBar.export(),
-            animationsEnabled: animationsEnabled,
-            clipboard: clipboard.export(),
-            quakeTerminal: quakeTerminal.export(),
-            appearanceMode: appearanceMode,
-            tabRailAppIcons: tabRailAppIcons
-        )
-    }
-
     func applyExport(_ export: SettingsExport) {
-        let baseline = SettingsStore.defaultExport
-        let trackpadGesturesWereAvailable = gestures.trackpadGesturesEnabled
+        let trackpadGesturesWereAvailable = effectiveTrackpadGesturesEnabled
         isApplyingExport = true
         defer {
             isApplyingExport = false
-            let trackpadGesturesAreAvailable = gestures.trackpadGesturesEnabled
+            let trackpadGesturesAreAvailable = effectiveTrackpadGesturesEnabled
+            lastEffectiveTrackpadAvailability = trackpadGesturesAreAvailable
             if trackpadGesturesWereAvailable != trackpadGesturesAreAvailable {
                 onTrackpadGestureAvailabilityChanged?(trackpadGesturesAreAvailable)
             }
@@ -376,18 +407,18 @@ extension SettingsStore {
         monitors.ranking = MonitorRanking.normalized(export.monitorRanking)
         gaps.apply(export.gaps)
 
-        niri.apply(export.niri, baseline: baseline.niri)
+        niri.apply(export.niri, baseline: SettingsStore.defaultExport.niri)
 
         workspaces.configurations = WorkspaceSettings.normalizedConfigurations(export.workspaceConfigurations)
         workspaces.defaultLayoutType = export.defaultLayoutType
 
         borders.apply(export.borders)
 
-        overview.apply(export.overview, baseline: baseline.overview)
+        overview.apply(export.overview, baseline: SettingsStore.defaultExport.overview)
 
         hyperKeyModifiersStorage = export.hyperKeyModifiers
         KeySymbolMapper.setHyperKeyModifiers(export.hyperKeyModifiers)
-        hotkeyBindings = export.hotkeyBindings
+        hotkeyBindings = withWorkspaceNumberHotkeys(export.hotkeyBindings)
         systemHyperTrigger = export.systemHyperTrigger
 
         workspaceBar.applyIdentity(export.workspaceBar)
@@ -409,50 +440,56 @@ extension SettingsStore {
         statusBar.apply(export.statusBar)
         hiddenBar.apply(export.hiddenBar)
         animationsEnabled = export.animationsEnabled
+        animationSpeed = export.animationSpeed
+        language = export.language
         clipboard.apply(export.clipboard)
 
-        quakeTerminal.apply(export.quakeTerminal, baseline: baseline.quakeTerminal)
+        quakeTerminal.apply(export.quakeTerminal, baseline: SettingsStore.defaultExport.quakeTerminal)
 
         appearanceMode = export.appearanceMode
         tabRailAppIcons = export.tabRailAppIcons
+    }
+
+    private func pointerSettingsDidChange() {
+        onPointerSettingsChanged?()
+        scheduleSave()
+    }
+
+    private func notifyTrackpadAvailabilityIfChanged() {
+        guard !isApplyingExport else { return }
+        let available = effectiveTrackpadGesturesEnabled
+        guard available != lastEffectiveTrackpadAvailability else { return }
+        lastEffectiveTrackpadAvailability = available
+        onTrackpadGestureAvailabilityChanged?(available)
     }
 }
 
 extension SettingsStore {
     func resetHotkeysToDefaults() {
         hyperKeyModifiers = SettingsStore.defaultExport.hyperKeyModifiers
-        hotkeyBindings = HotkeyBindingRegistry.defaults()
+        hotkeyBindings = withWorkspaceNumberHotkeys(HotkeyBindingRegistry.defaults())
         systemHyperTrigger = SettingsStore.defaultExport.systemHyperTrigger
     }
 
-    func updateBinding(for commandId: String, newBinding: KeyBinding) {
-        updateTrigger(for: commandId, newTrigger: newBinding.isUnassigned ? .unassigned : .chord(newBinding))
-    }
-
-    func updateTrigger(for commandId: String, newTrigger: HotkeyTrigger) {
-        guard let index = hotkeyBindings.firstIndex(where: { $0.id == commandId }) else { return }
-        hotkeyBindings[index] = HotkeyBinding(
-            id: hotkeyBindings[index].id,
-            command: hotkeyBindings[index].command,
-            trigger: newTrigger
+    private func withWorkspaceNumberHotkeys(_ bindings: [HotkeyBinding]) -> [HotkeyBinding] {
+        HotkeyBindingRegistry.reconcilingWorkspaceNumberBindings(
+            bindings,
+            workspaceNames: workspaces.configuredNames() + (liveWorkspaceNamesForHotkeys?() ?? [])
         )
     }
 
-    func clearBinding(for commandId: String) {
-        updateBinding(for: commandId, newBinding: .unassigned)
+    private func workspacesDidChange() {
+        reconcileWorkspaceNumberHotkeys()
+        scheduleSave()
     }
 
-    func resetBindings(for commandId: String) {
-        guard let defaultBinding = HotkeyBindingRegistry.defaults().first(where: { $0.id == commandId }),
-              let index = hotkeyBindings.firstIndex(where: { $0.id == commandId })
-        else { return }
-        hotkeyBindings[index] = defaultBinding
-    }
-
-    func findConflicts(for trigger: HotkeyTrigger, excluding commandId: String) -> [HotkeyBinding] {
-        hotkeyBindings.filter { hotkeyBinding in
-            hotkeyBinding.id != commandId &&
-                hotkeyBinding.binding.conflicts(with: trigger)
+    func reconcileWorkspaceNumberHotkeys() {
+        let reconciled = withWorkspaceNumberHotkeys(hotkeyBindings)
+        if reconciled != hotkeyBindings {
+            hotkeyBindings = reconciled
+            if !isApplyingExport {
+                onWorkspaceHotkeysChanged?()
+            }
         }
     }
 }

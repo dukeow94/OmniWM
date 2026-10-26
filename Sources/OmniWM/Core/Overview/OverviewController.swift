@@ -92,10 +92,7 @@ final class OverviewController {
             structuralActions: structuralActions,
             mutationSession: mutationSession
         )
-        thumbnailCapture = previewCapture ?? OverviewThumbnailCapture(
-            environment: environment,
-            ownedWindowRegistry: ownedWindowRegistry
-        )
+        thumbnailCapture = previewCapture ?? OverviewThumbnailCapture()
         input = OverviewInputHandler(
             projection: projection,
             windowSession: windowSession,
@@ -133,13 +130,12 @@ final class OverviewController {
         thumbnailCapture.onPreview = { [weak windowSession] handle, frame in
             windowSession?.updatePreview(frame, for: handle)
         }
+        thumbnailCapture.onCaptureStarted = { [weak self] in self?.environment.onThumbnailCaptureStarted() }
     }
 
-    deinit {
-        MainActor.assumeIsolated {
-            endOwnedSession()
-            cleanup()
-        }
+    isolated deinit {
+        endOwnedSession()
+        cleanup()
     }
 }
 
@@ -414,6 +410,7 @@ extension OverviewController {
             endOwnedSession()
             updateWindowDisplays()
         }
+        wmController?.layoutRefreshController.collectUnusedWorkspacesIfIdle()
     }
 
     func handleManagedWindowRemoved(_ entry: WindowState) {

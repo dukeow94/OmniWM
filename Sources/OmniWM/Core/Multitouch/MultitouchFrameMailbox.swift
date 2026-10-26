@@ -11,44 +11,6 @@ import Synchronization
 private let multitouchLiftTimeout = 0.12
 
 final class MultitouchFrameMailbox: @unchecked Sendable {
-    struct PerformanceSnapshot: Equatable, Sendable {
-        let rawCallbacks: UInt64
-        let staleCallbacks: UInt64
-        let drainBatches: UInt64
-        let overwrittenChanges: UInt64
-        let transitionsQueued: UInt64
-        let cursorSamples: UInt64
-        let pendingFrames: Int
-        let maximumPendingFrames: Int
-    }
-
-    private final class PerformanceCounters: @unchecked Sendable {
-        let rawCallbacks = Atomic<UInt64>(0)
-        let staleCallbacks = Atomic<UInt64>(0)
-        let drainBatches = Atomic<UInt64>(0)
-        let overwrittenChanges = Atomic<UInt64>(0)
-        let transitionsQueued = Atomic<UInt64>(0)
-        let cursorSamples = Atomic<UInt64>(0)
-        var maximumPendingFrames: Int
-
-        init(maximumPendingFrames: Int) {
-            self.maximumPendingFrames = maximumPendingFrames
-        }
-
-        func snapshot(pendingFrames: Int) -> PerformanceSnapshot {
-            PerformanceSnapshot(
-                rawCallbacks: rawCallbacks.load(ordering: .relaxed),
-                staleCallbacks: staleCallbacks.load(ordering: .relaxed),
-                drainBatches: drainBatches.load(ordering: .relaxed),
-                overwrittenChanges: overwrittenChanges.load(ordering: .relaxed),
-                transitionsQueued: transitionsQueued.load(ordering: .relaxed),
-                cursorSamples: cursorSamples.load(ordering: .relaxed),
-                pendingFrames: pendingFrames,
-                maximumPendingFrames: maximumPendingFrames
-            )
-        }
-    }
-
     enum Kind: Equatable, Sendable {
         case began
         case changed
@@ -77,11 +39,12 @@ final class MultitouchFrameMailbox: @unchecked Sendable {
     private struct State {
         var generation: UInt = 0
         var touchingSlots: UInt64 = 0
-        var physicalTouchingSlots: UInt64 = 0
+        var physicalFingerCounts = InlineArray<64, Int>(repeating: 0)
         var contacts = MultitouchContactSessions()
         var contactsChanged = false
         var ownerSlot: Int?
         var ownerTimestamp: Double = 0
+        var steadyFrameFloor = 0
         var drainScheduled = false
         var pending: [Delivery] = []
         var spare: [Delivery] = []
@@ -99,17 +62,22 @@ final class MultitouchFrameMailbox: @unchecked Sendable {
         state.withLock { value in
             value.generation = generation
             value.touchingSlots = 0
-            value.physicalTouchingSlots = 0
+            value.physicalFingerCounts = InlineArray(repeating: 0)
             value.contacts = MultitouchContactSessions(generation: generation)
             value.contactsChanged = true
             value.ownerSlot = nil
             value.drainScheduled = false
             value.pending.removeAll(keepingCapacity: true)
+            TrackpadScrollTrace.record(.reset(generation: generation))
         }
     }
 
     func invalidate() {
         activate(generation: 0)
+    }
+
+    func setSteadyFrameFloor(_ floor: Int) {
+        state.withLock { $0.steadyFrameFloor = floor }
     }
 
     func offer(_ frame: MultitouchGestureSource.RawFrame, generation: UInt, slot: Int) -> Bool {
@@ -123,16 +91,22 @@ final class MultitouchFrameMailbox: @unchecked Sendable {
                 }
                 return false
             }
-            let hasTouches = !frame.touches.isEmpty
-            let slotMask: UInt64 = 1 << UInt64(slot)
-            if hasTouches {
-                if value.physicalTouchingSlots & slotMask == 0 {
-                    value.contacts.sessions[slot] += 1
-                    value.contactsChanged = true
-                }
-                value.physicalTouchingSlots |= slotMask
-            } else {
-                value.physicalTouchingSlots &= ~slotMask
+            let fingerCount = frame.touches.count
+            let previousFingerCount = value.physicalFingerCounts[slot]
+            let hasTouches = fingerCount > 0
+            if hasTouches, previousFingerCount == 0 {
+                value.contacts.sessions[slot] += 1
+                value.contactsChanged = true
+            }
+            value.physicalFingerCounts[slot] = fingerCount
+            if fingerCount != previousFingerCount {
+                TrackpadScrollTrace.record(.physical(
+                    generation: generation,
+                    slot: slot,
+                    session: value.contacts.sessions[slot],
+                    timestamp: frame.timestamp,
+                    fingers: fingerCount
+                ))
             }
             var scheduled = false
             if let owner = value.ownerSlot, hasTouches,
@@ -151,18 +125,20 @@ final class MultitouchFrameMailbox: @unchecked Sendable {
                     in: &value
                 )
             }
-            let routed = route(frame, hasTouches: hasTouches, generation: generation, slot: slot, in: &value)
+            let routed = route(frame, previous: previousFingerCount, generation: generation, slot: slot, in: &value)
             return scheduleDrainIfNeeded(in: &value) || routed || scheduled
         }
     }
 
     private func route(
         _ frame: MultitouchGestureSource.RawFrame,
-        hasTouches: Bool,
+        previous previousFingerCount: Int,
         generation: UInt,
         slot: Int,
         in value: inout State
     ) -> Bool {
+        let fingerCount = frame.touches.count
+        let hasTouches = fingerCount > 0
         let slotMask: UInt64 = 1 << UInt64(slot)
         let wasTouching = value.touchingSlots & slotMask != 0
         if hasTouches {
@@ -183,7 +159,9 @@ final class MultitouchFrameMailbox: @unchecked Sendable {
             return enqueue(.ended, frame, generation: generation, slot: slot, in: &value)
         }
         value.ownerTimestamp = frame.timestamp
-        if value.pending.last?.kind == .changed {
+        let isSteadyBelowFloor = fingerCount == previousFingerCount && fingerCount < value.steadyFrameFloor
+        guard !isSteadyBelowFloor else { return false }
+        if value.pending.last?.kind == .changed, value.pending.last?.frame.touches.count == frame.touches.count {
             value.pending[value.pending.count - 1] = Delivery(
                 frame: frame,
                 generation: generation,
@@ -260,6 +238,22 @@ final class MultitouchFrameMailbox: @unchecked Sendable {
         state.withLock { $0.pending.count }
     }
 
+    func recordTraceSnapshot(slotCount: Int) {
+        guard TrackpadScrollTrace.shared.isActive else { return }
+        state.withLock { value in
+            guard value.generation != 0 else { return }
+            for slot in 0 ..< min(max(slotCount, 0), value.physicalFingerCounts.count) {
+                TrackpadScrollTrace.record(.physical(
+                    generation: value.generation,
+                    slot: slot,
+                    session: value.contacts.sessions[slot],
+                    timestamp: nil,
+                    fingers: value.physicalFingerCounts[slot]
+                ))
+            }
+        }
+    }
+
     func recordCursorSample() {
         state.withLock { value in
             _ = value.performanceCounters?.cursorSamples.wrappingAdd(1, ordering: .relaxed)
@@ -309,6 +303,46 @@ final class MultitouchFrameMailbox: @unchecked Sendable {
               let endIndex = value.pending.firstIndex(where: { $0.kind.isTerminal })
         {
             value.pending.removeFirst(endIndex + 1)
+        }
+    }
+}
+
+extension MultitouchFrameMailbox {
+    struct PerformanceSnapshot: Equatable, Sendable {
+        let rawCallbacks: UInt64
+        let staleCallbacks: UInt64
+        let drainBatches: UInt64
+        let overwrittenChanges: UInt64
+        let transitionsQueued: UInt64
+        let cursorSamples: UInt64
+        let pendingFrames: Int
+        let maximumPendingFrames: Int
+    }
+
+    private final class PerformanceCounters: @unchecked Sendable {
+        let rawCallbacks = Atomic<UInt64>(0)
+        let staleCallbacks = Atomic<UInt64>(0)
+        let drainBatches = Atomic<UInt64>(0)
+        let overwrittenChanges = Atomic<UInt64>(0)
+        let transitionsQueued = Atomic<UInt64>(0)
+        let cursorSamples = Atomic<UInt64>(0)
+        var maximumPendingFrames: Int
+
+        init(maximumPendingFrames: Int) {
+            self.maximumPendingFrames = maximumPendingFrames
+        }
+
+        func snapshot(pendingFrames: Int) -> PerformanceSnapshot {
+            PerformanceSnapshot(
+                rawCallbacks: rawCallbacks.load(ordering: .relaxed),
+                staleCallbacks: staleCallbacks.load(ordering: .relaxed),
+                drainBatches: drainBatches.load(ordering: .relaxed),
+                overwrittenChanges: overwrittenChanges.load(ordering: .relaxed),
+                transitionsQueued: transitionsQueued.load(ordering: .relaxed),
+                cursorSamples: cursorSamples.load(ordering: .relaxed),
+                pendingFrames: pendingFrames,
+                maximumPendingFrames: maximumPendingFrames
+            )
         }
     }
 }

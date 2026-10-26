@@ -1,0 +1,51 @@
+{
+  "observation": {
+    "tokenPid": 1000,
+    "tokenWindowId": 6,
+    "appName": "Firefox",
+    "bundleId": "org.mozilla.firefox",
+    "rulesRevision": 1,
+    "input": {
+      "appName": "Firefox",
+      "ax": {
+        "role": "AXWindow",
+        "subrole": "AXStandardWindow",
+        "title": "Picture-in-Picture",
+        "hasCloseButton": true,
+        "hasFullscreenButton": true,
+        "fullscreenButtonEnabled": true,
+        "hasZoomButton": true,
+        "hasMinimizeButton": true,
+        "appPolicy": "regular",
+        "bundleId": "org.mozilla.firefox",
+        "attributeFetchSucceeded": true
+      },
+      "windowServer": {
+        "id": 6,
+        "pid": 1000,
+        "level": 3,
+        "frameX": 0,
+        "frameY": 0,
+        "frameWidth": 480,
+        "frameHeight": 270,
+        "tags": 0,
+        "attributes": 0,
+        "parentId": 0
+      },
+      "appFullscreen": false
+    },
+    "observedDecision": {
+      "disposition": "floating",
+      "source": "builtInRule(browserPictureInPicture)",
+      "heuristicReasons": [],
+      "layoutDecisionKind": "explicitLayout"
+    }
+  },
+  "rules": [],
+  "expectedDecision": {
+    "disposition": "unmanaged",
+    "source": "builtInRule(externalSurface)",
+    "heuristicReasons": [],
+    "layoutDecisionKind": "explicitLayout"
+  }
+}

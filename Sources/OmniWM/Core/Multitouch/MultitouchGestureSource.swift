@@ -26,7 +26,7 @@ final class MultitouchGestureSource {
     private let coalescingDelay: Duration
     private let wakeSettlingDelay: Duration
     private let retryDelays: [Duration]
-    private nonisolated let rawFrameMailbox = MultitouchFrameMailbox()
+    nonisolated let rawFrameMailbox = MultitouchFrameMailbox()
 
     private let devices: MultitouchDeviceRegistration
     private var activeGeneration: UInt = 0
@@ -358,6 +358,12 @@ extension MultitouchGestureSource {
         rawFrameMailbox.beginPerformanceCapture()
     }
 
+    func recordTraceSnapshot() {
+        guard TrackpadScrollTrace.shared.isActive, activeGeneration != 0 else { return }
+        devices.recordTraceSnapshot(generation: activeGeneration)
+        rawFrameMailbox.recordTraceSnapshot(slotCount: devices.registeredCount)
+    }
+
     nonisolated func performanceSnapshot() -> MultitouchFrameMailbox.PerformanceSnapshot? {
         rawFrameMailbox.performanceSnapshot()
     }
@@ -472,10 +478,9 @@ extension MultitouchGestureSource {
         guard devices.register(enumeration: enumeration, generation: generation) else { return false }
         activeGeneration = generation
         rawFrameMailbox.activate(generation: generation)
-        if episodeReplacementState == .pending {
-            episodeReplacementState = .completed
-        }
+        if episodeReplacementState == .pending { episodeReplacementState = .completed }
         state = .running
+        recordTraceSnapshot()
         return true
     }
 

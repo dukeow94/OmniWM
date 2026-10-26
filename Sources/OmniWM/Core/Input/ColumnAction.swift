@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 // Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
 
+import Foundation
 import OmniWMIPC
 
 enum ColumnAction: Equatable, Hashable {
@@ -14,15 +15,38 @@ enum ColumnAction: Equatable, Hashable {
 }
 
 extension ColumnAction {
-    func actionDisplayName() -> String {
+    func actionDisplayName() -> LocalizedStringResource {
         switch self {
-        case let .moveToWorkspace(idx): "Move Column to Workspace \(idx + 1)"
-        case .moveToWorkspaceUp: "Move Column to Workspace Up"
-        case .moveToWorkspaceDown: "Move Column to Workspace Down"
-        case .moveToFirst: "Move Column to First"
-        case .moveToLast: "Move Column to Last"
-        case let .moveToIndex(idx): "Move Column to Index \(idx)"
-        case .toggleTabbed: "Toggle Column Tabbed"
+        case let .moveToWorkspace(idx): LocalizedStringResource(
+                "command.column.moveToWorkspace", defaultValue: "Move Focused Column to Workspace \(idx + 1)",
+                table: "Commands", bundle: .omniWM
+            )
+        case .moveToWorkspaceUp: LocalizedStringResource(
+                "command.column.moveToWorkspaceUp", defaultValue: "Move Focused Column to Workspace Up",
+                table: "Commands",
+                bundle: .omniWM
+            )
+        case .moveToWorkspaceDown: LocalizedStringResource(
+                "command.column.moveToWorkspaceDown", defaultValue: "Move Focused Column to Workspace Down",
+                table: "Commands",
+                bundle: .omniWM
+            )
+        case .moveToFirst: LocalizedStringResource(
+                "command.column.moveToFirst", defaultValue: "Move Focused Column to First Position", table: "Commands",
+                bundle: .omniWM
+            )
+        case .moveToLast: LocalizedStringResource(
+                "command.column.moveToLast", defaultValue: "Move Focused Column to Last Position", table: "Commands",
+                bundle: .omniWM
+            )
+        case let .moveToIndex(idx): LocalizedStringResource(
+                "command.column.moveToIndex", defaultValue: "Move Focused Column to Position \(idx)", table: "Commands",
+                bundle: .omniWM
+            )
+        case .toggleTabbed: LocalizedStringResource(
+                "command.column.toggleTabbed", defaultValue: "Toggle Tabbed Mode for Focused Column", table: "Commands",
+                bundle: .omniWM
+            )
         }
     }
 

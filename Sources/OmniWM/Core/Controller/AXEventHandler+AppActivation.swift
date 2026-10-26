@@ -219,6 +219,7 @@ extension AXEventHandler {
         case .focusedWindowChanged:
             return true
         case .workspaceDidActivateApplication,
+             .workspaceDidUnhideApplication,
              .cgsFrontAppChanged:
             return origin == .external || origin == .appTerminationProbe
         }
@@ -321,6 +322,7 @@ extension AXEventHandler {
 
     func probeUnresolvedNativeFocus(after token: WindowToken) {
         guard let controller, controller.hasStartedServices,
+              !controller.workspaceManager.isWindowSuppressedByMacOS(token),
               let identity = controller.workspaceManager.externalFocusIdentity,
               let pid = identity.pid,
               identity.windowId == nil,

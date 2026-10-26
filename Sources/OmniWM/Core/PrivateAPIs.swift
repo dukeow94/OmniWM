@@ -39,10 +39,10 @@ func getWindowId(from windowRef: AXUIElement) -> CGWindowID? {
 }
 
 @discardableResult
-func performAXAction(_ element: AXUIElement, _ action: CFString, noteKey: String) -> Bool {
-    let ok = AXUIElementPerformAction(element, action) == .success
-    if !ok { FallbackFiringRecorder.shared.note(.ax, noteKey) }
-    return ok
+func performAXAction(_ element: AXUIElement, _ action: CFString, noteKey: String) -> AXError {
+    let result = AXUIElementPerformAction(element, action)
+    if result != .success { FallbackFiringRecorder.shared.note(.ax, noteKey) }
+    return result
 }
 
 enum KeyWindowEventRecord {
@@ -131,7 +131,7 @@ func makeKeyWindow(psn: inout ProcessSerialNumber, windowId: UInt32) -> Bool {
     return succeeded
 }
 
-func focusWindow(pid: pid_t, windowId: UInt32, windowRef _: AXUIElement) {
+func focusWindow(pid: pid_t, windowId: UInt32) {
     var psn = ProcessSerialNumber()
     guard getProcessForPID(pid, &psn) == noErr else {
         FallbackFiringRecorder.shared.note(.skylight, "getProcessForPIDFailed")

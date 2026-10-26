@@ -12,6 +12,7 @@ extension WMController {
 
     func applyPersistedSettings(_ settings: SettingsStore, startServices: Bool = true) {
         setAnimationsEnabled(settings.animationsEnabled, persist: false)
+        setAnimationSpeed(settings.animationSpeed, persist: false)
         applyCurrentAppearanceMode()
 
         updateHotkeyBindings(settings.hotkeyBindings)
@@ -30,6 +31,7 @@ extension WMController {
         updateAppRules()
 
         borderSettingsChanged()
+        setOverviewEnabled(settings.overview.enabled)
         updateOverviewSettings()
 
         setFocusFollowsMouse(settings.focus.followsMouse)
@@ -61,6 +63,16 @@ extension WMController {
         guard motionPolicy.userAnimationsEnabled != enabled else { return }
 
         motionPolicy.userAnimationsEnabled = enabled
+    }
+
+    func setAnimationSpeed(_ speed: Double, persist: Bool = true) {
+        let speed = AnimationSpeed.normalized(speed)
+        if persist, settings.animationSpeed != speed {
+            settings.animationSpeed = speed
+        }
+        if motionPolicy.animationSpeed != speed {
+            motionPolicy.animationSpeed = speed
+        }
     }
 
     var tabRailStyle: TabRailStyle {

@@ -10,9 +10,32 @@ import OmniWMIPC
 final class WorkspaceBarSettings {
     private nonisolated static let defaults = SettingsExport.WorkspaceBar.defaults()
     @ObservationIgnored var onChange: (() -> Void)?
+    @ObservationIgnored var onNotificationBadgesChange: (() -> Void)?
 
     var enabled = WorkspaceBarSettings.defaults.enabled {
         didSet { onChange?() }
+    }
+
+    var hoverPreviewsEnabled = WorkspaceBarSettings.defaults.hoverPreviewsEnabled {
+        didSet { onChange?() }
+    }
+
+    var notificationBadges = WorkspaceBarSettings.defaults.notificationBadges {
+        didSet { onNotificationBadgesChange?() }
+    }
+
+    var notificationBadgeRefreshIntervalSeconds = WorkspaceBarSettings.defaults
+        .notificationBadgeRefreshIntervalSeconds
+    {
+        didSet {
+            let normalized = Self
+                .normalizedNotificationBadgeRefreshIntervalSeconds(notificationBadgeRefreshIntervalSeconds)
+            guard normalized == notificationBadgeRefreshIntervalSeconds else {
+                notificationBadgeRefreshIntervalSeconds = normalized
+                return
+            }
+            onNotificationBadgesChange?()
+        }
     }
 
     var showLabels = WorkspaceBarSettings.defaults.showLabels {
@@ -64,6 +87,18 @@ final class WorkspaceBarSettings {
     }
 
     var reserveLayoutSpace = WorkspaceBarSettings.defaults.reserveLayoutSpace {
+        didSet { onChange?() }
+    }
+
+    var autoHide = WorkspaceBarSettings.defaults.autoHide {
+        didSet { onChange?() }
+    }
+
+    var autoHideRevealDelayMilliseconds = WorkspaceBarSettings.defaults.autoHideRevealDelayMilliseconds {
+        didSet { onChange?() }
+    }
+
+    var autoHideHideDelayMilliseconds = WorkspaceBarSettings.defaults.autoHideHideDelayMilliseconds {
         didSet { onChange?() }
     }
 
@@ -148,10 +183,15 @@ final class WorkspaceBarSettings {
             onChange?()
         }
     }
+}
 
+extension WorkspaceBarSettings {
     func export() -> SettingsExport.WorkspaceBar {
         SettingsExport.WorkspaceBar(
             enabled: enabled,
+            hoverPreviewsEnabled: hoverPreviewsEnabled,
+            notificationBadges: notificationBadges,
+            notificationBadgeRefreshIntervalSeconds: notificationBadgeRefreshIntervalSeconds,
             showLabels: showLabels,
             showFloatingWindows: showFloatingWindows,
             windowLevel: windowLevel,
@@ -166,6 +206,9 @@ final class WorkspaceBarSettings {
             ),
             iconOverrides: iconOverrides,
             reserveLayoutSpace: reserveLayoutSpace,
+            autoHide: autoHide,
+            autoHideRevealDelayMilliseconds: autoHideRevealDelayMilliseconds,
+            autoHideHideDelayMilliseconds: autoHideHideDelayMilliseconds,
             revealModifier: revealModifier,
             revealHoldMilliseconds: revealHoldMilliseconds,
             hideInNativeFullscreen: hideInNativeFullscreen,
@@ -185,6 +228,9 @@ final class WorkspaceBarSettings {
 
     func applyIdentity(_ bar: SettingsExport.WorkspaceBar) {
         enabled = bar.enabled
+        hoverPreviewsEnabled = bar.hoverPreviewsEnabled
+        notificationBadges = bar.notificationBadges
+        notificationBadgeRefreshIntervalSeconds = bar.notificationBadgeRefreshIntervalSeconds
         showLabels = bar.showLabels
         showFloatingWindows = bar.showFloatingWindows
         windowLevel = bar.windowLevel
@@ -204,6 +250,13 @@ final class WorkspaceBarSettings {
 
     func applyAppearance(_ bar: SettingsExport.WorkspaceBar, monitorOverrides: [MonitorBarSettings]) {
         reserveLayoutSpace = bar.reserveLayoutSpace
+        autoHide = bar.autoHide
+        autoHideRevealDelayMilliseconds = WorkspaceBarSettings.validatedAutoHideDelayMilliseconds(
+            bar.autoHideRevealDelayMilliseconds
+        )
+        autoHideHideDelayMilliseconds = WorkspaceBarSettings.validatedAutoHideDelayMilliseconds(
+            bar.autoHideHideDelayMilliseconds
+        )
         revealModifier = bar.revealModifier
         revealHoldMilliseconds = WorkspaceBarSettings.validatedRevealHoldMilliseconds(
             bar.revealHoldMilliseconds
@@ -240,18 +293,20 @@ final class WorkspaceBarSettings {
     }
 
     private func resolved(override: MonitorBarSettings?) -> ResolvedBarSettings {
+        let position = override?.position ?? self.position
         return ResolvedBarSettings(
-            enabled: override?.enabled ?? enabled,
+            enabled: enabled && (override?.enabled ?? true),
             showLabels: override?.showLabels ?? showLabels,
             showFloatingWindows: override?.showFloatingWindows ?? showFloatingWindows,
             deduplicateAppIcons: override?.deduplicateAppIcons ?? deduplicateAppIcons,
             hideEmptyWorkspaces: override?.hideEmptyWorkspaces ?? hideEmptyWorkspaces,
             excludedBundleIDs: excludedBundleIDs,
             reserveLayoutSpace: override?.reserveLayoutSpace ?? reserveLayoutSpace,
-            notchMode: override?.notchMode ?? notchMode,
+            autoHide: override?.autoHide ?? autoHide,
+            notchMode: position.usesNotch ? (override?.notchMode ?? notchMode) : .off,
             notchActiveZoneWidth: override?.notchActiveZoneWidth ?? notchActiveZoneWidth,
             systemStatsButton: systemStatsButton,
-            position: override?.position ?? position,
+            position: position,
             windowLevel: override?.windowLevel ?? windowLevel,
             height: override?.height ?? height,
             backgroundOpacity: override?.backgroundOpacity ?? backgroundOpacity,
@@ -333,9 +388,19 @@ final class WorkspaceBarSettings {
         return true
     }
 
+    static func validatedAutoHideDelayMilliseconds(_ value: Double) -> Double {
+        guard value.isFinite else { return 0 }
+        return min(max(value, 0), 1000)
+    }
+
     static func validatedRevealHoldMilliseconds(_ value: Double) -> Double {
         guard value.isFinite else { return defaults.revealHoldMilliseconds }
         return min(max(value, 0), 1000)
+    }
+
+    static func normalizedNotificationBadgeRefreshIntervalSeconds(_ value: Double) -> Double {
+        guard value.isFinite else { return defaults.notificationBadgeRefreshIntervalSeconds }
+        return min(max(value.rounded(), 1), 60)
     }
 
     private static func normalizedInactiveIconOpacity(_ value: Double?) -> Double? {

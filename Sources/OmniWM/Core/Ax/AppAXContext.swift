@@ -51,6 +51,7 @@ final class AppAXContext {
 
     nonisolated init(
         _ nsApp: NSRunningApplication,
+        pid: pid_t,
         _ axApp: ThreadGuardedValue<AXUIElement>,
         _ windows: ThreadGuardedValue<[Int: AXUIElement]>,
         _ observer: ThreadGuardedValue<AXObserver?>,
@@ -63,7 +64,7 @@ final class AppAXContext {
         _ thread: Thread
     ) {
         self.nsApp = nsApp
-        pid = nsApp.processIdentifier
+        self.pid = pid
         self.axApp = axApp
         self.windows = windows
         axObserver = observer
@@ -117,16 +118,26 @@ final class AppAXContext {
     func enqueueRetryRaise(
         _ window: AXWindowRef,
         job: RunLoopJob,
+        awaitingSubmittedFocus: @escaping @Sendable () -> Void,
         completion: @escaping @MainActor @Sendable () -> Void
     ) -> Bool {
         guard let thread, !job.isCancelled else { return false }
         cancelRetryRaise()
         pendingRetryRaise = PendingRetryRaise(window: window, job: job, completion: completion)
         let frameWriteSuppression = frameDelivery.retryRaiseSuppression
+        let pid = pid
+        let postedNs = WindowFocusDispatchTrace.retryRaise.isActive ? DispatchTime.now().uptimeNanoseconds : 0
         thread.runInLoopAsync(job: job) { [weak self, windows, frameWriteSuppression] job in
-            _ = Self.performRetryRaise(
-                window, windows: windows, suppression: frameWriteSuppression, job: job
-            )
+            WindowFocusDispatchTrace
+                .traceRetryRaise(pid: pid, windowId: window.windowId, postedNs: postedNs) { waited in
+                    Self.performRetryRaise(
+                        window, windows: windows, suppression: frameWriteSuppression, job: job,
+                        awaitingSubmittedFocus: {
+                            awaitingSubmittedFocus()
+                            waited()
+                        }
+                    )
+                }
             scheduleOnMainRunLoop { [weak self] in
                 self?.finishRetryRaise(job: job)
             }
@@ -196,6 +207,13 @@ final class AppAXContext {
         }
     }
 
+    func setWindowNativeSuppressed(_ suppressed: Bool, for windowId: Int) {
+        if suppressed {
+            cancelRetryRaise(for: windowId)
+        }
+        frameDelivery.setWindowNativeSuppressed(suppressed, for: windowId)
+    }
+
     func makeFrameDrainExecution(drainId: UInt64, lane: AppAXFrameLane) -> AppAXFrameDrainExecution {
         AppAXFrameDrainExecution(
             writer: frameDelivery.writer(
@@ -208,6 +226,11 @@ final class AppAXContext {
             ),
             axApp: axApp
         )
+    }
+
+    func prepareForStopRestoration() {
+        cancelRetryRaise()
+        frameDelivery.shutdown()
     }
 
     func destroy() {

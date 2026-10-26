@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 // Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
 
+import Foundation
 import OmniWMIPC
 
 enum WindowMovementAction: Equatable, Hashable {
@@ -15,16 +16,42 @@ enum WindowMovementAction: Equatable, Hashable {
 }
 
 extension WindowMovementAction {
-    func actionDisplayName() -> String {
+    func actionDisplayName() -> LocalizedStringResource {
         switch self {
-        case .down: "Reorder Window Down"
-        case .up: "Reorder Window Up"
-        case .downOrToWorkspaceDown: "Move Window Down or to Workspace Down"
-        case .upOrToWorkspaceUp: "Move Window Up or to Workspace Up"
-        case .consumeOrExpelLeft: "Consume or Expel Window Left"
-        case .consumeOrExpelRight: "Consume or Expel Window Right"
-        case .consumeIntoColumn: "Consume Window into Column"
-        case .expelFromColumn: "Expel Window from Column"
+        case .down: LocalizedStringResource(
+                "command.window.reorderDown", defaultValue: "Move Window to Next Position", table: "Commands",
+                bundle: .omniWM
+            )
+        case .up: LocalizedStringResource(
+                "command.window.reorderUp", defaultValue: "Move Window to Previous Position", table: "Commands",
+                bundle: .omniWM
+            )
+        case .downOrToWorkspaceDown: LocalizedStringResource(
+                "command.window.downOrWorkspaceDown", defaultValue: "Move Window Down or to Workspace Down",
+                table: "Commands", bundle: .omniWM
+            )
+        case .upOrToWorkspaceUp: LocalizedStringResource(
+                "command.window.upOrWorkspaceUp", defaultValue: "Move Window Up or to Workspace Up", table: "Commands",
+                bundle: .omniWM
+            )
+        case .consumeOrExpelLeft: LocalizedStringResource(
+                "command.window.consumeOrExpelLeft", defaultValue: "Consume or Expel Window Left", table: "Commands",
+                bundle: .omniWM
+            )
+        case .consumeOrExpelRight: LocalizedStringResource(
+                "command.window.consumeOrExpelRight", defaultValue: "Consume or Expel Window Right", table: "Commands",
+                bundle: .omniWM
+            )
+        case .consumeIntoColumn: LocalizedStringResource(
+                "command.window.consumeIntoColumn",
+                defaultValue: "Pull Top Window from Next Column into Focused Column",
+                table: "Commands", bundle: .omniWM
+            )
+        case .expelFromColumn: LocalizedStringResource(
+                "command.window.expelFromColumn",
+                defaultValue: "Push Bottom Window from Focused Column into New Column",
+                table: "Commands", bundle: .omniWM
+            )
         }
     }
 

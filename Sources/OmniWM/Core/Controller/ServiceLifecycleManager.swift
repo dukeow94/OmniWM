@@ -7,6 +7,7 @@ import Foundation
 enum ActivationEventSource: String, Sendable {
     case focusedWindowChanged
     case workspaceDidActivateApplication
+    case workspaceDidUnhideApplication
     case cgsFrontAppChanged
 
     var isAuthoritative: Bool {
@@ -24,7 +25,14 @@ final class ServiceLifecycleManager {
     private var screenParametersObserver: NSObjectProtocol?
     private var permissionCheckerTask: Task<Void, Never>?
 
-    private(set) var isSecureInputActive = false
+    var userStopPhase = UserStopPhase.idle
+    var quitRequested = false
+    var stopCompletions: [@MainActor @Sendable () -> Void] = []
+    var stopDeadlineTask: Task<Void, Never>?
+
+    var isStoppingForUser: Bool {
+        userStopPhase != .idle
+    }
 
     init(controller: WMController) {
         self.controller = controller
@@ -34,7 +42,7 @@ final class ServiceLifecycleManager {
     }
 
     func start() {
-        guard let controller else { return }
+        guard let controller, !isStoppingForUser, !quitRequested else { return }
         let initialPermissionGranted = AccessibilityPermissionMonitor.shared.isGranted
         controller.updateAccessibilityPermissionGranted(initialPermissionGranted)
         setupSeparateSpacesObserver()
@@ -66,7 +74,7 @@ final class ServiceLifecycleManager {
     }
 
     private func maybeStartServices() {
-        guard let controller else { return }
+        guard let controller, !isStoppingForUser, !quitRequested else { return }
         controller.updateDisplaySpacesMode(SkyLight.shared.displaysHaveSeparateSpaces)
         if controller.displaySpacesMode == .disabled {
             if controller.hasStartedServices {
@@ -102,6 +110,7 @@ final class ServiceLifecycleManager {
             controller.syncMonitorsToNiriEngine()
         }
         controller.hasStartedServices = true
+        controller.updateWorkspaceBarNotificationBadgeSettings()
         controller.reconcileEnabledAndHotkeysState()
         controller.eventIntake.open(sink: controller.eventInterpreter)
         controller.layoutRefreshController.setup()
@@ -204,7 +213,7 @@ final class ServiceLifecycleManager {
         handleUnlockDetected()
     }
 
-    private func startSecureInputMonitor() {
+    func startSecureInputMonitor() {
         guard let controller else { return }
         controller.secureInputMonitor.start { [weak self] isSecure in
             self?.handleSecureInputChange(isSecure)
@@ -213,17 +222,10 @@ final class ServiceLifecycleManager {
 
     private func handleSecureInputChange(_ isSecure: Bool) {
         guard let controller else { return }
-        let didSuppressActiveHotkeys = isSecure && controller.hotkeysEnabled
-        isSecureInputActive = isSecure
-        controller.reconcileEnabledAndHotkeysState()
         if isSecure {
             controller.resetWorkspaceBarReveal()
-            if didSuppressActiveHotkeys {
-                SecureInputIndicatorController.shared.show()
-            }
-        } else {
-            SecureInputIndicatorController.shared.hide()
         }
+        controller.refreshSecureInputPresentation()
     }
 
     func reconcileStoppedApplicationTerminationsAndResumeTimeouts(liveApplicationPIDs: Set<pid_t>) {
@@ -276,30 +278,24 @@ final class ServiceLifecycleManager {
     }
 
     func stop() {
+        guard !isStoppingForUser else { return }
+        stopServices(retainingAXWorkers: false)
+    }
+
+    func stopServices(retainingAXWorkers: Bool) {
         guard let controller else { return }
-        if let request = controller.intentLedger.activeManagedRequest,
+        controller.reconcileEnabledAndHotkeysState()
+        if !retainingAXWorkers, let request = controller.intentLedger.activeManagedRequest,
            case .awaitingSameAppActivation = request.phase
         {
             controller.cancelManagedFocusRequestAndRestoreSource(request)
         }
         controller.hasStartedServices = false
+        controller.updateWorkspaceBarNotificationBadgeSettings()
         controller.invalidateOverviewDeferredActionsForServiceStop()
         topologyInventory.cancel()
 
-        let hiddenPIDs = controller.workspaceManager.hiddenAppPIDs
-        let trackedPIDs = Set(controller.workspaceManager.allEntries().map(\.pid))
-        for pid in trackedPIDs.subtracting(hiddenPIDs) {
-            controller.workspaceManager.invalidateAppVisibility(for: pid, source: .service)
-        }
-        for pid in hiddenPIDs {
-            let entries = controller.workspaceManager.entries(forPid: pid)
-            controller.axManager.setMacOSAppHidden(
-                false,
-                pid: pid,
-                entries: entries.map { (pid: $0.pid, windowId: $0.windowId) }
-            )
-        }
-        controller.workspaceManager.replaceHiddenAppPIDs([], source: .service)
+        if !retainingAXWorkers { clearStoppedVisibility(controller) }
 
         controller.eventIntake.close()
         controller.factResolver.stop()
@@ -310,8 +306,8 @@ final class ServiceLifecycleManager {
         disconnectAXCallbacks(controller)
         controller.workspaceManager.onGapsChanged = nil
 
-        controller.layoutRefreshController.resetState()
         controller.mouseEventHandler.cleanup()
+        controller.layoutRefreshController.resetState()
         controller.resetMouseWarpPolicy()
         controller.axEventHandler.cleanup()
 
@@ -320,7 +316,11 @@ final class ServiceLifecycleManager {
         controller.surfaceReconciler.cleanup()
         controller.cleanupUIOnStop()
 
-        controller.axManager.cleanup()
+        if retainingAXWorkers {
+            controller.axManager.prepareForStopRestoration()
+        } else {
+            controller.axManager.cleanup()
+        }
 
         SkyLight.shared.stopWindowInfoQueries()
 
@@ -329,12 +329,27 @@ final class ServiceLifecycleManager {
         workspaceObservation.stop()
 
         controller.secureInputMonitor.stop()
-        isSecureInputActive = false
-        SecureInputIndicatorController.shared.hide()
         controller.lockScreenObserver.stop()
         permissionCheckerTask?.cancel()
         permissionCheckerTask = nil
         controller.reconcileEnabledAndHotkeysState()
+    }
+}
+
+extension ServiceLifecycleManager {
+    private func clearStoppedVisibility(_ controller: WMController) {
+        let hiddenPIDs = controller.workspaceManager.hiddenAppPIDs
+        let trackedPIDs = Set(controller.workspaceManager.allEntries().map(\.pid))
+        for pid in trackedPIDs.subtracting(hiddenPIDs) {
+            controller.workspaceManager.invalidateAppVisibility(for: pid, source: .service)
+        }
+        for pid in hiddenPIDs {
+            let entries = controller.workspaceManager.entries(forPid: pid)
+            controller.axManager.setMacOSAppHidden(
+                false, pid: pid, entries: entries.map { (pid: $0.pid, windowId: $0.windowId) }
+            )
+        }
+        controller.workspaceManager.replaceHiddenAppPIDs([], source: .service)
     }
 
     private func clearPendingManagedFocus(_ controller: WMController) {

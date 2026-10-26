@@ -25,7 +25,7 @@ enum StateReducer {
             currentSnapshot: currentSnapshot,
             windowExistedBeforeMutation: windowExistedBeforeMutation
         )
-        switch ReconcileEventDomain.domain(for: event) {
+        switch event.reconcileDomain {
         case .window:
             _ = reduceWindowEvent(event, context: context, plan: &plan)
         case .focus:
@@ -145,6 +145,10 @@ enum StateReducer {
              .layoutOperationPerformed,
              .managedReplacementMetadataChanged:
             reducePlacementNotes(event, context: context, plan: &plan)
+            return true
+        case .windowMinimizedChanged,
+             .windowNativeWithdrawalChanged:
+            reduceNativeWindowSuppression(event, context: context, plan: &plan)
             return true
         case .hiddenApplicationsChanged,
              .appVisibilityInvalidated:

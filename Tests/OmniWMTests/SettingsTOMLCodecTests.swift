@@ -7,6 +7,54 @@ import Foundation
 import XCTest
 
 final class SettingsTOMLCodecTests: XCTestCase {
+    func testScrollModifierChoicesRoundTripWithOptionShiftDefault() throws {
+        var export = SettingsExport.defaults()
+        XCTAssertEqual(export.gestures.scrollModifierKey, .optionShift)
+        for modifier in ScrollModifierKey.allCases {
+            export.gestures.scrollModifierKey = modifier
+            let data = try SettingsTOMLCodec.encode(export)
+            XCTAssertTrue(String(decoding: data, as: UTF8.self).contains(
+                "scrollModifierKey = \"\(modifier.rawValue)\""
+            ))
+            let result = try SettingsTOMLCodec.decodeForLoad(data)
+            XCTAssertEqual(result.export, export)
+            XCTAssertNil(result.migration)
+            XCTAssertNil(result.migratedData)
+        }
+    }
+
+    func testAnimationSpeedDefaultsAndRoundTrips() throws {
+        var export = SettingsExport.defaults()
+        XCTAssertEqual(export.animationSpeed, 1)
+        for speed in [0.25, 1, 1.75, 2, 4] {
+            export.animationSpeed = speed
+            let data = try SettingsTOMLCodec.encode(export)
+            XCTAssertEqual(try SettingsTOMLCodec.decode(data), export)
+            XCTAssertFalse(SettingsTOMLCodec.unknownKeyPaths(in: data).contains("general.animationSpeed"))
+        }
+    }
+
+    func testOmittedAnimationSpeedUsesDefaultWithoutMigration() throws {
+        let data = try canonicalDefaultLines { lines in
+            let index = try XCTUnwrap(lines.firstIndex { $0.hasPrefix("animationSpeed = ") })
+            lines.remove(at: index)
+        }
+        let result = try SettingsTOMLCodec.decodeForLoad(data)
+        XCTAssertEqual(result.export.animationSpeed, 1)
+        XCTAssertNil(result.migration)
+        XCTAssertNil(result.migratedData)
+    }
+
+    func testAnimationSpeedNormalizesOutOfRangeAndNonfiniteTOML() throws {
+        for (literal, expected) in [("0", 0.25), ("-2.0", 0.25), ("10.0", 4), ("nan", 1), ("inf", 1)] {
+            let data = try canonicalDefaultLines { lines in
+                let index = try XCTUnwrap(lines.firstIndex { $0.hasPrefix("animationSpeed = ") })
+                lines[index] = "animationSpeed = \(literal)"
+            }
+            XCTAssertEqual(try SettingsTOMLCodec.decode(data).animationSpeed, expected)
+        }
+    }
+
     func testTabRailAppIconsDefaultsAndRoundTrips() throws {
         var export = SettingsExport.defaults()
         XCTAssertFalse(export.tabRailAppIcons)
@@ -72,7 +120,7 @@ final class SettingsTOMLCodecTests: XCTestCase {
         }
     }
 
-    func testTOMLRejectsFileMissingAKnownHotkeyAction() throws {
+    func testTOMLTreatsAMissingKnownHotkeyActionAsUnassigned() throws {
         let firstID = try XCTUnwrap(HotkeyBindingRegistry.defaults().first?.id)
         let withoutEntry = try canonicalDefaultLines { lines in
             let idIndex = try XCTUnwrap(lines.firstIndex(of: #"id = "\#(firstID)""#))
@@ -80,9 +128,29 @@ final class SettingsTOMLCodecTests: XCTestCase {
             lines.removeSubrange((idIndex - 2) ... idIndex)
         }
 
-        XCTAssertThrowsError(try SettingsTOMLCodec.decode(withoutEntry)) { error in
-            XCTAssertEqual(error as? HotkeyBindingResolutionError, .missingActionID(firstID))
+        let result = try SettingsTOMLCodec.decodeForLoad(withoutEntry)
+
+        XCTAssertNil(result.migration)
+        let bindings = result.export.hotkeyBindings
+        XCTAssertEqual(bindings.first { $0.id == firstID }?.binding, .unassigned)
+        XCTAssertEqual(
+            bindings.filter { $0.id != firstID },
+            SettingsExport.defaults().hotkeyBindings.filter { $0.id != firstID }
+        )
+    }
+
+    func testCurrentSchemaFileWithoutFloatingFocusToggleLoadsWithoutMigration() throws {
+        let withoutToggle = try canonicalDefaultLines { lines in
+            let idIndex = try XCTUnwrap(lines.firstIndex(of: #"id = "toggleFloatingFocus""#))
+            XCTAssertEqual(lines[idIndex - 2], "[[hotkeys]]")
+            lines.removeSubrange((idIndex - 2) ... idIndex)
         }
+        XCTAssertTrue(String(decoding: withoutToggle, as: UTF8.self).contains("schemaVersion = 5"))
+
+        let result = try SettingsTOMLCodec.decodeForLoad(withoutToggle)
+
+        XCTAssertNil(result.migration)
+        XCTAssertEqual(result.export.hotkeyBindings, SettingsExport.defaults().hotkeyBindings)
     }
 
     func testTOMLRejectsDuplicateHotkeyAction() throws {
@@ -213,9 +281,12 @@ final class SettingsTOMLCodecTests: XCTestCase {
         }
 
         let firstID = try XCTUnwrap(defaults.first?.id)
-        XCTAssertThrowsError(try HotkeyBindingRegistry.resolve(Array(complete.dropFirst()))) { error in
-            XCTAssertEqual(error as? HotkeyBindingResolutionError, .missingActionID(firstID))
-        }
+        let withoutFirst = try HotkeyBindingRegistry.resolve(Array(complete.dropFirst()))
+        XCTAssertEqual(withoutFirst.first { $0.id == firstID }?.binding, .unassigned)
+        XCTAssertEqual(
+            withoutFirst.filter { $0.id != firstID },
+            try HotkeyBindingRegistry.resolve(complete).filter { $0.id != firstID }
+        )
 
         let withDuplicate = try complete + [XCTUnwrap(complete.first)]
         XCTAssertThrowsError(try HotkeyBindingRegistry.resolve(withDuplicate)) { error in
@@ -568,14 +639,19 @@ final class SettingsTOMLCodecTests: XCTestCase {
         var changes: [Bool] = []
         settings.onTrackpadGestureAvailabilityChanged = { changes.append($0) }
         settings.gestures.overviewGestureEnabled = true
-        XCTAssertTrue(settings.gestures.trackpadGesturesEnabled)
+        XCTAssertTrue(settings.effectiveTrackpadGesturesEnabled)
         settings.gestures.overviewGestureEnabled = false
-        XCTAssertFalse(settings.gestures.trackpadGesturesEnabled)
+        XCTAssertFalse(settings.effectiveTrackpadGesturesEnabled)
         XCTAssertEqual(changes, [true, false])
     }
 
     func testOverviewGestureRejectsUnsupportedFingerCount() throws {
         let data = try defaultsWithReplacements(("overviewGestureFingerCount = 4", "overviewGestureFingerCount = 2"))
+        XCTAssertThrowsError(try SettingsTOMLCodec.decode(data))
+    }
+
+    func testColumnScrollRejectsTwoFingers() throws {
+        let data = try defaultsWithReplacements(("\nfingerCount = 3", "\nfingerCount = 2"))
         XCTAssertThrowsError(try SettingsTOMLCodec.decode(data))
     }
 

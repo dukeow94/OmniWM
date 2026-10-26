@@ -32,6 +32,142 @@ final class AsyncRetryRaiseTests: XCTestCase {
         }
     }
 
+    func testRequiredRaiseSurvivesFocusConfirmationAndCompletesWithoutRetryingFocus() throws {
+        let ledger = IntentLedger()
+        let token = WindowToken(pid: 831_008, windowId: 831_108)
+        let request = ledger.beginManagedRequest(token: token, workspaceId: .init())
+        ledger.enableDeferredRetryRaise(for: request, required: true)
+        let job = try XCTUnwrap(ledger.beginDeferredRetryRaise(for: request))
+
+        XCTAssertNotNil(ledger.confirmManagedRequest(token: token, source: .focusedWindowChanged))
+
+        XCTAssertNil(ledger.activeManagedRequest)
+        XCTAssertFalse(job.isCancelled)
+        XCTAssertTrue(ledger.defersRetryRaise(for: request))
+        XCTAssertNil(ledger.beginDeferredRetryRaise(for: request))
+        XCTAssertNil(ledger.completeDeferredRetryRaise(job: job))
+        XCTAssertFalse(ledger.defersRetryRaise(for: request))
+        XCTAssertNil(ledger.beginDeferredRetryRaise(for: request))
+        XCTAssertNil(ledger.completeDeferredRetryRaise(job: job))
+        XCTAssertEqual(ledger.lastConfirmedManagedFocus?.token, token)
+    }
+
+    func testRequiredRaiseCanBeQueuedAfterFocusConfirms() throws {
+        let ledger = IntentLedger()
+        let token = WindowToken(pid: 831_009, windowId: 831_109)
+        let request = ledger.beginManagedRequest(token: token, workspaceId: .init())
+        ledger.enableDeferredRetryRaise(for: request, required: true)
+
+        XCTAssertNotNil(ledger.confirmManagedRequest(token: token, source: .focusedWindowChanged))
+
+        let job = try XCTUnwrap(ledger.beginDeferredRetryRaise(for: request))
+        XCTAssertFalse(job.isCancelled)
+        XCTAssertNil(ledger.completeDeferredRetryRaise(job: job))
+        XCTAssertFalse(ledger.defersRetryRaise(for: request))
+        XCTAssertNil(ledger.activeManagedRequest)
+    }
+
+    func testRequiredRaiseCancelsWhenConfirmedNativeFocusMovesAway() throws {
+        let otherFocus: [WindowToken?] = [WindowToken(pid: 831_015, windowId: 831_115), nil]
+        for nativeToken in otherFocus {
+            let ledger = IntentLedger()
+            let token = WindowToken(pid: 831_014, windowId: 831_114)
+            let request = ledger.beginManagedRequest(token: token, workspaceId: .init())
+            ledger.enableDeferredRetryRaise(for: request, required: true)
+            let job = try XCTUnwrap(ledger.beginDeferredRetryRaise(for: request))
+
+            ledger.cancelConfirmedWorkerRaise(unlessFocused: nativeToken)
+
+            XCTAssertFalse(job.isCancelled)
+            XCTAssertTrue(ledger.defersRetryRaise(for: request))
+            XCTAssertNotNil(ledger.confirmManagedRequest(token: token, source: .focusedWindowChanged))
+
+            ledger.cancelConfirmedWorkerRaise(unlessFocused: token)
+
+            XCTAssertFalse(job.isCancelled)
+            XCTAssertTrue(ledger.defersRetryRaise(for: request))
+
+            ledger.cancelConfirmedWorkerRaise(unlessFocused: nativeToken)
+
+            XCTAssertTrue(job.isCancelled)
+            XCTAssertFalse(ledger.defersRetryRaise(for: request))
+            XCTAssertNil(ledger.completeDeferredRetryRaise(job: job))
+        }
+    }
+
+    func testRequiredRaiseCompletionBeforeConfirmationPreservesPendingFocus() throws {
+        let ledger = IntentLedger()
+        let token = WindowToken(pid: 831_010, windowId: 831_110)
+        let request = ledger.beginManagedRequest(token: token, workspaceId: .init())
+        ledger.enableDeferredRetryRaise(for: request, required: true)
+        let job = try XCTUnwrap(ledger.beginDeferredRetryRaise(for: request))
+
+        XCTAssertEqual(ledger.completeDeferredRetryRaise(job: job), request)
+        XCTAssertNil(ledger.completeDeferredRetryRaise(job: job))
+        XCTAssertEqual(ledger.activeManagedRequest, request)
+
+        XCTAssertNotNil(ledger.confirmManagedRequest(token: token, source: .focusedWindowChanged))
+
+        XCTAssertNil(ledger.activeManagedRequest)
+        XCTAssertFalse(ledger.defersRetryRaise(for: request))
+        XCTAssertNil(ledger.beginDeferredRetryRaise(for: request))
+    }
+
+    func testRequiredRaiseCancelsOnNewFocusAndLifecycleChangesBeforeOrAfterConfirmation() throws {
+        for confirmsFirst in [false, true] {
+            for transition in 0 ..< 5 {
+                let ledger = IntentLedger()
+                let token = WindowToken(pid: 831_011, windowId: 831_111)
+                let request = ledger.beginManagedRequest(token: token, workspaceId: .init())
+                ledger.enableDeferredRetryRaise(for: request, required: true)
+                let job = try XCTUnwrap(ledger.beginDeferredRetryRaise(for: request))
+                if confirmsFirst {
+                    XCTAssertNotNil(ledger.confirmManagedRequest(token: token, source: .focusedWindowChanged))
+                }
+                switch transition {
+                case 0:
+                    _ = ledger.beginManagedRequest(
+                        token: WindowToken(pid: token.pid + 1, windowId: token.windowId + 1),
+                        workspaceId: request.workspaceId
+                    )
+                case 1:
+                    _ = ledger.beginManagedRequest(token: token, workspaceId: request.workspaceId)
+                case 2:
+                    ledger.discardPendingFocus(token)
+                case 3:
+                    ledger.rekey(from: token, to: WindowToken(pid: token.pid, windowId: token.windowId + 1))
+                default:
+                    ledger.reset()
+                }
+                XCTAssertTrue(job.isCancelled, "confirmed=\(confirmsFirst) transition=\(transition)")
+                XCTAssertFalse(ledger.defersRetryRaise(for: request))
+                XCTAssertNil(ledger.completeDeferredRetryRaise(job: job))
+            }
+        }
+    }
+
+    func testSupersededRequiredRaiseCompletionDoesNotClearReplacementRaise() throws {
+        let ledger = IntentLedger()
+        let first = ledger.beginManagedRequest(
+            token: WindowToken(pid: 831_012, windowId: 831_112), workspaceId: .init()
+        )
+        ledger.enableDeferredRetryRaise(for: first, required: true)
+        let firstJob = try XCTUnwrap(ledger.beginDeferredRetryRaise(for: first))
+        XCTAssertNotNil(ledger.confirmManagedRequest(token: first.token, source: .focusedWindowChanged))
+        let replacement = ledger.beginManagedRequest(
+            token: WindowToken(pid: 831_013, windowId: 831_113), workspaceId: first.workspaceId
+        )
+        ledger.enableDeferredRetryRaise(for: replacement, required: true)
+        let replacementJob = try XCTUnwrap(ledger.beginDeferredRetryRaise(for: replacement))
+
+        XCTAssertTrue(firstJob.isCancelled)
+        XCTAssertNil(ledger.completeDeferredRetryRaise(job: firstJob))
+        XCTAssertFalse(replacementJob.isCancelled)
+        XCTAssertTrue(ledger.defersRetryRaise(for: replacement))
+        XCTAssertNil(ledger.beginDeferredRetryRaise(for: replacement))
+        XCTAssertEqual(ledger.completeDeferredRetryRaise(job: replacementJob), replacement)
+    }
+
     func testSurvivingRequestGetsFreshDeadlineWhenQueuedRetryIsInvalidated() throws {
         for transition in 0 ..< 3 {
             let ledger = IntentLedger()
@@ -92,12 +228,38 @@ final class AsyncRetryRaiseTests: XCTestCase {
                 var raises = 0
                 let result = AppAXContext.performRetryRaise(
                     window, windows: windows, suppression: suppression, job: job,
+                    awaitingSubmittedFocus: {},
                     raiseWindow: { _ in raises += 1
                         return true
                     }
                 )
                 XCTAssertEqual(result, condition == 5)
                 XCTAssertEqual(raises, condition == 5 ? 1 : 0)
+            }
+        }
+    }
+
+    func testWorkerWaitsForSubmittedFocusBeforeRaisingAndSkipsRaiseCancelledDuringWait() {
+        let window = AXWindowRef(element: AXUIElementCreateApplication(831_007), windowId: 831_107)
+        $appThreadToken.withValue(AppThreadToken(pid: 831_007)) {
+            for cancelledDuringWait in [false, true] {
+                let windows = ThreadGuardedValue([window.windowId: window.element])
+                defer { windows.destroy() }
+                let job = RunLoopJob()
+                var steps: [String] = []
+                let raised = AppAXContext.performRetryRaise(
+                    window, windows: windows, suppression: LockedWindowIdSet(), job: job,
+                    awaitingSubmittedFocus: {
+                        steps.append("wait")
+                        if cancelledDuringWait { job.cancel() }
+                    },
+                    raiseWindow: { _ in
+                        steps.append("raise")
+                        return true
+                    }
+                )
+                XCTAssertEqual(raised, !cancelledDuringWait)
+                XCTAssertEqual(steps, cancelledDuringWait ? ["wait"] : ["wait", "raise"])
             }
         }
     }
@@ -116,6 +278,7 @@ final class AsyncRetryRaiseTests: XCTestCase {
                 }
                 _ = AppAXContext.performRetryRaise(
                     window, windows: windows, suppression: LockedWindowIdSet(), job: job,
+                    awaitingSubmittedFocus: {},
                     raiseWindow: { _ in
                         entered.signal()
                         _ = release.wait(timeout: .now() + 3)

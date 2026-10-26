@@ -77,6 +77,7 @@ extension NiriLayoutHandler {
         }
 
         let effectiveViewportState = viewportState ?? controller.workspaceManager.niriViewportState(for: wsId)
+        let gap = controller.innerGap(for: monitor, scale: refreshInput.monitor.scale)
 
         return NiriWorkspaceSnapshot(
             workspaceId: wsId,
@@ -89,7 +90,8 @@ extension NiriLayoutHandler {
             hasCompletedInitialRefresh: controller.layoutRefreshController.layoutState.hasCompletedInitialRefresh,
             useScrollAnimationPath: useScrollAnimationPath,
             removalSeed: removalSeed,
-            gap: controller.innerGap(for: monitor, scale: refreshInput.monitor.scale),
+            gap: gap,
+            niriWorkingFrame: controller.niriWorkingFrame(refreshInput.monitor.workingFrame, gap: gap),
             displayRefreshRate: controller.layoutRefreshController.layoutState
                 .refreshRateByDisplay[monitor.displayId] ?? 60.0,
             isActiveWorkspace: refreshInput.isActiveWorkspace
@@ -127,7 +129,7 @@ extension NiriLayoutHandler {
                 canRestoreHiddenWorkspaceWindows: snapshot.isActiveWorkspace,
                 reassertHidden: animationTime == nil || settlesAnimation,
                 excludedTokens: snapshot.excludedTokens,
-                pendingParkWindowIds: controller?.axManager.pendingParkWindowIds ?? [],
+                pendingParkWindowIds: controller?.axManager.pendingParkWindowIdsAwaitingSkyLightMove ?? [],
                 settledContext: isSettled ? (snapshot.monitor, snapshot.viewportState) : nil
             )
         )
@@ -325,14 +327,14 @@ extension NiriLayoutHandler {
             engine: engine,
             monitor: monitor,
             orientation: snapshot.monitor.orientation,
-            insetFrame: snapshot.monitor.workingFrame,
+            insetFrame: snapshot.niriWorkingFrame,
             gap: snapshot.gap,
             windows: snapshot.windows,
             windowTokens: snapshot.windows.map(\.token)
         )
     }
 
-    func settledFrames(in workspaceId: WorkspaceDescriptor.ID) -> [WindowToken: CGRect]? {
+    func settledFrames(in workspaceId: WorkspaceDescriptor.ID, visibleOnly: Bool = false) -> [WindowToken: CGRect]? {
         guard let controller,
               let engine = controller.niriEngine,
               let monitor = controller.workspaceManager.monitor(for: workspaceId),
@@ -350,13 +352,14 @@ extension NiriLayoutHandler {
         else {
             return nil
         }
-        return calculateOnDemandFrames(
+        let result = calculateOnDemandFrames(
             snapshot: snapshot,
             engine: engine,
             monitor: monitor,
             sampledAnimationTime: nil,
             isSettled: true
-        ).frames
+        )
+        return visibleOnly ? result.frames.filter { result.hiddenHandles[$0.key] == nil } : result.frames
     }
 
     private func calculateOnDemandFrames(
@@ -372,7 +375,8 @@ extension NiriLayoutHandler {
         )
 
         let area = WorkingAreaContext(
-            workingFrame: snapshot.monitor.workingFrame,
+            workingFrame: snapshot.niriWorkingFrame,
+            singleWindowFrame: snapshot.monitor.workingFrame,
             borderSafeFillFrame: snapshot.monitor.borderSafeFillFrame,
             fullscreenLayoutFrame: snapshot.monitor.fullscreenLayoutFrame,
             viewFrame: snapshot.monitor.frame,

@@ -10,11 +10,16 @@ extension WMController {
         _ token: WindowToken,
         origin: ManagedFocusOrigin = .keyboardOrProgrammatic,
         raisesWindow: Bool = true,
-        defersRetryRaise: Bool = false
+        defersRetryRaise: Bool = false,
+        requiresWorkerRaise: Bool = false
     ) -> ManagedFocusRequest? {
         guard let entry = focusableEntry(for: token, origin: origin) else { return nil }
         let handoff = prepareFocusHandoff(for: token)
-        let request = publishManagedFocusRequest(entry, origin: origin, defersRetryRaise: defersRetryRaise)
+        let requiresWorkerRaise = requiresWorkerRaise && !raisesWindow
+        let request = publishManagedFocusRequest(
+            entry, origin: origin, defersRetryRaise: defersRetryRaise,
+            requiresWorkerRaise: requiresWorkerRaise
+        )
 
         let applied = applyManagedFocusRequest(
             request,
@@ -24,12 +29,16 @@ extension WMController {
             raisesWindow: raisesWindow
         )
         settleFocusHandoff(handoff, request: request, applied: applied)
-        if applied, defersRetryRaise,
-           (handoff.preferredSourceToken ?? workspaceManager.renderableFocusToken)?.pid == token.pid
+        if applied,
+           requiresWorkerRaise || (defersRetryRaise
+               && (handoff.preferredSourceToken ?? workspaceManager.renderableFocusToken)?.pid == token.pid)
         {
             dispatchRetryRaise(for: request, refronting: false)
         }
-        if intentLedger.activeManagedRequest(requestId: request.requestId)?.phase == .awaitingConfirmation {
+        windowFocusOperations.afterSubmittedFocus { [weak self] in
+            guard let self,
+                  intentLedger.activeManagedRequest(requestId: request.requestId)?.phase == .awaitingConfirmation
+            else { return }
             axEventHandler.probeFocusedWindowAfterFronting(
                 expectedToken: request.token,
                 workspaceId: request.workspaceId
@@ -82,7 +91,7 @@ extension WMController {
         if hasStartedServices {
             guard !isFrontmostAppLockScreen() else { return nil }
         }
-        if isManagedWindowSuppressedByMacOSHide(token) {
+        if isManagedWindowSuppressedByMacOS(token) {
             return nil
         }
         if isManagedWindowSuspendedForNativeFullscreen(token) {
@@ -126,7 +135,8 @@ extension WMController {
     private func publishManagedFocusRequest(
         _ entry: WindowState,
         origin: ManagedFocusOrigin,
-        defersRetryRaise: Bool
+        defersRetryRaise: Bool,
+        requiresWorkerRaise: Bool
     ) -> ManagedFocusRequest {
         let previousRequestId = intentLedger.activeManagedRequest?.requestId
         let request = intentLedger.beginManagedRequest(
@@ -134,8 +144,8 @@ extension WMController {
             workspaceId: entry.workspaceId,
             origin: origin
         )
-        if defersRetryRaise {
-            intentLedger.enableDeferredRetryRaise(for: request)
+        if defersRetryRaise || requiresWorkerRaise {
+            intentLedger.enableDeferredRetryRaise(for: request, required: requiresWorkerRaise)
         }
         if let previousRequestId {
             scratchpadStacking.abortScratchpadStacking(matching: previousRequestId)

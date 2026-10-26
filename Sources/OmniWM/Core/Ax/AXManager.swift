@@ -33,9 +33,14 @@ final class AXManager {
         try await SkyLight.shared.queryWindowInfoDeferred(windowIds: $0)
     }
 
+    var fullRescanWindowOrderingProvider: @MainActor (Set<UInt32>) async throws -> [UInt32: WindowServerInfo]? = {
+        try await SkyLight.shared.queryWindowInfoDeferred(windowIds: $0, includeOrderedIn: true)
+    }
+
     let frameBatchBuffer = AXFrameBatchBuffer()
     let managedWindowBindings = AXManagedWindowBindings()
     let frameLedger = AXFrameApplicationLedger()
+    var workspaceFrameSettlement: AXFrameSettlement?
     private var pendingFrameRetryTasksByWindowId: [Int: Task<Void, Never>] = [:]
     private var pendingFrameRetryGenerationByWindowId: [Int: UInt64] = [:]
     private var pendingFrameRetryRequestsByWindowId: [Int: AXFrameRetryRequest] = [:]
@@ -53,12 +58,17 @@ final class AXManager {
         parkLedger.pendingParkWindowIds
     }
 
+    var pendingParkWindowIdsAwaitingSkyLightMove: Set<Int> {
+        parkLedger.pendingParkWindowIds.filter { skyLightLivePositionByWindowId[$0] == nil }
+    }
+
     func prepareParkFrameApplications(_ frames: [AXFrameApplicationTarget]) -> [AXFrameApplicationRequest] {
         parkLedger.prepareParkFrameApplications(frames, currentFrame: frameLedger.lastAppliedFrame)
     }
 
     var needsFrameWriteFiltering: Bool {
-        !macOSHiddenAppPIDs.isEmpty || nativeTitleBarDrag != nil
+        !macOSHiddenAppPIDs.isEmpty || !AppAXContextRegistry.nativeSuppressedWindowTokens
+            .isEmpty || nativeTitleBarDrag != nil
     }
 
     func markAppHidden(_ pid: pid_t) {
@@ -107,6 +117,7 @@ final class AXManager {
                 ))
             )
             Task { @MainActor in
+                AppAXContextRegistry.clearNativeSuppressedWindows(for: pid)
                 self?.managedWindowBindings.clearManagedWindowBindingRetry(for: pid)
                 self?.parkLedger.clearParkFrameState(for: pid, reason: "context-teardown")
                 if let context = AppAXContextRegistry.contexts[pid] {
@@ -246,6 +257,7 @@ final class AXManager {
 
     func removeWindowState(pid: pid_t, expectedWindow: AXWindowRef) {
         let windowId = expectedWindow.windowId
+        AppAXContextRegistry.setWindowNativeSuppressed(false, token: WindowToken(pid: pid, windowId: windowId))
         if nativeTitleBarDrag?.token == WindowToken(pid: pid, windowId: windowId) {
             nativeTitleBarDrag = nil
         }
@@ -259,6 +271,7 @@ final class AXManager {
     }
 
     func removeWindowLedgerState(pid: pid_t, windowId: Int) {
+        AppAXContextRegistry.setWindowNativeSuppressed(false, token: WindowToken(pid: pid, windowId: windowId))
         if nativeTitleBarDrag?.token == WindowToken(pid: pid, windowId: windowId) {
             nativeTitleBarDrag = nil
         }
@@ -290,12 +303,20 @@ final class AXManager {
 
     func garbageCollectContexts() {
         for (pid, context) in Array(AppAXContextRegistry.contexts) where context.nsApp.isTerminated {
+            AppAXContextRegistry.clearNativeSuppressedWindows(for: pid)
             parkLedger.clearParkFrameState(for: pid, reason: "context-garbage-collected")
             context.destroy()
         }
     }
 
-    func cleanup() {
+    func prepareForStopRestoration() {
+        cancelAllPendingFrameState()
+        for context in AppAXContextRegistry.contexts.values {
+            context.prepareForStopRestoration()
+        }
+    }
+
+    func cleanup(completion: (@MainActor @Sendable () -> Void)? = nil) {
         if let observer = appTerminationObserver {
             NSWorkspace.shared.notificationCenter.removeObserver(observer)
             appTerminationObserver = nil
@@ -311,7 +332,7 @@ final class AXManager {
         managedWindowBindings.shutdown()
         frameBatchBuffer.clear()
 
-        AppAXContextRegistry.shutdownAll()
+        AppAXContextRegistry.shutdownAll(completion: completion)
     }
 
     func excludeFrameWriteForNativeTitleBarDrag(pid: pid_t, windowId: Int) -> Bool {

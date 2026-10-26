@@ -12,10 +12,10 @@ extension AXManager {
         preservingPIDsByWindowId: [Int: pid_t]
     ) async throws -> FullRescanEnumerationSnapshot {
         let activationPolicyByPID = Dictionary(
-            uniqueKeysWithValues: enumeration.appTargets.map { ($0.app.processIdentifier, $0.app.activationPolicy) }
+            uniqueKeysWithValues: enumeration.appTargets.map { ($0.pid, $0.app.activationPolicy) }
         )
         let appsByPID = Dictionary(
-            uniqueKeysWithValues: enumeration.appTargets.map { ($0.app.processIdentifier, $0.app) }
+            uniqueKeysWithValues: enumeration.appTargets.map { ($0.pid, $0.app) }
         )
         try Task.checkCancellation()
         let initialCollection = collectFullRescanCandidates(
@@ -51,6 +51,8 @@ extension AXManager {
             targetPIDsByDependencyPID: enumeration.coverage.targetPIDsByDependencyPID
         )
 
+        try await updateFullRescanOrdering(&selected)
+        try Task.checkCancellation()
         recordSelectedFullRescanCandidates(selected)
         return enumeration.snapshot(
             selected: selected,
@@ -58,6 +60,23 @@ extension AXManager {
             successfullyEnumeratedPIDs: successfullyEnumeratedPIDs,
             authoritativeTargetPIDs: authoritativeTargetPIDs
         )
+    }
+
+    private func updateFullRescanOrdering(_ selected: inout [FullRescanWindowCandidate]) async throws {
+        let orderedWindowIds = Set(selected.compactMap { UInt32(exactly: $0.windowId) })
+        if !orderedWindowIds.isEmpty,
+           let ordering = try await fullRescanWindowOrderingProvider(orderedWindowIds)
+        {
+            for index in selected.indices {
+                let candidate = selected[index]
+                guard let windowId = UInt32(exactly: candidate.windowId),
+                      let info = ordering[windowId],
+                      info.id == windowId,
+                      info.pid == (candidate.windowServerOwnerPID ?? candidate.pid)
+                else { continue }
+                selected[index].windowServerInfo = info
+            }
+        }
     }
 
     func collectFullRescanCandidates(
@@ -148,7 +167,7 @@ extension AXManager {
             let hadContext = AppAXContextRegistry.contexts[pid] != nil
             var callbackGeneration: UInt64?
             do {
-                guard let context = try await AppAXContextRegistry.getOrCreate(app) else {
+                guard let context = try await AppAXContextRegistry.getOrCreate(app, pid: pid) else {
                     failedPIDs.insert(pid)
                     if !hadContext {
                         destroyContextIfPresent(for: pid, reason: "promotion-failed")
@@ -168,6 +187,7 @@ extension AXManager {
                 }
                 Self.recordFullRescanEnumerationFailure(
                     app,
+                    pid: pid,
                     reason: "promotion_\(error)",
                     callbackGeneration: callbackGeneration
                 )

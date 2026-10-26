@@ -9,7 +9,7 @@ import XCTest
 @MainActor
 final class TrackpadWorkspaceGestureTests: XCTestCase {
     func testOverviewSwipesOpenAndCloseOncePerContactWithoutSwitchingWorkspace() throws {
-        for fingerCount in [OverviewGestureFingerCount.three, .four] {
+        for fingerCount in [ThreeOrFourFingerCount.three, .four] {
             for invertDirection in [false, true] {
                 let fixture = try makeFixture(workspaceSwipeEnabled: false)
                 fixture.controller.setAnimationsEnabled(false)
@@ -327,6 +327,62 @@ final class TrackpadWorkspaceGestureTests: XCTestCase {
         else { return XCTFail("Expected a flick to commit from low progress") }
     }
 
+    func testSingleFrameOverviewFlickSurvivesCoalescedPartialLift() throws {
+        let fixture = try makeInteractiveOverviewFixture()
+        let actions = fixture.controller.windowActionHandler
+        defer { dismissInteractiveOverview(fixture) }
+        let mailbox = MultitouchFrameMailbox()
+        mailbox.activate(generation: 1)
+        for (fingers, y, timestamp): (Int, Float, Double) in [
+            (4, 0.2, 100), (4, 0.24, 100.01), (4, 0.56, 100.03), (3, 0.56, 100.04), (0, 0, 100.05)
+        ] {
+            _ = mailbox.offer(
+                .init(touches: Array(repeating: .init(x: 0.5, y: y), count: fingers), timestamp: timestamp),
+                generation: 1, slot: 0
+            )
+        }
+        let deliveries = mailbox.take().deliveries
+        XCTAssertEqual(deliveries.map(\.frame.touches.count), [4, 4, 3, 0])
+        for delivery in deliveries {
+            let phase: NSEvent.Phase = switch delivery.kind {
+            case .began: .began
+            case .changed: .changed
+            case .ended: .ended
+            case .cancelled: .cancelled
+            }
+            sendFrame(
+                fixture, phase: phase, fingers: delivery.frame.touches.count,
+                x: 0.5, y: CGFloat(delivery.frame.touches.first?.y ?? 0), at: delivery.frame.timestamp
+            )
+            if delivery.frame.timestamp == 100.03 {
+                XCTAssertTrue(actions.isOverviewGestureActive)
+                XCTAssertEqual(actions.overviewTransitionProgress, 0)
+            }
+        }
+        XCTAssertFalse(actions.isOverviewGestureActive)
+        guard case .opening = actions.overviewState else { return XCTFail("Expected the single-frame flick to open") }
+    }
+
+    func testOverviewRecognitionAfterHoldUsesLastValidSample() throws {
+        for (recognitionY, shouldOpen): (CGFloat, Bool) in [(0.234, false), (0.56, true)] {
+            let fixture = try makeInteractiveOverviewFixture()
+            let actions = fixture.controller.windowActionHandler
+            defer { dismissInteractiveOverview(fixture) }
+            sendFrame(fixture, phase: .began, fingers: 4, x: 0.5, y: 0.2, at: 100)
+            sendFrame(fixture, phase: .changed, fingers: 4, x: 0.5, y: 0.23, at: 100.95)
+            sendFrame(fixture, phase: .changed, fingers: 4, x: 0.5, y: recognitionY, at: 101)
+            XCTAssertTrue(actions.isOverviewGestureActive)
+            XCTAssertEqual(actions.overviewTransitionProgress, 0)
+            sendFrame(fixture, phase: .ended, fingers: 0, x: 0, y: 0, at: 101.01)
+            if shouldOpen {
+                guard case .opening = actions.overviewState
+                else { return XCTFail("Expected recent fast movement to open") }
+            } else {
+                guard case .closed = actions.overviewState else { return XCTFail("Expected slow movement to cancel") }
+            }
+        }
+    }
+
     func testSystemReduceMotionUsesDiscreteOverviewTrigger() throws {
         let fixture = try makeInteractiveOverviewFixture()
         fixture.controller.motionPolicy.systemReducesMotion = true
@@ -492,6 +548,126 @@ final class TrackpadWorkspaceGestureTests: XCTestCase {
         }
     }
 
+    func testHorizontalDiscreteWheelEventAdvancesOneColumnAndRequestsFocus() throws {
+        let fixture = try makeFixture(workspaceSwipeEnabled: false, scrollGestureEnabled: true)
+        try addColumnGestureWindows(to: fixture)
+        let engine = try XCTUnwrap(fixture.controller.niriEngine)
+        let manager = fixture.controller.workspaceManager
+        let columns = engine.columns(in: fixture.ws1)
+        let first = try XCTUnwrap(columns[0].windowNodes.first)
+        let second = try XCTUnwrap(columns[1].windowNodes.first)
+        manager.withNiriViewportState(for: fixture.ws1) { state in
+            state.selectedNodeId = first.id
+            state.activeColumnIndex = 0
+        }
+        let event = try XCTUnwrap(CGEvent(
+            scrollWheelEvent2Source: nil,
+            units: .line,
+            wheelCount: 2,
+            wheel1: 0,
+            wheel2: 1,
+            wheel3: 0
+        ))
+        let payload = MouseEventHandler.scrollPayload(
+            event, at: CGPoint(x: 800, y: 450),
+            modifiersRawValue: CGEventFlags([.maskAlternate, .maskShift]).rawValue
+        )
+        XCTAssertFalse(payload.payload.isContinuous)
+        fixture.controller.mouseEventHandler.handleScrollWheelFromTap(payload.payload)
+        XCTAssertEqual(manager.niriViewportState(for: fixture.ws1).selectedNodeId, second.id)
+        XCTAssertEqual(manager.pendingFocusedToken, second.token)
+    }
+
+    func testScrollModifierChoicesClaimOnlyMatchingVerticalWheelEventsAndAdvanceOneColumn() throws {
+        let event = try XCTUnwrap(CGEvent(
+            scrollWheelEvent2Source: nil, units: .line, wheelCount: 1,
+            wheel1: 1, wheel2: 0, wheel3: 0
+        ))
+        for modifier in ScrollModifierKey.allCases {
+            let fixture = try makeFixture(workspaceSwipeEnabled: false, scrollGestureEnabled: true)
+            try addColumnGestureWindows(to: fixture)
+            let controller = fixture.controller
+            let manager = controller.workspaceManager
+            let columns = try XCTUnwrap(controller.niriEngine).columns(in: fixture.ws1)
+            let first = try XCTUnwrap(columns[0].windowNodes.first)
+            let second = try XCTUnwrap(columns[1].windowNodes.first)
+            manager.withNiriViewportState(for: fixture.ws1) { state in
+                state.selectedNodeId = first.id
+                state.activeColumnIndex = 0
+            }
+            controller.settings.gestures.scrollModifierKey = modifier
+            controller.eventIntake.open(sink: controller.eventInterpreter)
+            defer { controller.eventIntake.close() }
+            let required = modifier.cgEventFlag
+            let flags: [CGEventFlags] = [.maskAlternate, .maskControl, .maskCommand, .maskShift]
+            let mismatches = flags.map { CGEventFlags(rawValue: required.rawValue ^ $0.rawValue) }
+            let pendingFocusBeforeMismatch = manager.pendingFocusedToken
+            for mismatch in mismatches {
+                let payload = MouseEventHandler.scrollPayload(
+                    event, at: CGPoint(x: 800, y: 450), modifiersRawValue: mismatch.rawValue
+                )
+                XCTAssertFalse(controller.mouseEventHandler.receiveTapScrollWheel(payload.payload), modifier.rawValue)
+                controller.eventIntake.drainNow()
+                XCTAssertEqual(manager.niriViewportState(for: fixture.ws1).selectedNodeId, first.id)
+                XCTAssertEqual(manager.pendingFocusedToken, pendingFocusBeforeMismatch)
+            }
+            let payload = MouseEventHandler.scrollPayload(
+                event, at: CGPoint(x: 800, y: 450), modifiersRawValue: required.rawValue
+            )
+            XCTAssertTrue(controller.mouseEventHandler.receiveTapScrollWheel(payload.payload), modifier.rawValue)
+            controller.eventIntake.drainNow()
+            XCTAssertEqual(manager.niriViewportState(for: fixture.ws1).selectedNodeId, second.id)
+            XCTAssertEqual(manager.pendingFocusedToken, second.token)
+        }
+    }
+
+    func testCoalescedDiscreteWheelEventsKeepBothTicksAndFocusOnlyFinalColumn() throws {
+        var focusedWindowIds: [UInt32] = []
+        var raiseCount = 0
+        let fixture = try makeFixture(
+            workspaceSwipeEnabled: false,
+            scrollGestureEnabled: true,
+            windowFocusOperations: WindowFocusOperations(
+                activateApp: { _ in },
+                focusSpecificWindow: { _, windowId, _ in focusedWindowIds.append(windowId) },
+                raiseWindow: { _ in raiseCount += 1 }
+            )
+        )
+        try addColumnGestureWindows(to: fixture)
+        let controller = fixture.controller
+        let manager = controller.workspaceManager
+        let columns = try XCTUnwrap(controller.niriEngine).columns(in: fixture.ws1)
+        let first = try XCTUnwrap(columns[0].windowNodes.first)
+        let last = try XCTUnwrap(columns[2].windowNodes.first)
+        manager.withNiriViewportState(for: fixture.ws1) { state in
+            state.selectedNodeId = first.id
+            state.activeColumnIndex = 0
+        }
+        controller.eventIntake.open(sink: controller.eventInterpreter)
+        defer { controller.eventIntake.close() }
+        for delta: Int32 in [1, 10] {
+            let event = try XCTUnwrap(CGEvent(
+                scrollWheelEvent2Source: nil, units: .line, wheelCount: 1,
+                wheel1: delta, wheel2: 0, wheel3: 0
+            ))
+            let payload = MouseEventHandler.scrollPayload(
+                event, at: CGPoint(x: 800, y: 450),
+                modifiersRawValue: CGEventFlags([.maskAlternate, .maskShift]).rawValue
+            )
+            XCTAssertTrue(controller.mouseEventHandler.receiveTapScrollWheel(
+                payload.payload, traceMetadata: payload.traceMetadata
+            ))
+        }
+        XCTAssertTrue(focusedWindowIds.isEmpty)
+        controller.eventIntake.drainNow()
+        XCTAssertEqual(manager.niriViewportState(for: fixture.ws1).selectedNodeId, last.id)
+        XCTAssertEqual(manager.pendingFocusedToken, last.token)
+        XCTAssertEqual(focusedWindowIds, [UInt32(last.token.windowId)])
+        XCTAssertEqual(raiseCount, 0)
+        let request = try XCTUnwrap(controller.intentLedger.activeManagedRequest)
+        XCTAssertTrue(controller.intentLedger.defersRetryRaise(for: request))
+    }
+
     private struct Fixture {
         let controller: WMController
         let monitor: Monitor
@@ -522,7 +698,7 @@ final class TrackpadWorkspaceGestureTests: XCTestCase {
         workspaceFingers: GestureFingerCount = .three,
         workspaceAxis: WorkspaceSwipeAxis = .vertical,
         scrollGestureEnabled: Bool = false,
-        columnFingers: GestureFingerCount = .three,
+        columnFingers: ThreeOrFourFingerCount = .three,
         enableNiri: Bool = true,
         windowFocusOperations: WindowFocusOperations = WindowFocusOperations(
             activateApp: { _ in },
@@ -535,6 +711,13 @@ final class TrackpadWorkspaceGestureTests: XCTestCase {
             windowFocusOperations: windowFocusOperations
         )
         controller.layoutRefreshController.displayLinkActivationForTests = { _ in true }
+        controller.layoutRefreshController.workspaceSwipe = WorkspaceSwipePresentation(
+            refreshController: controller.layoutRefreshController,
+            previewSurface: WorkspaceSwipePreview(
+                ownedWindowRegistry: controller.ownedWindowRegistry,
+                hasCaptureAccess: { false }
+            )
+        )
         controller.settings.gestures.scrollEnabled = scrollGestureEnabled
         controller.settings.gestures.fingerCount = columnFingers
         controller.settings.gestures.workspaceSwipeEnabled = workspaceSwipeEnabled
@@ -939,7 +1122,14 @@ final class TrackpadWorkspaceGestureTests: XCTestCase {
     }
 
     func testEmptyWorkspaceTargetClearsManagedFocusAfterLayout() throws {
-        let fixture = try makeFixture()
+        var activatedPIDs: [pid_t] = []
+        let fixture = try makeFixture(
+            windowFocusOperations: WindowFocusOperations(
+                activateApp: { activatedPIDs.append($0) },
+                focusSpecificWindow: { _, _, _ in },
+                raiseWindow: { _ in }
+            )
+        )
         let manager = fixture.controller.workspaceManager
         XCTAssertFalse(manager.nativeFocusOwner.isExternal)
 
@@ -949,16 +1139,25 @@ final class TrackpadWorkspaceGestureTests: XCTestCase {
                 fixture.controller.layoutRefreshController.layoutState.pendingRefresh?.postLayoutActions.first
             )
             XCTAssertTrue(action.isCurrent(using: manager))
+            XCTAssertTrue(activatedPIDs.isEmpty)
             action.runIfCurrent(using: manager)
 
             XCTAssertEqual(activeWorkspace(fixture), fixture.ws2)
             XCTAssertEqual(manager.nativeFocusOwner, .none)
             XCTAssertNil(manager.pendingFocusedToken)
+            XCTAssertEqual(activatedPIDs, [getpid()])
         }
     }
 
     func testEmptyWorkspaceTargetClearsManagedFocusWhenLayoutIsInvalidated() throws {
-        let fixture = try makeFixture()
+        var activatedPIDs: [pid_t] = []
+        let fixture = try makeFixture(
+            windowFocusOperations: WindowFocusOperations(
+                activateApp: { activatedPIDs.append($0) },
+                focusSpecificWindow: { _, _, _ in },
+                raiseWindow: { _ in }
+            )
+        )
         let manager = fixture.controller.workspaceManager
         let token = addManagedWindow(to: fixture.ws1, controller: fixture.controller, pid: 7_010, windowId: 7_110)
         XCTAssertTrue(manager.confirmManagedFocus(token, in: fixture.ws1, activateWorkspaceOnMonitor: false))
@@ -976,14 +1175,16 @@ final class TrackpadWorkspaceGestureTests: XCTestCase {
             XCTAssertEqual(activeWorkspace(fixture), fixture.ws2)
             XCTAssertEqual(manager.nativeFocusOwner, .none)
             XCTAssertNil(manager.pendingFocusedToken)
+            XCTAssertEqual(activatedPIDs, [getpid()])
         }
     }
 
     func testRapidSwipeThroughEmptyWorkspaceRejectsStaleClear() throws {
+        var activatedPIDs: [pid_t] = []
         var focusedWindowIds: [UInt32] = []
         let fixture = try makeFixture(
             windowFocusOperations: WindowFocusOperations(
-                activateApp: { _ in },
+                activateApp: { activatedPIDs.append($0) },
                 focusSpecificWindow: { _, windowId, _ in focusedWindowIds.append(windowId) },
                 raiseWindow: { _ in }
             )
@@ -1012,6 +1213,7 @@ final class TrackpadWorkspaceGestureTests: XCTestCase {
             XCTAssertEqual(focusedWindowIds, [UInt32(ws3Token.windowId)])
             XCTAssertEqual(manager.pendingFocusedToken, ws3Token)
             XCTAssertEqual(manager.nativeFocusOwner, .managed(ws1Token))
+            XCTAssertFalse(activatedPIDs.contains(getpid()))
         }
     }
 
@@ -1083,6 +1285,32 @@ final class TrackpadWorkspaceGestureTests: XCTestCase {
         XCTAssertLessThan(snapOffset, 0)
         XCTAssertEqual(momentumOffset, 300 * (try XCTUnwrap(momentumViewportScale)), accuracy: 0.001)
         XCTAssertNotEqual(snapOffset, momentumOffset)
+    }
+
+    func testColumnViewportHoldsDuringDragAndSwitchesToLandingOnRelease() throws {
+        let fixture = try makeFixture(workspaceSwipeEnabled: false, scrollGestureEnabled: true)
+        fixture.controller.settings.gestures.trackpadScrollStyle = .snap
+        try addColumnGestureWindows(to: fixture)
+        let engine = try XCTUnwrap(fixture.controller.niriEngine)
+        for (column, width) in zip(engine.columns(in: fixture.ws1), [400, 1_000, 1_000] as [CGFloat]) {
+            column.cachedWidth = width
+        }
+        let manager = fixture.controller.workspaceManager
+        let driver = manager.animationDriver
+        let handler = fixture.controller.niriLayoutHandler
+        let semanticOffset = manager.niriViewportState(for: fixture.ws1).viewOffset
+        XCTAssertEqual(handler.columnSummary(for: fixture.ws1)?.viewport, [.intersecting, .intersecting, .intersecting])
+
+        var time = beginCommittedColumnGesture(fixture)
+
+        XCTAssertNotEqual(driver.liveViewOffset(in: fixture.ws1, semanticOffset: semanticOffset), semanticOffset)
+        XCTAssertEqual(handler.columnSummary(for: fixture.ws1)?.viewport, [.intersecting, .intersecting, .intersecting])
+
+        time += 0.01
+        sendFrame(fixture, phase: .ended, fingers: 0, x: 0, y: 0, at: time)
+
+        XCTAssertTrue(driver.hasMotion(in: fixture.ws1))
+        XCTAssertEqual(handler.columnSummary(for: fixture.ws1)?.viewport, [.before, .intersecting, .intersecting])
     }
 
     func testCancelledColumnGestureDoesNotFocusLandingWindow() throws {
@@ -1659,7 +1887,7 @@ final class TrackpadWorkspaceGestureTests: XCTestCase {
         let harness = await installRecoveringMultitouchSource(fixture)
         defer {
             fixture.controller.mouseEventHandler.cleanup()
-            harness.sleeper.resumeAll()
+            await harness.sleeper.resumeAll()
         }
         harness.backend.emitFrame(
             registryId: 303,
@@ -1684,7 +1912,7 @@ final class TrackpadWorkspaceGestureTests: XCTestCase {
         let harness = await installRecoveringMultitouchSource(fixture, includeSecondDevice: true)
         defer {
             fixture.controller.mouseEventHandler.cleanup()
-            harness.sleeper.resumeAll()
+            await harness.sleeper.resumeAll()
         }
         harness.backend.emitFrame(
             registryId: 303,
@@ -1728,15 +1956,15 @@ final class TrackpadWorkspaceGestureTests: XCTestCase {
 
     private func driveCommittedPartialLift(_ fixture: Fixture) -> TimeInterval {
         var time: TimeInterval = 100
-        sendFrame(fixture, phase: .began, fingers: 3, x: 0.5, y: 0.2, at: time)
+        sendFrame(fixture, phase: .began, fingers: 4, x: 0.5, y: 0.2, at: time)
         time += 0.01
-        sendFrame(fixture, phase: .changed, fingers: 3, x: 0.5, y: 0.24, at: time)
+        sendFrame(fixture, phase: .changed, fingers: 4, x: 0.5, y: 0.24, at: time)
         for _ in 0 ..< 12 {
             time += 0.01
-            sendFrame(fixture, phase: .changed, fingers: 3, x: 0.5, y: 0.24, at: time)
+            sendFrame(fixture, phase: .changed, fingers: 4, x: 0.5, y: 0.24, at: time)
         }
         time += 0.01
-        sendFrame(fixture, phase: .changed, fingers: 2, x: 0.5, y: 0.24, at: time)
+        sendFrame(fixture, phase: .changed, fingers: 3, x: 0.5, y: 0.24, at: time)
         return time
     }
 
@@ -1759,11 +1987,139 @@ final class TrackpadWorkspaceGestureTests: XCTestCase {
         ))
     }
 
+    func testScrollTraceExplainsSuppressionAndReleasedContactOwnership() throws {
+        let fixture = try makeFixture()
+        let recorder = TrackpadScrollTrace.shared
+        recorder.beginCapture()
+        defer {
+            recorder.endCapture()
+            recorder.releaseStorage()
+        }
+
+        sendFrame(fixture, phase: .began, fingers: 3, x: 0.5, y: 0.2, at: 100)
+        try assertTracedScroll(fixture, phase: CGScrollPhase.changed.rawValue, decision: .activeGesture)
+        try assertTracedScroll(fixture, decision: .ownedSession)
+        sendFrame(fixture, phase: .changed, fingers: 3, x: 0.5, y: 0.24, at: 100.01)
+        sendFrame(fixture, phase: .changed, fingers: 2, x: 0.5, y: 0.24, at: 100.02)
+        try assertTracedScroll(fixture, phase: CGScrollPhase.changed.rawValue, decision: .liftLatch)
+
+        sendFrame(fixture, phase: .ended, fingers: 0, x: 0, y: 0, at: 100.03)
+        let released = try assertTracedScroll(fixture, decision: .ownedSession)
+        XCTAssertTrue(released.contains("retained=1:0:1:1591 retainedCurrent=1"))
+        try assertTracedScroll(fixture, phase: CGScrollPhase.ended.rawValue, decision: .terminalTail)
+        try assertTracedScroll(fixture, phase: CGScrollPhase.cancelled.rawValue, decision: .terminalTail)
+        try assertTracedScroll(fixture, momentumPhase: 2, decision: .momentumTail)
+
+        let freshPhase = try assertTracedScroll(
+            fixture, phase: CGScrollPhase.began.rawValue, decision: .freshPhase
+        )
+        let states = freshPhase.components(separatedBy: " after={")
+        XCTAssertEqual(states.count, 2)
+        XCTAssertTrue(states.first?.contains("suppressMomentum=true") == true)
+        XCTAssertTrue(states.last?.contains("suppressMomentum=false") == true)
+        try assertTracedScroll(fixture, phase: CGScrollPhase.changed.rawValue, decision: .trackpadUnclaimed)
+        try assertTracedScroll(fixture, senderId: nil, decision: .wheelDisabled)
+        try assertTracedScroll(fixture, senderId: 0x638, decision: .wheelDisabled)
+
+        sendFrame(fixture, phase: .began, fingers: 2, x: 0.5, y: 0.5, at: 101)
+        let freshContact = try assertTracedScroll(fixture, decision: .wheelDisabled)
+        XCTAssertTrue(freshContact.contains("retained=none retainedCurrent=none"))
+        let trace = recorder.dump()
+        let retained = try XCTUnwrap(trace.range(of: "ownership action=retain contact=1:0:1:1591"))
+        let releasedGesture = try XCTUnwrap(trace.range(of: "gesture timestamp=100.03"))
+        let retired = try XCTUnwrap(trace.range(
+            of: "ownership action=retire contact=1:0:1:1591 generation=1 currentSession=2"
+        ))
+        let freshGesture = try XCTUnwrap(trace.range(of: "gesture timestamp=101.0"))
+        XCTAssertLessThan(retained.lowerBound, releasedGesture.lowerBound)
+        XCTAssertLessThan(releasedGesture.lowerBound, retired.lowerBound)
+        XCTAssertLessThan(retired.lowerBound, freshGesture.lowerBound)
+    }
+
+    func testScrollTraceReportsWheelBindingAndInputSuppressionReturns() throws {
+        let fixture = try makeFixture(scrollGestureEnabled: true)
+        let recorder = TrackpadScrollTrace.shared
+        recorder.beginCapture()
+        defer {
+            recorder.endCapture()
+            recorder.releaseStorage()
+        }
+        let requiredModifiers = fixture.controller.settings.gestures.scrollModifierKey.cgEventFlag.rawValue
+        try assertTracedScroll(
+            fixture, modifiersRawValue: requiredModifiers, isContinuous: false, decision: .wheelBinding
+        )
+        try assertTracedScroll(
+            fixture, modifiersRawValue: requiredModifiers ^ CGEventFlags.maskShift.rawValue,
+            isContinuous: false, decision: .modifierMismatch
+        )
+        fixture.controller.isLockScreenActive = true
+        try assertTracedScroll(fixture, phase: CGScrollPhase.changed.rawValue, decision: .inputSuppressed)
+        sendFrame(fixture, phase: .began, fingers: 3, x: 0.5, y: 0.2, at: 100)
+        let gesture = try XCTUnwrap(recorder.dump().split(separator: "\n").last)
+        XCTAssertTrue(gesture.contains("gesture timestamp=100.0"))
+        XCTAssertTrue(gesture.contains("processed=false"))
+    }
+
+    func testFreshScrollThatArmsAGestureReleasesTheEarlierGesturesMomentumLatch() throws {
+        let fixture = try makeFixture(workspaceFingers: .two, workspaceAxis: .horizontal)
+        let handler = fixture.controller.mouseEventHandler
+        let recorder = TrackpadScrollTrace.shared
+        recorder.beginCapture()
+        defer {
+            recorder.endCapture()
+            recorder.releaseStorage()
+        }
+
+        sendFrame(fixture, phase: .began, fingers: 2, x: 0.2, y: 0.5, at: 100)
+        sendFrame(fixture, phase: .changed, fingers: 2, x: 0.3, y: 0.5, at: 100.01)
+        sendFrame(fixture, phase: .ended, fingers: 0, x: 0, y: 0, at: 100.02)
+        XCTAssertTrue(handler.state.suppressTrackpadMomentumScroll)
+
+        sendFrame(fixture, phase: .began, fingers: 2, x: 0.5, y: 0.5, at: 101)
+        XCTAssertEqual(handler.state.gesturePhase, .armed)
+        try assertTracedScroll(fixture, phase: CGScrollPhase.began.rawValue, decision: .activeGesture)
+        sendFrame(fixture, phase: .changed, fingers: 2, x: 0.5, y: 0.6, at: 101.01)
+        XCTAssertEqual(handler.state.gesturePhase, .idle)
+
+        try assertTracedScroll(fixture, phase: CGScrollPhase.changed.rawValue, decision: .trackpadUnclaimed)
+        try assertTracedScroll(fixture, momentumPhase: 2, decision: .trackpadUnclaimed)
+    }
+
+    @discardableResult
+    private func assertTracedScroll(
+        _ fixture: Fixture,
+        momentumPhase: UInt32 = 0,
+        phase: UInt32 = 0,
+        senderId: UInt64? = 0x637,
+        modifiersRawValue: UInt64 = 0,
+        isContinuous: Bool = true,
+        decision: MouseEventHandler.ScrollDecision,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws -> String {
+        let suppressed = fixture.controller.mouseEventHandler.receiveTapScrollWheel(MouseScrollIntake(
+            location: CGPoint(x: 800, y: 450), deltaX: 0, deltaY: 8,
+            momentumPhase: momentumPhase, phase: phase, modifiersRawValue: modifiersRawValue,
+            isContinuous: isContinuous, senderId: senderId
+        ))
+        XCTAssertEqual(suppressed, decision.suppresses, file: file, line: line)
+        let record = try XCTUnwrap(
+            TrackpadScrollTrace.shared.dump().split(separator: "\n").last,
+            file: file, line: line
+        )
+        XCTAssertTrue(record.contains(" scroll "), file: file, line: line)
+        XCTAssertTrue(
+            record.contains("suppressed=\(suppressed) reason=\(decision.rawValue)"),
+            file: file, line: line
+        )
+        return String(record)
+    }
+
     func testCommittedPartialLiftLatchesAndBlocksChainedGesture() throws {
         let fixture = try makeFixture(
-            workspaceFingers: .three,
+            workspaceFingers: .four,
             scrollGestureEnabled: true,
-            columnFingers: .two
+            columnFingers: .three
         )
         var time = driveCommittedPartialLift(fixture)
 
@@ -1776,7 +2132,7 @@ final class TrackpadWorkspaceGestureTests: XCTestCase {
 
         for step in 1 ... 6 {
             time += 0.01
-            sendFrame(fixture, phase: .changed, fingers: 2, x: 0.5 + 0.03 * CGFloat(step), y: 0.24, at: time)
+            sendFrame(fixture, phase: .changed, fingers: 3, x: 0.5 + 0.03 * CGFloat(step), y: 0.24, at: time)
         }
         XCTAssertEqual(handler.state.gesturePhase, .idle)
 
@@ -1788,9 +2144,9 @@ final class TrackpadWorkspaceGestureTests: XCTestCase {
 
     func testCommittedPartialLiftConsumesScrollAndMomentumTail() throws {
         let fixture = try makeFixture(
-            workspaceFingers: .three,
+            workspaceFingers: .four,
             scrollGestureEnabled: true,
-            columnFingers: .two
+            columnFingers: .three
         )
         var time = driveCommittedPartialLift(fixture)
         let handler = fixture.controller.mouseEventHandler
@@ -1806,9 +2162,15 @@ final class TrackpadWorkspaceGestureTests: XCTestCase {
 
         XCTAssertTrue(scrollVerdict(fixture, momentumPhase: 0, phase: CGScrollPhase.ended.rawValue))
         XCTAssertTrue(handler.state.suppressTrackpadMomentumScroll)
+        XCTAssertTrue(scrollVerdict(fixture, momentumPhase: 1, phase: 0))
+        XCTAssertTrue(scrollVerdict(fixture, momentumPhase: 0, phase: CGScrollPhase.mayBegin.rawValue))
         XCTAssertTrue(scrollVerdict(fixture, momentumPhase: 2, phase: 0))
-        XCTAssertFalse(scrollVerdict(fixture, momentumPhase: 0, phase: CGScrollPhase.changed.rawValue))
+        XCTAssertTrue(scrollVerdict(fixture, momentumPhase: 0, phase: CGScrollPhase.changed.rawValue))
+        XCTAssertTrue(scrollVerdict(fixture, momentumPhase: 3, phase: 0))
+        XCTAssertTrue(handler.state.suppressTrackpadMomentumScroll)
+        XCTAssertFalse(scrollVerdict(fixture, momentumPhase: 0, phase: CGScrollPhase.began.rawValue))
         XCTAssertFalse(handler.state.suppressTrackpadMomentumScroll)
+        XCTAssertFalse(scrollVerdict(fixture, momentumPhase: 0, phase: CGScrollPhase.changed.rawValue))
     }
 
     func testCursorMonitorSwipeSwitchesThatMonitorOnly() throws {
@@ -1957,9 +2319,8 @@ final class TrackpadWorkspaceGestureTests: XCTestCase {
         fixture.controller.mouseEventHandler.state.suppressTrackpadMomentumScroll = true
 
         harness.source.requestRevalidation(.wake)
-        await drainMultitouchTasks()
-        harness.sleeper.resumeNext()
-        await drainMultitouchTasks()
+        await harness.sleeper.waitForScheduledSleep(of: harness.source)
+        await harness.sleeper.resumeNext()
         let recoveredGeneration = try XCTUnwrap(harness.source.diagnosticsSnapshot().activeGeneration)
 
         XCTAssertNotEqual(recoveredGeneration, firstGeneration)
@@ -2049,9 +2410,8 @@ final class TrackpadWorkspaceGestureTests: XCTestCase {
         fixture.controller.mouseEventHandler.state.suppressTrackpadMomentumScroll = true
 
         harness.source.requestRevalidation(.wake)
-        await drainMultitouchTasks()
-        harness.sleeper.resumeNext()
-        await drainMultitouchTasks()
+        await harness.sleeper.waitForScheduledSleep(of: harness.source)
+        await harness.sleeper.resumeNext()
         let recoveredGeneration = try XCTUnwrap(harness.source.diagnosticsSnapshot().activeGeneration)
 
         XCTAssertNotEqual(recoveredGeneration, firstGeneration)
@@ -2182,10 +2542,9 @@ final class TrackpadWorkspaceGestureTests: XCTestCase {
             topologyMonitoringEnabled: false
         )
         fixture.controller.mouseEventHandler.installMultitouchSource(source)
-        await drainMultitouchTasks()
+        await sleeper.waitForScheduledSleep(of: source)
         XCTAssertEqual(sleeper.pendingCount, 1)
-        sleeper.resumeNext()
-        await drainMultitouchTasks()
+        await sleeper.resumeNext()
         XCTAssertEqual(source.diagnosticsSnapshot().state, .running)
         return (source, backend, sleeper)
     }
@@ -2199,8 +2558,7 @@ final class TrackpadWorkspaceGestureTests: XCTestCase {
         )
     ) async {
         fixture.controller.mouseEventHandler.cleanup()
-        harness.sleeper.resumeAll()
-        await drainMultitouchTasks()
+        await harness.sleeper.resumeAll()
     }
 
     func testCommittedVisibilityAbortRetainsPhaseLessTailUntilFreshContact() async throws {
@@ -2211,7 +2569,7 @@ final class TrackpadWorkspaceGestureTests: XCTestCase {
         defer {
             controller.eventIntake.close()
             handler.cleanup()
-            harness.sleeper.resumeAll()
+            await harness.sleeper.resumeAll()
         }
         harness.backend.emitFrame(
             registryId: 303,
@@ -2256,7 +2614,7 @@ final class TrackpadWorkspaceGestureTests: XCTestCase {
         defer {
             controller.eventIntake.close()
             handler.cleanup()
-            harness.sleeper.resumeAll()
+            await harness.sleeper.resumeAll()
         }
         for step in 0 ... 4 {
             harness.backend.emitFrame(

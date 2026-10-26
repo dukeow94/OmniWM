@@ -80,7 +80,15 @@ enum CLICompletionCatalog {
     }
 
     static var windowActionNames: [String] {
-        IPCAutomationManifest.windowActionDescriptors.map(\.name.rawValue)
+        sortedUnique(IPCAutomationManifest.windowActionDescriptors.map(\.name.rawValue) + ["mark"])
+    }
+
+    static var windowMarkActionNames: [String] {
+        IPCAutomationManifest.windowMarkActionDescriptors.map(\.name.rawValue)
+    }
+
+    static var windowMarkListFlags: [String] {
+        ["--json"]
     }
 
     static var commandFirstWords: [String] {
@@ -186,6 +194,8 @@ enum CLICompletionCatalog {
             return ["left", "right", "up", "down"]
         case .layout:
             return ["default", "niri", "dwindle"]
+        case .paletteMode:
+            return IPCCommandPaletteMode.allCases.map(\.rawValue)
         case .resizeAxis:
             return ["horizontal", "vertical"]
         case .resizeOperation:

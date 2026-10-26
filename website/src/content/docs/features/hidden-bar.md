@@ -10,13 +10,16 @@ sidebar:
 Hidden Bar conceals selected menu-bar icons and lets you reach them from a panel:
 
 - Pick the apps to hide in **Settings → Hidden Bar**.
+- Hidden Bar runs while the workspace bar is on; turning the bar off shows the hidden icons again.
 - Right-click (or Option-click) the OmniWM menu bar icon to open the Hidden Icons Bar; click an icon to reveal and use it.
 - Revealed icons re-hide automatically after a configurable interval — 5 seconds by default.
 - An optional global hotkey is available and starts unassigned.
 
 :::caution
-Concealment requires macOS 27 or later; core window management supports macOS 26.
+Concealment requires macOS 27 or later and Full Disk Access; core window management supports macOS 26. Turn on OmniWM in System Settings → Privacy & Security → Full Disk Access, then quit and reopen OmniWM.
 :::
+
+If you need more features for hiding status bar icons, we recommend [Thaw](https://github.com/thaw-app/Thaw). It also supports macOS 26, where OmniWM's built-in Hidden Bar is unavailable.
 
 ## The status-bar menu
 
