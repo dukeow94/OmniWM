@@ -96,7 +96,8 @@ struct MatchedWindowRules {
                 initialNiriContainerPrimarySpan: userRule?.rule.validInitialContainerPrimarySpan
             ),
             heuristicReasons: heuristicReasons,
-            deferredReason: deferredReason
+            deferredReason: deferredReason,
+            workspaceAssignmentMode: userRule?.rule.effectiveWorkspaceAssignmentMode ?? .firstWindow
         )
     }
 }

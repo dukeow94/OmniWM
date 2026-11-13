@@ -46,6 +46,7 @@ struct AppRuleDraft: Identifiable, Equatable {
     var layoutAction: WindowRuleLayoutAction
     var assignToWorkspaceEnabled: Bool
     var assignToWorkspace: String
+    var workspaceAssignmentMode: WindowRuleWorkspaceAssignmentMode
     var initialContainerPrimarySpanEnabled: Bool
     var initialContainerPrimarySpan: Double
     var minWidthEnabled: Bool
@@ -68,6 +69,7 @@ struct AppRuleDraft: Identifiable, Equatable {
         layoutAction = .auto
         assignToWorkspaceEnabled = false
         assignToWorkspace = ""
+        workspaceAssignmentMode = .firstWindow
         initialContainerPrimarySpanEnabled = false
         initialContainerPrimarySpan = 0.5
         minWidthEnabled = false
@@ -91,6 +93,7 @@ struct AppRuleDraft: Identifiable, Equatable {
         layoutAction = rule.effectiveLayoutAction
         assignToWorkspaceEnabled = rule.assignToWorkspace != nil
         assignToWorkspace = rule.assignToWorkspace ?? ""
+        workspaceAssignmentMode = rule.effectiveWorkspaceAssignmentMode
         initialContainerPrimarySpanEnabled = rule.initialContainerPrimarySpan != nil
         initialContainerPrimarySpan = rule.initialContainerPrimarySpan ?? 0.5
         minWidthEnabled = rule.minWidth != nil
@@ -120,6 +123,7 @@ struct AppRuleDraft: Identifiable, Equatable {
             lhs.layoutAction == rhs.layoutAction &&
             lhs.assignToWorkspaceEnabled == rhs.assignToWorkspaceEnabled &&
             lhs.assignToWorkspace == rhs.assignToWorkspace &&
+            lhs.workspaceAssignmentMode == rhs.workspaceAssignmentMode &&
             lhs.initialContainerPrimarySpanEnabled == rhs.initialContainerPrimarySpanEnabled &&
             nanStableEqual(lhs.initialContainerPrimarySpan, rhs.initialContainerPrimarySpan) &&
             lhs.minWidthEnabled == rhs.minWidthEnabled &&
@@ -242,6 +246,8 @@ struct AppRuleDraft: Identifiable, Equatable {
             axSubrole: axSubroleEnabled ? trimmedRuleValue(axSubrole) : nil,
             layout: layoutAction == .auto ? nil : layoutAction,
             assignToWorkspace: assignToWorkspaceEnabled ? trimmedRuleValue(assignToWorkspace) : nil,
+            workspaceAssignmentMode: assignToWorkspaceEnabled && workspaceAssignmentMode == .allNewWindows
+                ? .allNewWindows : nil,
             initialContainerPrimarySpan: initialContainerPrimarySpanEnabled ? initialContainerPrimarySpan : nil,
             minWidth: minWidthEnabled ? minWidth : nil,
             minHeight: minHeightEnabled ? minHeight : nil

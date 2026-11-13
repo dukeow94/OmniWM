@@ -50,6 +50,7 @@ enum IPCRuleProjection {
             axSubrole: definition.axSubrole,
             layout: definition.layout,
             assignToWorkspace: definition.assignToWorkspace,
+            workspaceAssignmentMode: definition.workspaceAssignmentMode,
             initialContainerPrimarySpan: definition.initialContainerPrimarySpan,
             minWidth: definition.minWidth,
             minHeight: definition.minHeight,
@@ -71,6 +72,9 @@ enum IPCRuleProjection {
                 axSubrole: rule.axSubrole,
                 layout: ipcRuleLayout(from: rule.effectiveLayoutAction),
                 assignToWorkspace: rule.assignToWorkspace,
+                workspaceAssignmentMode: rule.workspaceAssignmentMode.map {
+                    $0 == .allNewWindows ? .allNewWindows : .firstWindow
+                },
                 initialContainerPrimarySpan: rule.initialContainerPrimarySpan,
                 minWidth: rule.minWidth,
                 minHeight: rule.minHeight
@@ -90,6 +94,9 @@ enum IPCRuleProjection {
             axSubrole: normalized.axSubrole,
             layout: windowRuleLayout(from: normalized.layout),
             assignToWorkspace: normalized.assignToWorkspace,
+            workspaceAssignmentMode: normalized.workspaceAssignmentMode.map {
+                $0 == .allNewWindows ? .allNewWindows : .firstWindow
+            },
             initialContainerPrimarySpan: normalized.initialContainerPrimarySpan,
             minWidth: normalized.minWidth,
             minHeight: normalized.minHeight
@@ -106,6 +113,7 @@ enum IPCRuleProjection {
             axSubrole: trimmedNonEmpty(definition.axSubrole),
             layout: definition.layout,
             assignToWorkspace: trimmedNonEmpty(definition.assignToWorkspace),
+            workspaceAssignmentMode: definition.workspaceAssignmentMode,
             initialContainerPrimarySpan: definition.initialContainerPrimarySpan,
             minWidth: definition.minWidth,
             minHeight: definition.minHeight

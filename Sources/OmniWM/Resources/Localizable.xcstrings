@@ -17203,6 +17203,16 @@
         }
       }
     },
+    "All New Windows" : {
+      "localizations" : {
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "모든 새 창에 적용"
+          }
+        }
+      }
+    },
     "All hotkey bindings will be restored to OmniWM defaults." : {
       "localizations" : {
         "ja" : {
@@ -20051,6 +20061,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "적용"
+          }
+        }
+      }
+    },
+    "Apply Workspace Assignment" : {
+      "localizations" : {
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "워크스페이스 배치 적용 범위"
           }
         }
       }
@@ -53190,6 +53210,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "제출하기 전에 성능 캡처를 완료하세요. 성능 캡처 파일은 문제의 추적 로그로 첨부되지 않습니다."
+          }
+        }
+      }
+    },
+    "First Window Only" : {
+      "localizations" : {
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "첫 창에만 적용"
+          }
+        }
+      }
+    },
+    "First Window Only applies when the app process has no tracked windows. All New Windows also routes additional windows and browser popups. Existing windows stay where you put them." : {
+      "localizations" : {
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "'첫 창에만 적용'은 해당 앱 프로세스에 관리 중인 창이 없을 때 적용됩니다. '모든 새 창에 적용'은 추가 창과 브라우저 팝업에도 적용됩니다. 기존 창은 사용자가 배치한 곳에 유지됩니다."
           }
         }
       }

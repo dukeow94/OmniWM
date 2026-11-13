@@ -18,6 +18,44 @@ final class WindowRuleEngineTests: XCTestCase {
         ("com.microsoft.edgemac", "Picture in Picture")
     ]
 
+    func testWorkspaceAssignmentModeSurvivesClassificationAndManualOverride() {
+        for layout in WindowRuleLayoutAction.allCases {
+            let engine = WindowRuleEngine(inputMethodBundleIds: [])
+            engine.rebuild(rules: [AppRule(
+                bundleId: "com.google.Chrome", layout: layout,
+                assignToWorkspace: "9", workspaceAssignmentMode: .allNewWindows
+            )])
+            let decision = evaluate(engine, facts(
+                appName: "Chrome", bundleId: "com.google.Chrome", title: "Popup"
+            ))
+            XCTAssertTrue(decision.tracksWindow)
+            XCTAssertEqual(decision.workspaceName, "9")
+            XCTAssertEqual(decision.workspaceAssignmentMode, .allNewWindows)
+
+            for override: ManualWindowOverride in [.forceTile, .forceFloat] {
+                let overridden = WindowRuleEngine.applyingManualOverride(decision, manualOverride: override)
+                XCTAssertEqual(overridden.workspaceName, "9")
+                XCTAssertEqual(overridden.workspaceAssignmentMode, .allNewWindows)
+            }
+        }
+    }
+
+    func testWorkspaceAssignmentModeDoesNotLeakFromLessSpecificRule() {
+        let engine = WindowRuleEngine(inputMethodBundleIds: [])
+        engine.rebuild(rules: [
+            AppRule(
+                bundleId: "com.google.Chrome", assignToWorkspace: "9",
+                workspaceAssignmentMode: .allNewWindows
+            ),
+            AppRule(bundleId: "com.google.Chrome", titleSubstring: "Special", assignToWorkspace: "2")
+        ])
+        let decision = evaluate(engine, facts(
+            appName: "Chrome", bundleId: "com.google.Chrome", title: "Special Popup"
+        ))
+        XCTAssertEqual(decision.workspaceName, "2")
+        XCTAssertEqual(decision.workspaceAssignmentMode, .firstWindow)
+    }
+
     private func facts(
         appName: String?,
         bundleId: String?,

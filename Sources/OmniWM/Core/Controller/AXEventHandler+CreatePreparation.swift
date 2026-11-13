@@ -293,6 +293,7 @@ extension AXEventHandler {
         let placementFrame = evaluation.facts.windowServer?.frame ?? matchingWindowInfo?.frame
         let resolvedPlacement = controller.resolveWorkspaceForNewWindow(
             workspaceName: evaluation.decision.workspaceName,
+            workspaceAssignmentMode: evaluation.decision.workspaceAssignmentMode,
             axRef: axRef,
             pid: token.pid,
             parentWindowId: evaluation.facts.windowServer?.parentId,
