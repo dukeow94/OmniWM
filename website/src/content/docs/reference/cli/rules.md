@@ -8,16 +8,21 @@ sidebar:
 Manage persisted window rules that control layout behavior, default workspace placement, and the initial Niri
 container primary span for matching windows. Primary span is width in horizontal orientation and height in
 vertical orientation.
-Rule add, replace, remove, move, and config reload trigger automatic reevaluation. A valid workspace assignment applies as
-the initial default whenever the matching app currently has no tracked windows. Additional windows use the
-workspace active when creation began. Automatic reevaluation preserves existing managed windows' workspaces, while
-readmission, structural replacements, and unique persisted boot-restore matches
-preserve placement continuity. `rule apply` is the explicit path that may move existing managed windows.
+Rule add, replace, remove, move, and config reload trigger automatic reevaluation. By default, a valid workspace
+assignment applies whenever the matching app process has no tracked windows; additional windows use the workspace
+active when creation began. Set `--workspace-assignment-mode all-new-windows` to route additional matching new
+windows and independent browser popups to the assigned workspace too. Automatic reevaluation preserves existing
+managed windows' workspaces, while readmission, structural replacements, tracked-parent modal placement, and unique
+persisted boot-restore matches preserve placement continuity. `rule apply` is the explicit path that may move existing managed windows.
 Initial container primary span is a one-shot Niri admission hint and never resizes an existing container.
 
 ```
 omniwmctl rule <action> [arguments...] [options...]
 ```
+
+:::note[Unreleased]
+`--workspace-assignment-mode` is available in source builds with this change. It controls new-window placement, not continuous enforcement or focus-stealing prevention.
+:::
 
 ## Rule Options
 
@@ -30,7 +35,8 @@ omniwmctl rule <action> [arguments...] [options...]
 | `--ax-role` | `<role>` | Match accessibility role |
 | `--ax-subrole` | `<subrole>` | Match accessibility subrole |
 | `--layout` | `<auto\|tile\|float>` | Layout action (`auto` = default behavior) |
-| `--assign-to-workspace` | `<raw-name>` | Use this workspace as the initial default whenever the matching app currently has no tracked windows |
+| `--assign-to-workspace` | `<raw-name>` | Destination workspace, which must already exist |
+| `--workspace-assignment-mode` | `<first-window\|all-new-windows>` | Apply the assignment only while the app process has no tracked windows (default), or to every matching new window |
 | `--initial-container-primary-span` | `<proportion>` | Initial Niri container primary span for a resizable window, from `0.05` through `1.0` inclusive |
 | `--min-width` | `<points>` | Minimum window width in points |
 | `--min-height` | `<points>` | Minimum window height in points |
@@ -71,7 +77,7 @@ the stored `initialContainerPrimarySpan` proportion.
 omniwmctl rule add [options...]
 ```
 
-Supply `--bundle-id` and/or at least one matcher (`--app-name-substring`, `--title-substring`, `--title-regex`). Appends a new rule to the end of the rule list. Its placement defaults apply whenever the matching app currently has no tracked windows; already managed windows are not moved.
+Supply `--bundle-id` and/or at least one matcher (`--app-name-substring`, `--title-substring`, `--title-regex`). Appends a new rule to the end of the rule list. New-window placement follows its workspace assignment mode; already managed windows are not moved.
 
 **Replace a rule:**
 
@@ -117,6 +123,10 @@ to its valid assigned workspace.
 **Examples:**
 
 ```bash
+# Float all new Chrome windows and independent popups on workspace 9
+omniwmctl rule add --bundle-id com.google.Chrome --layout float \
+  --assign-to-workspace 9 --workspace-assignment-mode all-new-windows
+
 # Float all Finder windows
 omniwmctl rule add --bundle-id com.apple.finder --layout float
 

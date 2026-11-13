@@ -83,7 +83,8 @@ final class WindowRuleEngine {
             ruleEffects: decision.ruleEffects,
             admissionHints: decision.admissionHints,
             heuristicReasons: [],
-            deferredReason: nil
+            deferredReason: nil,
+            workspaceAssignmentMode: decision.workspaceAssignmentMode
         )
     }
 

@@ -3,6 +3,11 @@
 
 import Foundation
 
+public enum IPCRuleWorkspaceAssignmentMode: String, Codable, Equatable, Sendable {
+    case firstWindow
+    case allNewWindows
+}
+
 public struct IPCRuleDefinition: Codable, Equatable, Sendable {
     public let bundleId: String
     public let appNameSubstring: String?
@@ -12,6 +17,7 @@ public struct IPCRuleDefinition: Codable, Equatable, Sendable {
     public let axSubrole: String?
     public let layout: IPCRuleLayout
     public let assignToWorkspace: String?
+    public let workspaceAssignmentMode: IPCRuleWorkspaceAssignmentMode?
     public let initialContainerPrimarySpan: Double?
     public let minWidth: Double?
     public let minHeight: Double?
@@ -25,6 +31,7 @@ public struct IPCRuleDefinition: Codable, Equatable, Sendable {
         axSubrole: String? = nil,
         layout: IPCRuleLayout = .auto,
         assignToWorkspace: String? = nil,
+        workspaceAssignmentMode: IPCRuleWorkspaceAssignmentMode? = nil,
         initialContainerPrimarySpan: Double? = nil,
         minWidth: Double? = nil,
         minHeight: Double? = nil
@@ -40,6 +47,7 @@ public struct IPCRuleDefinition: Codable, Equatable, Sendable {
         self.initialContainerPrimarySpan = initialContainerPrimarySpan
         self.minWidth = minWidth
         self.minHeight = minHeight
+        self.workspaceAssignmentMode = workspaceAssignmentMode
     }
 }
 
@@ -204,6 +212,7 @@ public struct IPCRuleSnapshot: Codable, Equatable, Sendable {
     public let axSubrole: String?
     public let layout: IPCRuleLayout
     public let assignToWorkspace: String?
+    public let workspaceAssignmentMode: IPCRuleWorkspaceAssignmentMode?
     public let initialContainerPrimarySpan: Double?
     public let minWidth: Double?
     public let minHeight: Double?
@@ -215,7 +224,7 @@ public struct IPCRuleSnapshot: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case id, position, bundleId, appNameSubstring, titleSubstring, titleRegex, axRole, axSubrole
         case layout, assignToWorkspace, initialContainerPrimarySpan, minWidth, minHeight, specificity, isValid
-        case invalidRegexMessage, validationMessages
+        case invalidRegexMessage, validationMessages, workspaceAssignmentMode
     }
 
     public init(
@@ -229,6 +238,7 @@ public struct IPCRuleSnapshot: Codable, Equatable, Sendable {
         axSubrole: String? = nil,
         layout: IPCRuleLayout,
         assignToWorkspace: String? = nil,
+        workspaceAssignmentMode: IPCRuleWorkspaceAssignmentMode? = nil,
         initialContainerPrimarySpan: Double? = nil,
         minWidth: Double? = nil,
         minHeight: Double? = nil,
@@ -254,6 +264,7 @@ public struct IPCRuleSnapshot: Codable, Equatable, Sendable {
         self.isValid = isValid
         self.invalidRegexMessage = invalidRegexMessage
         self.validationMessages = validationMessages
+        self.workspaceAssignmentMode = workspaceAssignmentMode
     }
 
     public init(from decoder: Decoder) throws {
@@ -275,6 +286,9 @@ public struct IPCRuleSnapshot: Codable, Equatable, Sendable {
         isValid = try container.decode(Bool.self, forKey: .isValid)
         invalidRegexMessage = try container.decodeIfPresent(String.self, forKey: .invalidRegexMessage)
         validationMessages = try container.decodeIfPresent([String].self, forKey: .validationMessages) ?? []
+        workspaceAssignmentMode = try container.decodeIfPresent(
+            IPCRuleWorkspaceAssignmentMode.self, forKey: .workspaceAssignmentMode
+        )
     }
 }
 

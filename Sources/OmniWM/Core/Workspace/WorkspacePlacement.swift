@@ -52,6 +52,7 @@ struct WorkspacePlacementRules {
     let inheritTrackedParentWorkspace: Bool
     let structuralReplacementWorkspaceId: WorkspaceDescriptor.ID?
     let allowsFloatingSpawnPlacement: Bool
+    var workspaceAssignmentMode: WindowRuleWorkspaceAssignmentMode = .firstWindow
 }
 
 struct WorkspacePlacementContext {

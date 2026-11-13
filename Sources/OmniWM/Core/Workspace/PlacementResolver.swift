@@ -69,7 +69,7 @@ final class PlacementResolver {
                 for: workspaceName,
                 createIfMissing: false
             )
-            if !shouldApplyWorkspaceRule(pid: window.pid, context: context.reevaluation) {
+            if !shouldApplyWorkspaceRule(pid: window.pid, rules: rules, context: context.reevaluation) {
                 ruleSkipReason = .appAlreadyHasEntries
             } else if let resolvedRuleWorkspaceId {
                 return WorkspacePlacementResolution(
@@ -106,9 +106,10 @@ final class PlacementResolver {
 
     private func shouldApplyWorkspaceRule(
         pid: pid_t?,
+        rules: WorkspacePlacementRules,
         context: WindowRuleReevaluationContext
     ) -> Bool {
-        if context == .explicitRuleApply {
+        if context == .explicitRuleApply || rules.workspaceAssignmentMode == .allNewWindows {
             return true
         }
         guard let pid else { return true }

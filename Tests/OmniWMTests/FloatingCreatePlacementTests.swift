@@ -908,6 +908,175 @@ final class FloatingCreatePlacementTests: XCTestCase {
         XCTAssertEqual(afterLastWindowClosed.rung, .workspaceRule)
     }
 
+    func testAllNewWindowsRuleRoutesLaterTiledAndFloatingWindowsWithoutChangingFocus() throws {
+        for mode: TrackedWindowMode in [.tiling, .floating] {
+            let fixture = try makeTwoMonitorFixture()
+            let manager = fixture.controller.workspaceManager
+            let pid: pid_t = 6_131
+            _ = manager.addWindow(
+                axRef(pid, 577), pid: pid, windowId: 577,
+                to: fixture.secondaryWorkspace, mode: mode
+            )
+            let focusBefore = manager.nativeFocusOwner
+            let interactionBefore = manager.interactionMonitorId
+            let activeBefore = manager.activeWorkspaceOrFirst(on: fixture.primary.id)?.id
+
+            let resolved = resolvePlacement(
+                fixture,
+                workspaceName: "6",
+                pid: pid,
+                placementMode: mode,
+                origin: .liveCreate,
+                createPlacementContext: placementContext(
+                    pendingFocusedWorkspaceId: fixture.primaryWorkspace,
+                    pendingFocusedMonitorId: fixture.primary.id,
+                    interactionWorkspaceId: fixture.primaryWorkspace,
+                    interactionMonitorId: fixture.primary.id
+                ),
+                windowFrame: fixture.primary.frame,
+                fallbackWorkspaceId: fixture.primaryWorkspace,
+                workspaceAssignmentMode: .allNewWindows
+            )
+
+            XCTAssertEqual(resolved.workspaceId, fixture.secondaryWorkspace)
+            XCTAssertEqual(resolved.rung, .workspaceRule)
+            XCTAssertNil(resolved.ruleSkipReason)
+            XCTAssertEqual(manager.nativeFocusOwner, focusBefore)
+            XCTAssertEqual(manager.interactionMonitorId, interactionBefore)
+            XCTAssertEqual(manager.activeWorkspaceOrFirst(on: fixture.primary.id)?.id, activeBefore)
+        }
+    }
+
+    func testAllNewWindowsModeReachesControllerPlacementPaths() throws {
+        let fixture = try makeTwoMonitorFixture()
+        let evaluation = placementEvaluation(
+            bundleId: "com.google.Chrome", subrole: kAXStandardWindowSubrole as String,
+            workspaceName: "6", workspaceAssignmentMode: .allNewWindows
+        )
+        let pid = evaluation.token.pid
+        _ = fixture.controller.workspaceManager.addWindow(
+            axRef(pid, 582), pid: pid, windowId: 582, to: fixture.primaryWorkspace
+        )
+        let context = placementContext(
+            interactionWorkspaceId: fixture.primaryWorkspace,
+            interactionMonitorId: fixture.primary.id
+        )
+        let created = fixture.controller.resolveWorkspaceForNewWindow(
+            workspaceName: evaluation.decision.workspaceName,
+            workspaceAssignmentMode: evaluation.decision.workspaceAssignmentMode,
+            axRef: axRef(pid, 583), pid: pid,
+            placementMode: .floating,
+            createPlacementContext: context,
+            fallbackWorkspaceId: fixture.primaryWorkspace
+        )
+        let discovered = fixture.controller.resolvedWorkspaceId(
+            for: evaluation,
+            axRef: axRef(pid, 584),
+            existingEntry: nil,
+            placementMode: .floating,
+            placementContext: WorkspacePlacementContext(
+                origin: .discovery,
+                createPlacementContext: context,
+                fallbackWorkspaceId: fixture.primaryWorkspace,
+                reevaluation: .automatic
+            )
+        )
+
+        XCTAssertEqual(created.workspaceId, fixture.secondaryWorkspace)
+        XCTAssertEqual(created.rung, .workspaceRule)
+        XCTAssertEqual(discovered, fixture.secondaryWorkspace)
+    }
+
+    func testAllNewWindowsRulePreservesExistingWindowOnAutomaticReevaluation() throws {
+        let fixture = try makeTwoMonitorFixture()
+        let pid: pid_t = 6_132
+        let token = fixture.controller.workspaceManager.addWindow(
+            axRef(pid, 578), pid: pid, windowId: 578, to: fixture.primaryWorkspace
+        )
+        let entry = try XCTUnwrap(fixture.controller.workspaceManager.entry(for: token))
+
+        for context: WindowRuleReevaluationContext in [.automatic, .explicitRuleApply] {
+            let resolved = resolvePlacement(
+                fixture,
+                workspaceName: "6",
+                pid: pid,
+                placementMode: .floating,
+                origin: .discovery,
+                createPlacementContext: nil,
+                windowFrame: fixture.secondary.frame,
+                existingEntry: entry,
+                fallbackWorkspaceId: nil,
+                context: context,
+                workspaceAssignmentMode: .allNewWindows
+            )
+
+            XCTAssertEqual(
+                resolved.workspaceId,
+                context == .automatic ? fixture.primaryWorkspace : fixture.secondaryWorkspace
+            )
+            XCTAssertEqual(resolved.rung, context == .automatic ? .existingEntry : .workspaceRule)
+        }
+    }
+
+    func testAllNewWindowsRulePreservesReplacementAndTrackedParentContinuity() throws {
+        let fixture = try makeTwoMonitorFixture()
+        let pid: pid_t = 6_133
+        _ = fixture.controller.workspaceManager.addWindow(
+            axRef(pid, 579), pid: pid, windowId: 579, to: fixture.primaryWorkspace
+        )
+
+        for inheritsParent in [false, true] {
+            let resolved = resolvePlacement(
+                fixture,
+                workspaceName: "6",
+                pid: pid,
+                parentWindowId: inheritsParent ? 579 : nil,
+                inheritTrackedParentWorkspace: inheritsParent,
+                structuralReplacementWorkspaceId: inheritsParent ? nil : fixture.primaryWorkspace,
+                placementMode: .floating,
+                origin: .liveCreate,
+                createPlacementContext: placementContext(
+                    interactionWorkspaceId: fixture.secondaryWorkspace,
+                    interactionMonitorId: fixture.secondary.id
+                ),
+                windowFrame: fixture.secondary.frame,
+                fallbackWorkspaceId: nil,
+                workspaceAssignmentMode: .allNewWindows
+            )
+
+            XCTAssertEqual(resolved.workspaceId, fixture.primaryWorkspace)
+            XCTAssertEqual(resolved.rung, inheritsParent ? .trackedParent : .structuralReplacement)
+        }
+    }
+
+    func testAllNewWindowsRuleWithMissingWorkspaceFallsBackWithoutCreatingWorkspace() throws {
+        let fixture = try makeTwoMonitorFixture()
+        let manager = fixture.controller.workspaceManager
+        let pid: pid_t = 6_134
+        _ = manager.addWindow(
+            axRef(pid, 581), pid: pid, windowId: 581, to: fixture.primaryWorkspace
+        )
+        let resolved = resolvePlacement(
+            fixture,
+            workspaceName: "missing",
+            pid: pid,
+            placementMode: .floating,
+            origin: .liveCreate,
+            createPlacementContext: placementContext(
+                interactionWorkspaceId: fixture.secondaryWorkspace,
+                interactionMonitorId: fixture.secondary.id
+            ),
+            windowFrame: fixture.primary.frame,
+            fallbackWorkspaceId: nil,
+            workspaceAssignmentMode: .allNewWindows
+        )
+
+        XCTAssertEqual(resolved.workspaceId, fixture.secondaryWorkspace)
+        XCTAssertEqual(resolved.rung, .interactionWorkspace)
+        XCTAssertEqual(resolved.ruleSkipReason, .workspaceNotMaterialized)
+        XCTAssertNil(manager.workspaceId(for: "missing", createIfMissing: false))
+    }
+
     func testResolveUnknownWorkspaceRuleFallsThroughToInteraction() throws {
         let fixture = try makeTwoMonitorFixture()
         let resolved = resolvePlacement(
@@ -1392,7 +1561,8 @@ final class FloatingCreatePlacementTests: XCTestCase {
         windowFrame: CGRect?,
         existingEntry: WindowState? = nil,
         fallbackWorkspaceId: WorkspaceDescriptor.ID?,
-        context: WindowRuleReevaluationContext = .automatic
+        context: WindowRuleReevaluationContext = .automatic,
+        workspaceAssignmentMode: WindowRuleWorkspaceAssignmentMode = .firstWindow
     ) -> WorkspacePlacementResolution {
         PlacementResolver(workspaceManager: fixture.controller.workspaceManager).resolveWorkspacePlacement(
             window: WorkspacePlacementWindow(
@@ -1407,7 +1577,8 @@ final class FloatingCreatePlacementTests: XCTestCase {
                 workspaceName: workspaceName,
                 inheritTrackedParentWorkspace: inheritTrackedParentWorkspace,
                 structuralReplacementWorkspaceId: structuralReplacementWorkspaceId,
-                allowsFloatingSpawnPlacement: allowsFloatingSpawnPlacement
+                allowsFloatingSpawnPlacement: allowsFloatingSpawnPlacement,
+                workspaceAssignmentMode: workspaceAssignmentMode
             ),
             context: WorkspacePlacementContext(
                 origin: origin,
@@ -1420,7 +1591,9 @@ final class FloatingCreatePlacementTests: XCTestCase {
 
     private func placementEvaluation(
         bundleId: String?,
-        subrole: String?
+        subrole: String?,
+        workspaceName: String? = nil,
+        workspaceAssignmentMode: WindowRuleWorkspaceAssignmentMode = .firstWindow
     ) -> WMController.WindowDecisionEvaluation {
         let token = WindowToken(pid: 6_130, windowId: 576)
         let facts = WindowRuleFacts(
@@ -1448,11 +1621,12 @@ final class FloatingCreatePlacementTests: XCTestCase {
                 disposition: .floating,
                 source: .heuristic,
                 layoutDecisionKind: .fallbackLayout,
-                workspaceName: nil,
+                workspaceName: workspaceName,
                 ruleEffects: .none,
                 admissionHints: .none,
                 heuristicReasons: [],
-                deferredReason: nil
+                deferredReason: nil,
+                workspaceAssignmentMode: workspaceAssignmentMode
             ),
             appFullscreen: false,
             manualOverride: nil,

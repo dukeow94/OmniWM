@@ -216,6 +216,14 @@ struct RuleWindowBehaviorSection: View {
                 }
                 .disabled(workspaceNames.isEmpty)
 
+                Picker("Apply Workspace Assignment", selection: $draft.workspaceAssignmentMode) {
+                    Text("First Window Only").tag(WindowRuleWorkspaceAssignmentMode.firstWindow)
+                    Text("All New Windows").tag(WindowRuleWorkspaceAssignmentMode.allNewWindows)
+                }
+                SettingsCaption(
+                    localized: "First Window Only applies when the app process has no tracked windows. All New Windows also routes additional windows and browser popups. Existing windows stay where you put them."
+                )
+
                 if workspaceNames.isEmpty {
                     SettingsCaption(localized: "No workspaces configured. Add workspaces in Settings.")
                 } else if isWorkspaceMissing {

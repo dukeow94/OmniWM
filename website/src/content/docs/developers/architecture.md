@@ -377,7 +377,7 @@ Some apps (Ghostty, browsers) destroy and recreate windows during internal opera
 
 **Workspace placement:**
 
-`PlacementResolver` applies continuity before fresh placement: automatic readmission keeps the existing workspace, structural replacements keep their original workspace and identity, and unique persisted boot-restore matches retain restore authority. A valid workspace rule is the initial default only while that running app instance has no tracked window; explicit rule application can still move existing windows. Later tiled and parentless floating live creates use a pending managed-focus destination and the interaction workspace captured when the create event arrived before mode-specific native-Space, focus, and frame fallbacks. Finder Quick Look is the narrow exception: native-Space and same-process tiled-window spawn placement remain ahead of interaction so its macOS focus churn cannot redirect the preview. Contextless startup and full-rescan discovery remain conservative and frame-distributed.
+`PlacementResolver` applies continuity before fresh placement: automatic readmission keeps the existing workspace, structural replacements keep their original workspace and identity, and unique persisted boot-restore matches retain restore authority. A valid workspace rule defaults to `firstWindow`, applying only while that running app instance has no tracked window. The opt-in `allNewWindows` mode also routes later matching new windows, without overriding continuity or moving existing entries on automatic reevaluation; explicit rule application can still move existing windows. Later tiled and parentless floating live creates use a pending managed-focus destination and the interaction workspace captured when the create event arrived before mode-specific native-Space, focus, and frame fallbacks. Finder Quick Look is the narrow exception: native-Space and same-process tiled-window spawn placement remain ahead of interaction so its macOS focus churn cannot redirect the preview. Contextless startup and full-rescan discovery remain conservative and frame-distributed.
 
 ### 3.4 Stage 2 — WorldStore, the Single Writer
 
@@ -782,6 +782,7 @@ struct WindowDecision: Equatable, Sendable {
     let admissionHints: ManagedWindowAdmissionHints    // initialNiriContainerPrimarySpan
     let heuristicReasons: [AXWindowHeuristicReason]
     let deferredReason: WindowDecisionDeferredReason?
+    var workspaceAssignmentMode: WindowRuleWorkspaceAssignmentMode = .firstWindow
 }
 ```
 

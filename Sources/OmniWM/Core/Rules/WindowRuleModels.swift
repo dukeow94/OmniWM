@@ -65,6 +65,7 @@ struct WindowDecision: Equatable, Sendable {
     let admissionHints: ManagedWindowAdmissionHints
     let heuristicReasons: [AXWindowHeuristicReason]
     let deferredReason: WindowDecisionDeferredReason?
+    var workspaceAssignmentMode: WindowRuleWorkspaceAssignmentMode = .firstWindow
 
     var managesWindow: Bool {
         disposition == .managed

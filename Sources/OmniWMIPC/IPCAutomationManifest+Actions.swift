@@ -120,6 +120,11 @@ extension IPCAutomationManifest {
             valuePlaceholder: "<name>"
         ),
         .init(
+            flag: "--workspace-assignment-mode",
+            summary: "Apply workspace assignment to the first window only (default), or all new windows.",
+            valuePlaceholder: "<first-window|all-new-windows>"
+        ),
+        .init(
             flag: "--initial-container-primary-span",
             summary: "Set the initial Niri container primary-span proportion for resizable windows (0.05 through 1.0).",
             valuePlaceholder: "<proportion>"
