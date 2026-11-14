@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import Foundation
 
@@ -89,12 +89,12 @@ final class SpringAnimation {
     private(set) var from: Double
     private(set) var target: Double
     private let initialVelocity: Double
-    private let startTime: TimeInterval
+    let startTime: TimeInterval
     let config: SpringConfig
     private let displayRefreshRate: Double
 
     private var displacement: Double
-    private var duration: TimeInterval
+    private(set) var duration: TimeInterval
 
     init(
         from: Double,

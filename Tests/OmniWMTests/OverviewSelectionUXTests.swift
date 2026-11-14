@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import Carbon
@@ -307,7 +307,7 @@ final class OverviewSelectionUXTests: XCTestCase {
                         deltaX: 0, deltaY: 1, modifiers: [], isPrecise: precise, location: .zero
                     ), on: monitorId)
                     let vertical = try XCTUnwrap(projection.layoutsByMonitor[monitorId])
-                    XCTAssertEqual(vertical.scrollOffset - before.scrollOffset, expected, accuracy: 0.0001)
+                    XCTAssertEqual(vertical.scrollOffset - before.scrollOffset, expected)
                     XCTAssertTrue(
                         vertical.stripPanRange(for: workspaceId).contains(expected),
                         "range \(vertical.stripPanRange(for: workspaceId)), expected \(expected), before \(before.stripPanRange(for: workspaceId))"
@@ -320,7 +320,7 @@ final class OverviewSelectionUXTests: XCTestCase {
                     let horizontal = try XCTUnwrap(projection.layoutsByMonitor[monitorId])
                     XCTAssertEqual(
                         try XCTUnwrap(horizontal.allWindows.first).overviewFrame.minX
-                            - XCTUnwrap(before.allWindows.first).overviewFrame.minX, expected, accuracy: 0.0001
+                            - XCTUnwrap(before.allWindows.first).overviewFrame.minX, expected
                     )
                     XCTAssertEqual(horizontal.scrollOffset, vertical.scrollOffset)
                     XCTAssertEqual(
@@ -370,7 +370,7 @@ final class OverviewSelectionUXTests: XCTestCase {
             fixture.input.handleScroll(.init(
                 deltaX: 0, deltaY: 1, modifiers: [.option, .shift], isPrecise: precise, location: .zero
             ), on: monitorId)
-            XCTAssertEqual(projection.scale, 1.05, accuracy: 0.0001)
+            XCTAssertEqual(projection.scale, 1.05)
         }
     }
 
@@ -533,8 +533,9 @@ final class OverviewSelectionUXTests: XCTestCase {
                     $0.root.animation(forKey: "overview.position") != nil
                 })
                 let spring = try XCTUnwrap(card.root.animation(forKey: "overview.position") as? CASpringAnimation)
-                XCTAssertEqual(spring.stiffness, pow(2 * .pi / 0.25, 2), accuracy: 0.0001)
-                XCTAssertEqual(spring.damping, 2 * sqrt(spring.stiffness * spring.mass), accuracy: 0.0001)
+                let frequency = CGFloat(2 * Double.pi / OverviewNativeTransition.response)
+                XCTAssertEqual(spring.stiffness, frequency * frequency)
+                XCTAssertEqual(spring.damping, 2 * sqrt(spring.stiffness * spring.mass))
                 fixture.input.cycleSelection(forward: true, on: monitorId)
                 XCTAssertEqual(card.root.animation(forKey: "overview.position")?.beginTime, spring.beginTime)
                 fixture.input.cycleSelection(forward: false, on: monitorId)

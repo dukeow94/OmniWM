@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 @testable import OmniWM
@@ -7,6 +7,73 @@ import XCTest
 
 @MainActor
 final class PanelDismissalMonitorTests: XCTestCase {
+    override func tearDown() async throws {
+        PanelDismissalMonitor.screenFrames = { NSScreen.screens.map(\.frame) }
+    }
+
+    func testScreenChangeDismissesByDefaultAndAllowsTheOwnerToKeepItsPanel() async {
+        let builtIn = [CGRect(x: 0, y: 0, width: 1800, height: 1169)]
+        let docked = builtIn + [CGRect(x: 1800, y: 0, width: 1920, height: 1080)]
+        PanelDismissalMonitor.screenFrames = { builtIn }
+        let ordinary = PanelDismissalMonitor()
+        let retained = PanelDismissalMonitor()
+        let ordinaryDismissed = expectation(description: "ordinary panel dismissed")
+        let retainedChecked = expectation(description: "retained panel checked")
+        let panel = makePanel()
+        var retainedDismissals = 0
+        ordinary.start(
+            panels: [panel], isExemptWindow: { _ in false },
+            onDismiss: { ordinaryDismissed.fulfill() }
+        )
+        retained.start(
+            panels: [panel], isExemptWindow: { _ in false },
+            shouldDismissOnScreenChange: {
+                retainedChecked.fulfill()
+                return false
+            },
+            onDismiss: { retainedDismissals += 1 }
+        )
+        defer {
+            ordinary.stop()
+            retained.stop()
+        }
+
+        PanelDismissalMonitor.screenFrames = { docked }
+        NotificationCenter.default.post(name: NSApplication.didChangeScreenParametersNotification, object: nil)
+        await fulfillment(of: [ordinaryDismissed, retainedChecked], timeout: failureBound)
+        XCTAssertEqual(retainedDismissals, 0)
+
+        let restartedDismissed = expectation(description: "restarted panel dismissed")
+        ordinary.stop()
+        retained.start(
+            panels: [panel], isExemptWindow: { _ in false },
+            onDismiss: { restartedDismissed.fulfill() }
+        )
+        PanelDismissalMonitor.screenFrames = { builtIn }
+        NotificationCenter.default.post(name: NSApplication.didChangeScreenParametersNotification, object: nil)
+        await fulfillment(of: [restartedDismissed], timeout: failureBound)
+    }
+
+    func testAWorkAreaChangeWithoutADisplayChangeKeepsThePanel() async {
+        let builtIn = CGRect(x: 0, y: 0, width: 1800, height: 1169)
+        let external = CGRect(x: 1800, y: 0, width: 1920, height: 1080)
+        PanelDismissalMonitor.screenFrames = { [builtIn, external] }
+        let monitor = PanelDismissalMonitor()
+        var dismissals = 0
+        monitor.start(panels: [makePanel()], isExemptWindow: { _ in false }, onDismiss: { dismissals += 1 })
+        defer { monitor.stop() }
+        let compared = expectation(description: "observer compared the display frames")
+        PanelDismissalMonitor.screenFrames = {
+            compared.fulfill()
+            return [external, builtIn]
+        }
+
+        NotificationCenter.default.post(name: NSApplication.didChangeScreenParametersNotification, object: nil)
+        await fulfillment(of: [compared], timeout: failureBound)
+
+        XCTAssertEqual(dismissals, 0)
+    }
+
     func testLocalEscapeDismissesAndIsConsumed() throws {
         let panel = makePanel()
         let monitor = PanelDismissalMonitor()

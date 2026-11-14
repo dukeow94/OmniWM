@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
+import AppKit
 @testable import OmniWM
 import XCTest
 
@@ -192,7 +193,7 @@ final class ParkingEdgeMaskTests: XCTestCase {
     }
 
     @MainActor
-    func testManagerRegistersReusesAndRemovesClickThroughMask() throws {
+    func testManagerRegistersReusesAndRemovesInputBlockingMask() throws {
         let manager = ParkingEdgeMaskManager()
         let key = ParkingEdgeMaskKey(
             monitorId: Monitor.ID(displayId: 95_001),
@@ -209,12 +210,12 @@ final class ParkingEdgeMaskTests: XCTestCase {
         )
         let firstWindow = try XCTUnwrap(firstInfo.window)
         XCTAssertEqual(firstInfo.kind, .parkingEdgeMask)
-        XCTAssertEqual(firstInfo.hitTestPolicy, .passthrough)
+        XCTAssertEqual(firstInfo.hitTestPolicy, .interactive)
         XCTAssertEqual(firstInfo.capturePolicy, .excluded)
         XCTAssertFalse(firstInfo.suppressesManagedFocusRecovery)
         XCTAssertEqual(firstInfo.frame, firstFrame)
         XCTAssertEqual(firstWindow.level, .statusBar)
-        XCTAssertTrue(firstWindow.ignoresMouseEvents)
+        XCTAssertFalse(firstWindow.ignoresMouseEvents)
 
         manager.apply([DesiredParkingEdgeMask(key: key, frame: secondFrame)])
 
@@ -229,6 +230,38 @@ final class ParkingEdgeMaskTests: XCTestCase {
         XCTAssertFalse(SurfaceCoordinator.shared.visibleSurfaceIDs().contains(surfaceId))
         manager.removeAll()
         XCTAssertFalse(SurfaceCoordinator.shared.visibleSurfaceIDs().contains(surfaceId))
+    }
+
+    @MainActor
+    func testHidingAHiddenFinDoesNotOrderItOutAgain() {
+        let key = ParkingEdgeMaskKey(monitorId: Monitor.ID(displayId: 95_004), side: .left)
+        let fin = ParkingEdgeFinWindow(key: key, onHoverChange: {}, onActivate: {})
+        defer { fin.destroy() }
+        var orderOuts = 0
+        let observer = NotificationCenter.default.addObserver(
+            forName: NSNotification.Name("NSWindowDidOrderOffScreenAndFinishAnimatingNotification"),
+            object: fin,
+            queue: nil
+        ) { _ in MainActor.assumeIsolated { orderOuts += 1 } }
+        defer { NotificationCenter.default.removeObserver(observer) }
+        let dwellArmed = {
+            fin.contentView?.layer?.sublayers?.contains { $0.animation(forKey: "parkingEdge.dwell") != nil } == true
+        }
+
+        fin.setProgress(duration: 1.5)
+        XCTAssertTrue(dwellArmed())
+        fin.hide()
+        XCTAssertFalse(dwellArmed())
+        XCTAssertEqual(orderOuts, 0)
+
+        let mask = CGRect(x: 91_000, y: 92_000, width: 1, height: 800)
+        fin.show(at: CGPoint(x: 91_000.5, y: 92_400), maskFrame: mask, animated: false)
+        XCTAssertTrue(fin.isVisible)
+        fin.hide()
+        XCTAssertFalse(fin.isVisible)
+        XCTAssertEqual(orderOuts, 1)
+        fin.hide()
+        XCTAssertEqual(orderOuts, 1)
     }
 
     private func makeTopology(first: Monitor, second: Monitor, firstIsFullscreen: Bool) -> SpaceTopology {

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import Foundation
@@ -66,8 +66,13 @@ final class ServiceLifecycleManager {
                     controller.updateAccessibilityPermissionGranted(true)
                     self.maybeStartServices()
                 } else {
-                    _ = self.controller?.axManager.requestPermission() ?? false
                     controller.updateAccessibilityPermissionGranted(false)
+                    if controller.hasStartedServices {
+                        self.stopServices(retainingAXWorkers: false)
+                        self.startPermissionMonitoring()
+                        return
+                    }
+                    _ = self.controller?.axManager.requestPermission() ?? false
                 }
             }
         }
@@ -110,6 +115,7 @@ final class ServiceLifecycleManager {
             controller.syncMonitorsToNiriEngine()
         }
         controller.hasStartedServices = true
+        controller.appVolumeMixer.start()
         controller.updateWorkspaceBarNotificationBadgeSettings()
         controller.reconcileEnabledAndHotkeysState()
         controller.eventIntake.open(sink: controller.eventInterpreter)
@@ -148,16 +154,27 @@ final class ServiceLifecycleManager {
 
         controller.spaceTracker.start()
         startLockScreenObserver()
+        controller.shellAppWindowManager.reconcileManagementResume()
         performStartupRefresh()
         startSecureInputMonitor()
     }
 
     private func connectAXFrameCallbacks(_ controller: WMController) {
         controller.axManager.onTerminalFrameRefusal = { [weak controller] refusal in
+            controller?.niriEdgePictures.frameApplicationEnded(
+                token: WindowToken(pid: refusal.pid, windowId: refusal.windowId),
+                targetFrame: refusal.targetFrame, applied: false
+            )
             controller?.axEventHandler.handleTerminalFrameRefusal(refusal)
+            controller?.axEventHandler.releaseFocusLossRescan(windowId: refusal.windowId)
         }
         controller.axManager.onFrameApplyTerminated = { [weak controller] result in
+            controller?.niriEdgePictures.frameApplicationEnded(
+                token: WindowToken(pid: result.pid, windowId: result.windowId),
+                targetFrame: result.targetFrame, applied: false
+            )
             controller?.mouseEventHandler.handleNativeTitleBarDragFrameApplyTerminated(result)
+            controller?.axEventHandler.releaseFocusLossRescan(windowId: result.windowId)
         }
         controller.axManager.onFrameApplySucceeded = { [weak self] result in
             self?.handleFrameApplySucceeded(result)
@@ -180,15 +197,6 @@ final class ServiceLifecycleManager {
         controller.axManager.onFrameApplySucceeded = nil
         controller.axManager.onStableSizeClamp = nil
         controller.axManager.onManagedWindowBindingFailed = nil
-    }
-
-    func handleFrameApplySucceeded(_ result: AXFrameApplyResult) {
-        guard let controller else { return }
-        controller.axEventHandler.clearTerminalFrameFailure(windowId: result.windowId)
-        controller.mouseEventHandler.handleNativeTitleBarDragFrameApplySucceeded(result)
-        guard result.writeResult.observedFrame != nil, result.confirmedFrame != nil else { return }
-        controller.relaxObservedSizeEvidence(afterVerifiedWrite: result)
-        controller.surfaceReconciler.handleVerifiedFrameApplySuccess(result)
     }
 
     func startLockScreenObserver() {
@@ -258,7 +266,7 @@ final class ServiceLifecycleManager {
         guard let controller else { return }
         _ = controller.workspaceManager.recordReconcileEvent(.systemWake(source: .service))
         controller.axEventHandler.reconcileHiddenApplications()
-        controller.workspaceBarManager.cleanup()
+        controller.workspaceBarManager.cleanup(keepingShell: true)
         topologyInventory.schedule(reason: .unlock)
         controller.mouseEventHandler.requestMultitouchRevalidation(.wake)
     }
@@ -291,6 +299,7 @@ final class ServiceLifecycleManager {
             controller.cancelManagedFocusRequestAndRestoreSource(request)
         }
         controller.hasStartedServices = false
+        let hostedRestorations = controller.shellAppWindowManager.prepareManagementStop()
         controller.updateWorkspaceBarNotificationBadgeSettings()
         controller.invalidateOverviewDeferredActionsForServiceStop()
         topologyInventory.cancel()
@@ -308,6 +317,7 @@ final class ServiceLifecycleManager {
 
         controller.mouseEventHandler.cleanup()
         controller.layoutRefreshController.resetState()
+        controller.shellAppWindowManager.restoreForManagementStop(hostedRestorations)
         controller.resetMouseWarpPolicy()
         controller.axEventHandler.cleanup()
 
@@ -363,5 +373,22 @@ extension ServiceLifecycleManager {
                 source: .service
             )
         )
+    }
+}
+
+extension ServiceLifecycleManager {
+    func handleFrameApplySucceeded(_ result: AXFrameApplyResult) {
+        guard let controller else { return }
+        controller.resizeOverlay.frameApplied(windowId: result.windowId)
+        controller.niriEdgePictures.frameApplicationEnded(
+            token: WindowToken(pid: result.pid, windowId: result.windowId),
+            targetFrame: result.targetFrame
+        )
+        controller.axEventHandler.releaseFocusLossRescan(windowId: result.windowId)
+        controller.axEventHandler.clearTerminalFrameFailure(windowId: result.windowId)
+        controller.mouseEventHandler.handleNativeTitleBarDragFrameApplySucceeded(result)
+        guard result.writeResult.observedFrame != nil, result.confirmedFrame != nil else { return }
+        controller.relaxObservedSizeEvidence(afterVerifiedWrite: result)
+        controller.surfaceReconciler.handleVerifiedFrameApplySuccess(result)
     }
 }

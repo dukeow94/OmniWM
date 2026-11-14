@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import CoreGraphics
 
@@ -85,8 +85,13 @@ extension NiriLayoutEngine {
                     motion: context.motion
                 )
             case .vertical:
-                column.fittedHeight = fitted ? target : nil
-                column.cachedHeight = target
+                applyPrimarySpanFitHeight(
+                    target,
+                    fitted: fitted,
+                    to: column,
+                    in: context.workspaceId,
+                    motion: context.motion
+                )
             }
         }
     }
@@ -218,6 +223,27 @@ extension NiriLayoutEngine {
         guard changed else { return }
         column.animateWidthTo(
             newWidth: target,
+            clock: animationClock,
+            config: (motion ?? .disabled).scaled(windowMovementAnimationConfig),
+            displayRefreshRate: displayRefreshRate(in: workspaceId),
+            animated: animated
+        )
+    }
+
+    private func applyPrimarySpanFitHeight(
+        _ target: CGFloat,
+        fitted: Bool,
+        to column: NiriContainer,
+        in workspaceId: WorkspaceDescriptor.ID,
+        motion: MotionSnapshot?
+    ) {
+        let wasFitted = column.fittedHeight != nil
+        let changed = abs(column.settledHeight - target) > 0.0001
+        let animated = changed && column.cachedHeight > 0 && motion?.animationsEnabled == true
+        column.fittedHeight = fitted || (wasFitted && (animated || column.heightAnimation != nil)) ? target : nil
+        guard changed else { return }
+        column.animateHeightTo(
+            newHeight: target,
             clock: animationClock,
             config: (motion ?? .disabled).scaled(windowMovementAnimationConfig),
             displayRefreshRate: displayRefreshRate(in: workspaceId),

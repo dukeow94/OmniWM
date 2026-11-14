@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import OmniWMIPC
 import SwiftUI
@@ -64,9 +64,21 @@ struct WorkspacesSettingsTab: View {
                         Text(layout.localizedDisplayName).tag(layout)
                     }
                 }
+                .id("Layout Algorithm")
                 .onChange(of: settings.workspaces.defaultLayoutType) { _, _ in
                     controller.updateWorkspaceConfig()
                 }
+            }
+            .id("Default Layout")
+
+            Section("Workspace Switching") {
+                Toggle(
+                    "Go Back When Switching to the Current Workspace",
+                    isOn: Bindable(settings.workspaces).autoBackAndForth
+                )
+                SettingsCaption(localized:
+                    "A workspace shortcut or command palette entry for the workspace you are on returns to the previous workspace instead. omniwmctl is not affected."
+                )
             }
 
             Section {
@@ -94,7 +106,6 @@ struct WorkspacesSettingsTab: View {
                     Spacer()
                     Button(action: { isAddingNew = true }, label: {
                         Label("Add workspace", systemImage: "plus.circle")
-                            .labelStyle(.iconOnly)
                     })
                     .buttonStyle(.plain)
                     .help(addButtonHelp)
@@ -143,7 +154,9 @@ struct WorkspacesSettingsTab: View {
             Button("Delete Workspace", role: .destructive) {
                 deleteConfiguration(config)
             }
+            .id("Delete Workspace")
             Button("Cancel", role: .cancel) {}
+                .id("Cancel")
         } message: { config in
             Text(deleteConfirmationMessage(for: config))
         }
@@ -337,6 +350,7 @@ struct WorkspaceEditSheet: View {
                     get: { configuration.displayName ?? "" },
                     set: { configuration.displayName = $0.isEmpty ? nil : $0 }
                 ))
+                .id("Display Name (optional)")
                 .textFieldStyle(.roundedBorder)
 
                 WorkspaceHomeMonitorPicker(
@@ -355,10 +369,12 @@ struct WorkspaceEditSheet: View {
                         Text(layout.localizedDisplayName).tag(layout)
                     }
                 }
+                .id("Layout")
             }
 
             HStack {
                 Button("Cancel", action: onCancel)
+                    .id("Cancel")
                     .keyboardShortcut(.cancelAction)
 
                 Spacer()
@@ -406,5 +422,6 @@ struct WorkspaceHomeMonitorPicker: View {
                 .tag(MonitorAssignment.specificDisplay(OutputId(from: monitor)))
             }
         }
+        .id("Home Monitor")
     }
 }

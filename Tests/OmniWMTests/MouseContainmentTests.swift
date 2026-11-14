@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import CoreGraphics
 @testable import OmniWM
@@ -173,7 +173,7 @@ final class MouseContainmentTests: XCTestCase {
             XCTFail("Expected wall", file: file, line: line)
             return
         }
-        XCTAssertEqual(clamped.x, expected.x, accuracy: 0.0001, file: file, line: line)
-        XCTAssertEqual(clamped.y, expected.y, accuracy: 0.0001, file: file, line: line)
+        XCTAssertEqual(clamped.x, expected.x, file: file, line: line)
+        XCTAssertEqual(clamped.y, expected.y, file: file, line: line)
     }
 }

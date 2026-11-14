@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import ApplicationServices
 import CoreGraphics
@@ -501,14 +501,12 @@ final class WorkspaceMonitorMoveStateTests: XCTestCase {
         XCTAssertEqual(
             visibleState.lastFrame.minX,
             fixture.center.visibleFrame.minX
-                + normalizedOrigin.x * (fixture.center.visibleFrame.width - proportionalFrame.width),
-            accuracy: 0.001
+                + normalizedOrigin.x * (fixture.center.visibleFrame.width - proportionalFrame.width)
         )
         XCTAssertEqual(
             visibleState.lastFrame.minY,
             fixture.center.visibleFrame.minY
-                + normalizedOrigin.y * (fixture.center.visibleFrame.height - proportionalFrame.height),
-            accuracy: 0.001
+                + normalizedOrigin.y * (fixture.center.visibleFrame.height - proportionalFrame.height)
         )
         XCTAssertEqual(visibleState.lastFrame.size, proportionalFrame.size)
         let oversizedState = try XCTUnwrap(manager.floatingState(for: oversizedToken))

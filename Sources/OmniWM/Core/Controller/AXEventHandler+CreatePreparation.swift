@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import Foundation
@@ -77,12 +77,10 @@ extension AXEventHandler {
 
         let app = NSRunningApplication(processIdentifier: token.pid)
         let bundleId = resolveBundleId(token.pid) ?? app?.bundleIdentifier
-        let appFullscreen = AXWindowService.isFullscreen(axRef)
         let matchingWindowInfo = WMController.exactWindowServerInfo(windowInfo, for: token)
         let evaluation = controller.evaluateWindowDisposition(
             axRef: axRef,
             pid: token.pid,
-            appFullscreen: appFullscreen,
             windowInfo: matchingWindowInfo,
             windowServerLookupAttempted: true
         )
@@ -163,7 +161,10 @@ extension AXEventHandler {
         let token = identity.token
         let axRef = identity.axRef
         let windowId = UInt32(token.windowId)
-        if CFEqual(existingEntry.axRef.element, axRef.element), existingEntry.token == token {
+        guard let existingAXRef = existingEntry.axRef else {
+            return .ignored(token: token, reason: .invalidIdentity)
+        }
+        if CFEqual(existingAXRef.element, axRef.element), existingEntry.token == token {
             WindowAdmissionTrace.record(
                 .init(
                     action: .admissionAlreadyTracked,

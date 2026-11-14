@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import Foundation
@@ -10,7 +10,6 @@ extension MouseEventHandler {
         engine: NiriLayoutEngine,
         wsId: WorkspaceDescriptor.ID,
         at location: CGPoint,
-        isInsertMode: Bool = false,
         source: MouseInputState.InteractionSource
     ) -> Bool {
         guard let controller, let monitor = controller.workspaceManager.monitor(for: wsId) else { return false }
@@ -27,7 +26,7 @@ extension MouseEventHandler {
                 windowId: tiledWindow.id,
                 windowToken: tiledWindow.token,
                 startLocation: location,
-                isInsertMode: isInsertMode,
+                allowsInsertion: source.mouseButton != nil,
                 context: .init(
                     workspaceId: wsId,
                     motion: controller.motionPolicy.snapshot(),
@@ -49,7 +48,8 @@ extension MouseEventHandler {
         NSCursor.closedHand.set()
 
         if let entry = controller.workspaceManager.entry(for: tiledWindow.token),
-           let frame = AXWindowService.framePreferFast(entry.axRef)
+           let frame = entry.axRef.flatMap(AXWindowService.framePreferFast)
+           ?? controller.shellAppWindowManager.frame(for: entry.token)
         {
             if state.dragGhostController == nil {
                 state.dragGhostController = DragGhostController()
@@ -99,6 +99,8 @@ extension MouseEventHandler {
         state.capturedInteractionButton = source.mouseButton
         state.currentHoveredEdges = edges
         edges.cursor.set()
+
+        beginResizeOverlay(in: wsId)
         return true
     }
 
@@ -112,7 +114,9 @@ extension MouseEventHandler {
         guard let controller else { return false }
         let now = controller.animationClock.now()
         guard let frame = engine.presentedFrame(for: token, in: wsId, at: now),
-              engine.interactiveMoveBegin(token: token, startLocation: location, in: wsId)
+              engine.interactiveMoveBegin(
+                  token: token, startLocation: location, allowsInsertion: source.mouseButton != nil, in: wsId
+              )
         else { return false }
 
         state.isMoving = true
@@ -144,14 +148,14 @@ extension MouseEventHandler {
         controller.dwindleLayoutHandler.refreshEngineConstraints(workspaceId: wsId, monitor: monitor)
         let innerGap = controller.resolvedDwindleSettings(for: monitor).innerGap
         guard engine.interactiveResizeBegin(
-            token: token,
-            edges: resizeEdges(for: location, in: frame),
-            startLocation: location,
-            in: wsId,
-            innerGap: innerGap,
-            edgePolicy: edgePolicy
-        ),
-            let edges = engine.interactiveResize?.edges
+                  token: token,
+                  edges: resizeEdges(for: location, in: frame),
+                  startLocation: location,
+                  in: wsId,
+                  innerGap: innerGap,
+                  edgePolicy: edgePolicy
+              ),
+              let edges = engine.interactiveResize?.edges
         else {
             return false
         }
@@ -164,6 +168,17 @@ extension MouseEventHandler {
         state.currentHoveredEdges = edges
         state.resizeLayout = .dwindle
         edges.cursor.set()
+
+        beginResizeOverlay(in: wsId)
         return true
+    }
+
+    private func beginResizeOverlay(in workspaceId: WorkspaceDescriptor.ID) {
+        guard let controller else { return }
+        controller.resizeOverlay.begin(
+            workspaceId: workspaceId,
+            style: controller.settings.gestures.resizePreviewStyle,
+            pointerDriven: true
+        )
     }
 }

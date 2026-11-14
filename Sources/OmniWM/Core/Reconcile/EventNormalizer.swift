@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import Foundation
 
@@ -16,7 +16,8 @@ enum EventNormalizer {
             normalizeAdmission(event, existingEntry: existingEntry)
         case .workspaceAssigned,
              .windowModeChanged,
-             .floatingGeometryUpdated:
+             .floatingGeometryUpdated,
+             .hostedWindowGeometryObserved:
             normalizePlacement(event, existingEntry: existingEntry)
         case .hiddenStateChanged,
              .nativeFullscreenTransition,
@@ -36,26 +37,28 @@ enum EventNormalizer {
             workspaceId,
             monitorId,
             mode,
-            axRef,
+            target,
             ruleEffects,
             admissionHints,
             lifetimeAuthority,
             adoptNativeFocus,
             metadata,
-            source
+            source,
+            initialFrame
         ):
             return .windowAdmitted(
                 token: token,
                 workspaceId: workspaceId,
                 monitorId: monitorId ?? existingEntry?.observedState.monitorId ?? existingEntry?.desiredState.monitorId,
                 mode: mode,
-                axRef: axRef,
+                target: target,
                 ruleEffects: ruleEffects,
                 admissionHints: admissionHints,
                 lifetimeAuthority: lifetimeAuthority,
                 adoptNativeFocus: adoptNativeFocus,
                 managedReplacementMetadata: metadata,
-                source: source
+                source: source,
+                initialFrame: initialFrame
             )
         case let .windowRekeyed(from, to, workspaceId, monitorId, reason, newAXRef, metadata, source):
             return .windowRekeyed(
@@ -96,6 +99,12 @@ enum EventNormalizer {
                 monitorId: monitorId ?? existingEntry?.observedState.monitorId ?? existingEntry?.desiredState.monitorId,
                 mode: mode,
                 source: source
+            )
+        case let .hostedWindowGeometryObserved(token, workspaceId, monitorId, frame, source):
+            return .hostedWindowGeometryObserved(
+                token: token, workspaceId: workspaceId,
+                monitorId: monitorId ?? existingEntry?.observedState.monitorId ?? existingEntry?.desiredState.monitorId,
+                frame: frame, source: source
             )
         case let .floatingGeometryUpdated(
             token,

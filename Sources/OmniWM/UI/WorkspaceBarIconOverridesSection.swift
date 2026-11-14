@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import SwiftUI
@@ -87,6 +87,7 @@ struct WorkspaceBarIconOverridesSection: View {
 
     var body: some View {
         Section("App Icon Overrides — All Monitors") {
+            SettingsCaption(localized: "Shared by all styles")
             SettingsCaption(
                 localized: "Choose an icon packaged inside an app, or select an image file. Runtime-generated Dock icons may not be available. Other OmniWM surfaces keep the standard icon."
             )

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import ApplicationServices
@@ -34,6 +34,10 @@ extension AXManager {
 
     func parkTargetFrame(for windowId: Int) -> CGRect? {
         parkLedger.parkTargetFrame(for: windowId)
+    }
+
+    func knownFrame(for windowId: Int) -> CGRect? {
+        lastAppliedFrame(for: windowId) ?? parkTargetFrame(for: windowId)
     }
 
     func processParkFrameApplyResults(_ results: [AXFrameApplyResult]) -> [AXFrameApplicationRequest] {

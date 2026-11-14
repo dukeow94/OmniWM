@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import Foundation
@@ -11,7 +11,7 @@ protocol AppUpdateCoordinating: AnyObject {
 }
 
 protocol GitHubReleaseFetching: Sendable {
-    func fetchLatestRelease() async throws -> GitHubRelease
+    func fetchLatestRelease(forCanary: Bool) async throws -> GitHubRelease?
 }
 
 @MainActor
@@ -28,9 +28,11 @@ struct UpdatePopupConfiguration {
     let publishedDateText: String?
     let releaseNotes: String
     let openReleasePage: () -> Void
+    let homebrewUpdateCommand: String
     let copyCommand: () -> Void
     let skipThisVersion: () -> Void
     let notNow: () -> Void
+    var installUpdate: (() -> Void)?
 }
 
 struct ReleaseVersion: Comparable, Equatable {
@@ -95,6 +97,9 @@ struct GitHubRelease: Equatable {
     let body: String
     let releasePageURL: URL
     let publishedAt: Date?
+    var isPrerelease = false
+    var isDraft = false
+    var archive: ReleaseArchive?
 
     var version: ReleaseVersion? {
         ReleaseVersion(tagName)
@@ -107,39 +112,39 @@ struct GitHubRelease: Equatable {
         }
         return tagName
     }
-}
 
-struct GitHubReleaseService: GitHubReleaseFetching, Sendable {
-    private static let latestReleaseURL = URL(string: "https://api.github.com/repos/OmniNull/OmniWM/releases/latest")!
+    static func isCanaryTag(_ tag: String) -> Bool {
+        tag.range(of: #"^canary-\d{8}-\d{4}(?:-\d+-\d+)?$"#, options: .regularExpression) != nil
+    }
 
-    var session: URLSession = .shared
-    var latestReleaseURL: URL = Self.latestReleaseURL
-    var userAgent: String = "OmniWM"
+    var isPublishedCanary: Bool {
+        !isDraft && isPrerelease && publishedAt != nil && Self.isCanaryTag(tagName)
+    }
 
-    func fetchLatestRelease() async throws -> GitHubRelease {
-        var request = URLRequest(url: latestReleaseURL)
-        request.httpMethod = "GET"
-        request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
-        request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
+    var skipKey: String {
+        version?.normalizedString ?? tagName
+    }
 
-        let (data, response) = try await session.data(for: request)
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw UpdateCoordinatorError.invalidResponse
+    var homebrewUpdateCommand: String {
+        Self.isCanaryTag(tagName) ? "brew upgrade --cask omniwm@canary" : "brew upgrade omniwm"
+    }
+
+    func matches(installedVersion: String) -> Bool {
+        if Self.isCanaryTag(tagName) {
+            return installedVersion == tagName
         }
-        guard (200 ... 299).contains(httpResponse.statusCode) else {
-            throw UpdateCoordinatorError.badStatus(httpResponse.statusCode)
-        }
+        return version != nil && ReleaseVersion(installedVersion) == version
+    }
 
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        let payload = try decoder.decode(GitHubLatestReleasePayload.self, from: data)
-        return GitHubRelease(
-            tagName: payload.tagName,
-            name: payload.name,
-            body: payload.body ?? "",
-            releasePageURL: payload.htmlURL,
-            publishedAt: payload.publishedAt
-        )
+    func isNewer(than currentVersion: String) -> Bool {
+        if isPublishedCanary {
+            return Self.isCanaryTag(currentVersion)
+                && tagName.compare(currentVersion, options: .numeric) == .orderedDescending
+        }
+        guard !isDraft, !isPrerelease,
+              let version, let installedVersion = ReleaseVersion(currentVersion)
+        else { return false }
+        return version > installedVersion
     }
 }
 
@@ -150,31 +155,32 @@ final class UpdateCoordinator: AppUpdateCoordinating {
         case manual
     }
 
-    static let homebrewUpdateCommand = "brew upgrade omniwm"
     static let releasesPageURL = URL(string: "https://github.com/OmniNull/OmniWM/releases")!
 
     private let settings: SettingsStore
     private let runtimeState: RuntimeStateStore
     private let releaseService: any GitHubReleaseFetching
-    private let currentVersionProvider: () -> ReleaseVersion?
-    private let currentVersionStringProvider: () -> String
+    private let currentVersionProvider: () -> String?
     private let nowProvider: () -> Date
     private let windowController: any UpdateWindowControlling
     private let infoAlertPresenter: (String, String) -> Void
     private let openURL: (URL) -> Void
     private let copyCommandToPasteboard: (String) -> Void
+    private let installer: any AppUpdateInstalling
 
     private var automaticChecksStarted = false
+    private var installTask: Task<Void, Never>?
     private var knownAvailableRelease: GitHubRelease?
 
     init(
         settings: SettingsStore,
         runtimeState: RuntimeStateStore = RuntimeStateStore(),
         releaseService: any GitHubReleaseFetching = GitHubReleaseService(
-            userAgent: "OmniWM/\(Bundle.main.appVersion ?? "unknown")"
+            userAgent: "OmniWM/" + (Bundle.main.appVersion ?? "unknown")
         ),
-        currentVersionProvider: @escaping () -> ReleaseVersion? = { Bundle.main.releaseVersion },
-        currentVersionStringProvider: @escaping () -> String = { Bundle.main.appVersion ?? "Unknown" },
+        currentVersionProvider: @escaping () -> String? = {
+            Bundle.main.canaryReleaseTag ?? Bundle.main.appVersion
+        },
         nowProvider: @escaping () -> Date = Date.init,
         windowController: any UpdateWindowControlling = UpdateWindowController.shared,
         infoAlertPresenter: @escaping (String, String) -> Void = { title, message in
@@ -193,18 +199,19 @@ final class UpdateCoordinator: AppUpdateCoordinating {
             let pasteboard = NSPasteboard.general
             pasteboard.clearContents()
             pasteboard.setString(command, forType: .string)
-        }
+        },
+        installer: any AppUpdateInstalling = AppSelfUpdater()
     ) {
         self.settings = settings
         self.runtimeState = runtimeState
         self.releaseService = releaseService
         self.currentVersionProvider = currentVersionProvider
-        self.currentVersionStringProvider = currentVersionStringProvider
         self.nowProvider = nowProvider
         self.windowController = windowController
         self.infoAlertPresenter = infoAlertPresenter
         self.openURL = openURL
         self.copyCommandToPasteboard = copyCommandToPasteboard
+        self.installer = installer
     }
 
     func startAutomaticChecks() {
@@ -232,7 +239,9 @@ final class UpdateCoordinator: AppUpdateCoordinating {
             guard settings.updateChecksEnabled, shouldPerformAutomaticCheck() else { return }
         }
 
-        guard let currentVersion = currentVersionProvider() else {
+        guard let currentVersion = currentVersionProvider(),
+              GitHubRelease.isCanaryTag(currentVersion) || ReleaseVersion(currentVersion) != nil
+        else {
             if source == .manual {
                 infoAlertPresenter(
                     String(localized: "Could Not Check for Updates"),
@@ -244,7 +253,9 @@ final class UpdateCoordinator: AppUpdateCoordinating {
 
         let checkStartedAt = nowProvider()
         do {
-            let release = try await releaseService.fetchLatestRelease()
+            let release = try await releaseService.fetchLatestRelease(
+                forCanary: GitHubRelease.isCanaryTag(currentVersion)
+            )
             if source == .automatic {
                 runtimeState.updaterLastCheckedAt = checkStartedAt
             }
@@ -263,27 +274,17 @@ final class UpdateCoordinator: AppUpdateCoordinating {
     }
 
     private func handleFetchedRelease(
-        _ release: GitHubRelease,
-        currentVersion: ReleaseVersion,
+        _ release: GitHubRelease?,
+        currentVersion: String,
         source: AutomaticCheckSource
     ) {
-        guard let latestVersion = release.version else {
-            if source == .manual {
-                infoAlertPresenter(
-                    String(localized: "Could Not Check for Updates"),
-                    String(localized: "GitHub returned an update tag OmniWM could not parse.")
-                )
-            }
-            return
-        }
-
-        if latestVersion <= currentVersion {
+        guard let release, release.isNewer(than: currentVersion) else {
             knownAvailableRelease = nil
             if source == .manual {
                 infoAlertPresenter(
                     String(localized: "You're Up to Date"),
                     String(
-                        localized: "OmniWM \(currentVersionStringProvider()) is already the latest available release."
+                        localized: "OmniWM \(currentVersion) is already the latest available release."
                     )
                 )
             }
@@ -293,7 +294,7 @@ final class UpdateCoordinator: AppUpdateCoordinating {
         knownAvailableRelease = release
 
         if source == .automatic,
-           skippedReleaseTag == latestVersion.normalizedString
+           skippedReleaseTag == release.skipKey
         {
             return
         }
@@ -305,12 +306,19 @@ final class UpdateCoordinator: AppUpdateCoordinating {
         for release: GitHubRelease,
         source: AutomaticCheckSource
     ) {
-        let currentVersion = currentVersionStringProvider()
+        let currentVersion = currentVersionProvider() ?? "Unknown"
         let latestVersion = release.version?.normalizedString ?? release.tagName
         let publishedDateText = release.publishedAt.map(Self.formattedDate)
         let releaseNotes = release.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             ? String(localized: "No release notes were provided for this release.")
             : release.body
+
+        var installUpdate: (() -> Void)?
+        if release.archive != nil, installer.canInstall {
+            installUpdate = { [weak self] in
+                self?.handleInstall(release)
+            }
+        }
 
         windowController.onWindowClosedWithoutAction = { [weak self] in
             self?.handleNotNow(for: release, source: source)
@@ -325,28 +333,55 @@ final class UpdateCoordinator: AppUpdateCoordinating {
                 openReleasePage: { [weak self] in
                     self?.handleOpenReleasePage(for: release)
                 },
+                homebrewUpdateCommand: release.homebrewUpdateCommand,
                 copyCommand: { [weak self] in
-                    self?.copyCommandToPasteboard(Self.homebrewUpdateCommand)
+                    self?.copyCommandToPasteboard(release.homebrewUpdateCommand)
                 },
                 skipThisVersion: { [weak self] in
                     self?.handleSkipThisVersion(for: release)
                 },
                 notNow: { [weak self] in
                     self?.handleNotNowAndClose(for: release, source: source)
-                }
+                },
+                installUpdate: installUpdate
             )
         )
     }
 
+    private func handleInstall(_ release: GitHubRelease) {
+        if installTask != nil { return }
+        installTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer { if !Task.isCancelled { installTask = nil } }
+            do {
+                if !installer.isInstalled(release) {
+                    try await installer.install(release)
+                }
+                guard !Task.isCancelled else { return }
+                windowController.close(markingActionHandled: true)
+                try installer.relaunch()
+            } catch {
+                guard !Task.isCancelled else { return }
+                windowController.close(markingActionHandled: true)
+                infoAlertPresenter(String(localized: "Could Not Install Update"), error.localizedDescription)
+            }
+        }
+    }
+
+    private func cancelInstall() {
+        installTask?.cancel()
+        installTask = nil
+    }
+
     private func handleOpenReleasePage(for release: GitHubRelease) {
+        cancelInstall()
         openURL(validatedReleasePageURL(for: release))
         windowController.close(markingActionHandled: true)
     }
 
     private func handleSkipThisVersion(for release: GitHubRelease) {
-        if let version = release.version {
-            runtimeState.updaterSkippedReleaseTag = version.normalizedString
-        }
+        cancelInstall()
+        runtimeState.updaterSkippedReleaseTag = release.skipKey
         windowController.close(markingActionHandled: true)
     }
 
@@ -362,8 +397,9 @@ final class UpdateCoordinator: AppUpdateCoordinating {
         for release: GitHubRelease,
         source: AutomaticCheckSource
     ) {
-        guard source == .automatic, let version = release.version else { return }
-        runtimeState.updaterSkippedReleaseTag = version.normalizedString
+        cancelInstall()
+        guard source == .automatic else { return }
+        runtimeState.updaterSkippedReleaseTag = release.skipKey
     }
 
     private func shouldPerformAutomaticCheck() -> Bool {
@@ -376,8 +412,7 @@ final class UpdateCoordinator: AppUpdateCoordinating {
     private func currentKnownAvailableRelease() -> GitHubRelease? {
         guard let release = knownAvailableRelease,
               let currentVersion = currentVersionProvider(),
-              let latestVersion = release.version,
-              latestVersion > currentVersion
+              release.isNewer(than: currentVersion)
         else {
             knownAvailableRelease = nil
             return nil
@@ -410,30 +445,17 @@ final class UpdateCoordinator: AppUpdateCoordinating {
 
 enum UpdateCoordinatorError: LocalizedError {
     case invalidResponse
+    case invalidTag
     case badStatus(Int)
 
     var errorDescription: String? {
         switch self {
+        case .invalidTag:
+            return String(localized: "GitHub returned an update tag OmniWM could not parse.")
         case .invalidResponse:
             return String(localized: "GitHub returned an invalid response.")
         case let .badStatus(statusCode):
             return String(localized: "GitHub returned HTTP \(statusCode) while checking for updates.")
         }
-    }
-}
-
-private struct GitHubLatestReleasePayload: Decodable {
-    let tagName: String
-    let name: String?
-    let body: String?
-    let htmlURL: URL
-    let publishedAt: Date?
-
-    private enum CodingKeys: String, CodingKey {
-        case tagName = "tag_name"
-        case name
-        case body
-        case htmlURL = "html_url"
-        case publishedAt = "published_at"
     }
 }

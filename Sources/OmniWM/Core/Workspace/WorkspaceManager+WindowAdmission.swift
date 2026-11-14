@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import Foundation
@@ -26,6 +26,9 @@ extension WorkspaceManager {
                 "WorkspaceManager rejected duplicate windowId=\(windowId) existing=\(existingEntry.pid):\(existingEntry.windowId) proposed=\(pid):\(windowId)"
             )
             return existingEntry.token
+        }
+        if let existingEntry = windowQueries.entry(for: token), existingEntry.axRef == nil {
+            return token
         }
         let adoptNativeFocus = allowsNativeFocusAdoption
             && !isMinimized
@@ -70,9 +73,53 @@ extension WorkspaceManager {
     }
 
     @discardableResult
+    func addHostedWindow(
+        token: WindowToken,
+        metadata: HostedWindowMetadata,
+        to workspace: WorkspaceDescriptor.ID,
+        initialFrame: CGRect
+    ) -> WindowToken? {
+        guard token.pid == getpid(), token.windowId > 0,
+              !metadata.appId.isEmpty,
+              metadata.minimumSize.width.isFinite, metadata.minimumSize.width > 0,
+              metadata.minimumSize.height.isFinite, metadata.minimumSize.height > 0,
+              initialFrame.origin.x.isFinite, initialFrame.origin.y.isFinite,
+              initialFrame.width.isFinite, initialFrame.width > 0,
+              initialFrame.height.isFinite, initialFrame.height > 0,
+              windowQueries.entry(forWindowId: token.windowId) == nil
+        else { return nil }
+        if let parent = metadata.role.parent {
+            guard let entry = entry(for: parent), let owner = entry.target.hostedMetadata,
+                  owner.role == .main, owner.instanceID == metadata.instanceID,
+                  entry.workspaceId == workspace else { return nil }
+        }
+        recordReconcileEvent(
+            .windowAdmitted(
+                token: token,
+                workspaceId: workspace,
+                monitorId: monitorId(for: workspace),
+                mode: metadata.role == .main ? .tiling : .floating,
+                target: .hosted(metadata),
+                ruleEffects: .none,
+                admissionHints: .none,
+                lifetimeAuthority: .directLifecycle,
+                adoptNativeFocus: false,
+                managedReplacementMetadata: nil,
+                source: .workspaceManager,
+                initialFrame: initialFrame
+            )
+        )
+        if let handle = windowQueries.handle(for: token) {
+            onWindowPresenceObserved?(handle)
+        }
+        return token
+    }
+
+    @discardableResult
     func promoteLifetimeAuthorityForObservedTopLevelWindows(_ tokens: Set<WindowToken>) -> Bool {
         let promotableTokens = Set(tokens.lazy.filter {
-            self.windowQueries.entry(for: $0)?.lifetimeAuthority == .directLifecycle
+            guard let entry = self.windowQueries.entry(for: $0) else { return false }
+            return entry.axRef != nil && entry.lifetimeAuthority == .directLifecycle
         })
         guard !promotableTokens.isEmpty else { return false }
         recordReconcileEvent(
@@ -92,6 +139,7 @@ extension WorkspaceManager {
         managedReplacementMetadata: ManagedReplacementMetadata? = nil
     ) -> WindowState? {
         guard let existingEntry = windowQueries.entry(for: oldToken),
+              existingEntry.axRef != nil,
               oldToken == newToken || windowQueries.entry(for: newToken) == nil
         else {
             return nil

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import ApplicationServices
@@ -193,6 +193,11 @@ enum AXWindowService {
     private static let titleCacheCap = 512
     @MainActor private static var titleCache: [UInt32: String?] = [:]
     @MainActor private static var titleInsertionOrder: [UInt32] = []
+
+    @MainActor
+    static func cachedTitle(windowId: UInt32) -> String? {
+        titleCache[windowId] ?? nil
+    }
 
     @MainActor
     static func titlePreferFast(windowId: UInt32) -> String? {

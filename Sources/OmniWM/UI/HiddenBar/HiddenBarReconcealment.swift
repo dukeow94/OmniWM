@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 
@@ -17,7 +17,7 @@ final class HiddenBarReconcealment {
     private weak var controller: HiddenBarController?
     private let itemService: MenuBarItemService
     private let performance: HiddenBarPerformanceCapture
-    private var task: Task<Void, Never>?
+    private(set) var task: Task<Void, Never>?
     private var generation = 0
     var menuGuardSleeper: @MainActor (Duration) async throws -> Void = {
         try await Task.sleep(for: $0)

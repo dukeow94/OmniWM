@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import Foundation
@@ -22,6 +22,11 @@ extension WorkspaceManager {
                 return self.applyActionPlan(plan, to: token)
             }
         )
+        if case let .workspaceAssigned(token, _, destination, _, _) = event,
+           entry(for: token)?.target.hostedMetadata?.role == .main
+        {
+            onHostedFamilyWorkspaceChanged?(token, destination)
+        }
         if txn.plan.mutatesRuntimeState || eventRequiresRuntimeInvalidation(event) {
             noteInvalidation(for: event)
         }

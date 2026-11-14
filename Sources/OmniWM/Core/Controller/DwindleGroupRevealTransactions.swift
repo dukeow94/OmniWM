@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import Foundation
@@ -103,16 +103,16 @@ final class DwindleGroupRevealTransactions {
         transactionId: UInt64
     ) {
         guard let transactionKey = pendingGroupRevealTransactionKey(
-            for: result.windowId,
-            transactionId: transactionId
-        ),
-            let transaction = pendingGroupRevealTransactionsByWindowId.removeValue(
-                forKey: transactionKey
-            ),
-            transaction.targetFrame.approximatelyEqual(
-                to: result.targetFrame,
-                tolerance: FrameTolerance.frameWrite
-            )
+                  for: result.windowId,
+                  transactionId: transactionId
+              ),
+              let transaction = pendingGroupRevealTransactionsByWindowId.removeValue(
+                  forKey: transactionKey
+              ),
+              transaction.targetFrame.approximatelyEqual(
+                  to: result.targetFrame,
+                  tolerance: FrameTolerance.frameWrite
+              )
         else {
             return
         }

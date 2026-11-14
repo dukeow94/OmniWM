@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 @testable import OmniWM
@@ -22,7 +22,7 @@ final class StatusMenuPanelTests: XCTestCase {
             menuActionReturned = true
         }
 
-        await fulfillment(of: [terminated], timeout: 2)
+        await fulfillment(of: [terminated], timeout: failureBound)
     }
 
     func testContentIsCappedToScreenAndAnchoredAtEdges() {
@@ -86,7 +86,7 @@ final class StatusMenuPanelTests: XCTestCase {
         XCTAssertTrue(screen.insetBy(dx: 8, dy: 8).contains(frame))
     }
 
-    func testSubmenuClampsToScreenWithoutMovingRoot() {
+    func testSubmenuFallsBackToLeftScreenInset() {
         let screen = CGRect(x: 0, y: 100, width: 500, height: 500)
         let root = CGRect(x: 200, y: 108, width: 280, height: 484)
         let frame = StatusMenuGeometry.submenuFrame(
@@ -97,6 +97,7 @@ final class StatusMenuPanelTests: XCTestCase {
         )
 
         XCTAssertTrue(screen.insetBy(dx: 8, dy: 8).contains(frame))
+        XCTAssertEqual(frame.minX, screen.minX + 8)
         XCTAssertEqual(frame.minY, screen.minY + 8)
     }
 
@@ -357,7 +358,7 @@ final class StatusMenuPanelTests: XCTestCase {
             completed.fulfill()
         }
 
-        await fulfillment(of: [completed], timeout: 1)
+        await fulfillment(of: [completed], timeout: failureBound)
     }
 
     private func makeFixture() -> StatusMenuPanelFixture {

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import ApplicationServices
@@ -11,6 +11,7 @@ final class AppAXContext {
     private struct PendingRetryRaise {
         let window: AXWindowRef
         let job: RunLoopJob
+        let allowsLayoutHiddenWindow: Bool
         let completion: @MainActor @Sendable () -> Void
     }
 
@@ -22,8 +23,8 @@ final class AppAXContext {
 
     private let axApp: ThreadGuardedValue<AXUIElement>
     private let windows: ThreadGuardedValue<[Int: AXUIElement]>
-    private nonisolated(unsafe) var thread: Thread?
-    nonisolated var axThread: Thread? {
+    private var thread: Thread?
+    var axThread: Thread? {
         thread
     }
 
@@ -49,7 +50,7 @@ final class AppAXContext {
         )
     }
 
-    nonisolated init(
+    init(
         _ nsApp: NSRunningApplication,
         pid: pid_t,
         _ axApp: ThreadGuardedValue<AXUIElement>,
@@ -102,14 +103,6 @@ final class AppAXContext {
         return observerRegistered && focusedObserverRegistered
     }
 
-    func cancelFrameJob(for windowId: Int) {
-        frameDelivery.cancelFrameJob(for: windowId)
-    }
-
-    func cancelParkFrameJob(for windowId: Int) {
-        frameDelivery.cancelParkFrameJob(for: windowId)
-    }
-
     func invalidateWindowIdentity() {
         cancelRetryRaise()
         _ = windowBindingEpoch.advance()
@@ -119,11 +112,14 @@ final class AppAXContext {
         _ window: AXWindowRef,
         job: RunLoopJob,
         awaitingSubmittedFocus: @escaping @Sendable () -> Void,
+        allowsLayoutHiddenWindow: Bool = false,
         completion: @escaping @MainActor @Sendable () -> Void
     ) -> Bool {
         guard let thread, !job.isCancelled else { return false }
         cancelRetryRaise()
-        pendingRetryRaise = PendingRetryRaise(window: window, job: job, completion: completion)
+        pendingRetryRaise = PendingRetryRaise(
+            window: window, job: job, allowsLayoutHiddenWindow: allowsLayoutHiddenWindow, completion: completion
+        )
         let frameWriteSuppression = frameDelivery.retryRaiseSuppression
         let pid = pid
         let postedNs = WindowFocusDispatchTrace.retryRaise.isActive ? DispatchTime.now().uptimeNanoseconds : 0
@@ -135,7 +131,8 @@ final class AppAXContext {
                         awaitingSubmittedFocus: {
                             awaitingSubmittedFocus()
                             waited()
-                        }
+                        },
+                        allowsLayoutHiddenWindow: allowsLayoutHiddenWindow
                     )
                 }
             scheduleOnMainRunLoop { [weak self] in
@@ -182,7 +179,9 @@ final class AppAXContext {
     func suppressFrameWrites(for windowIds: [Int]) {
         guard !windowIds.isEmpty else { return }
         for windowId in windowIds {
-            cancelRetryRaise(for: windowId)
+            if pendingRetryRaise?.allowsLayoutHiddenWindow != true {
+                cancelRetryRaise(for: windowId)
+            }
             frameDelivery.cancelFrameJob(for: windowId)
             frameDelivery.suppressFrameWrite(for: windowId)
         }
@@ -270,6 +269,13 @@ final class AppAXContext {
 }
 
 extension AppAXContext {
+    func setWindowTitleNotifications(_ enabled: Bool) {
+        nonisolated(unsafe) let appThread = thread
+        appThread?.runInLoopAsync { [axApp, focusedWindowObserver] _ in
+            AppAXContext.setTitleNotifications(enabled, app: axApp, observer: focusedWindowObserver)
+        }
+    }
+
     func makeWindowEnumerationOperation(
         inspectionContext: AXWindowInspectionContext,
         includedWindowIds: Set<Int>?,

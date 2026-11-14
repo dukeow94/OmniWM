@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import Foundation
 import OmniWMIPC
@@ -37,11 +37,7 @@ final class IPCCommandRouter {
         case .openCommandPalette:
             return controller.commandHandler.performCommand(.openCommandPalette)
         case let .openCommandPaletteMode(mode):
-            if let guardResult = IPCCommandValidation.controllerState(controller) {
-                return guardResult
-            }
-            controller.openCommandPalette(mode: CommandPaletteMode(ipc: mode))
-            return .executed
+            return openCommandPalette(mode: mode)
         case .raiseAllFloatingWindows:
             return raiseAllFloatingWindows()
         case .toggleFloatingFocus:
@@ -54,12 +50,20 @@ final class IPCCommandRouter {
             return controller.commandHandler.performCommand(.fullscreen(command))
         case let .presentation(command):
             return controller.commandHandler.performCommand(.presentation(command))
+        case let .media(command):
+            return controller.commandHandler.performCommand(.media(command))
+        case let .keyboardMode(command):
+            return controller.commandHandler.performCommand(.keyboardMode(command))
         case let .windowState(command):
             return controller.commandHandler.performCommand(.windowState(command))
         case let .scratchpad(command):
             return controller.commandHandler.performCommand(HotkeyCommand(ipc: command))
         case .openMenuAnywhere:
             return controller.commandHandler.performCommand(.openMenuAnywhere)
+        case let .shellAppOpen(appID):
+            return controller.commandHandler.performCommand(.shellAppOpen(appID))
+        case let .shellAppNewWindow(appID):
+            return controller.commandHandler.performCommand(.shellAppNewWindow(appID))
         }
     }
 
@@ -324,5 +328,15 @@ final class IPCCommandRouter {
             monitorDirection: monitorDirection
         )
         return controller.workspaceManager.workspace(for: token) == previousWorkspaceId ? .notFound : .executed
+    }
+}
+
+extension IPCCommandRouter {
+    private func openCommandPalette(mode: IPCCommandPaletteMode) -> ExternalCommandResult {
+        if let guardResult = IPCCommandValidation.controllerState(controller) {
+            return guardResult
+        }
+        controller.openCommandPalette(mode: CommandPaletteMode(ipc: mode))
+        return .executed
     }
 }

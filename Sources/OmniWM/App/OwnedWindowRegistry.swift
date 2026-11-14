@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import Foundation
@@ -31,12 +31,14 @@ final class OwnedWindowRegistry {
     func register(
         _ window: NSWindow,
         surfaceId: String,
-        policy: SurfacePolicy
+        policy: SurfacePolicy,
+        regionProvider: (@MainActor () -> [CGRect])? = nil
     ) {
         surfaceCoordinator.register(
             window: window,
             id: surfaceId,
-            policy: policy
+            policy: policy,
+            regionProvider: regionProvider
         )
     }
 
@@ -56,6 +58,11 @@ final class OwnedWindowRegistry {
         )
     }
 
+    @discardableResult
+    func setManagedFocusRecoverySuppressed(_ suppressed: Bool, for window: NSWindow) -> Bool? {
+        surfaceCoordinator.setManagedFocusRecoverySuppressed(suppressed, for: window)
+    }
+
     func unregister(_ window: NSWindow) {
         surfaceCoordinator.unregister(window: window)
     }
@@ -69,8 +76,8 @@ final class OwnedWindowRegistry {
         surfaceCoordinator.unregister(id: surfaceId)
     }
 
-    func contains(point: CGPoint) -> Bool {
-        surfaceCoordinator.containsInteractive(point: point)
+    func contains(point: CGPoint, excluding kinds: [SurfaceKind] = []) -> Bool {
+        surfaceCoordinator.containsInteractive(point: point, excluding: kinds)
     }
 
     func containsGeometric(point: CGPoint) -> Bool {

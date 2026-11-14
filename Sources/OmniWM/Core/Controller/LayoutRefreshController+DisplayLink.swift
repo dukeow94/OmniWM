@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import Foundation
@@ -52,16 +52,15 @@ extension LayoutRefreshController {
     }
 
     private func handleScreenParametersChanged() {
-        workspaceSwipe.cancel(reason: "display-change")
+        workspaceSwipe.cancelAll(reason: "display-change")
         detectRefreshRates()
         controller?.syncMonitorsToNiriEngine()
         controller?.surfaceReconciler.noteWorldChanged()
+        screenParametersHandledForTests?()
     }
 
     func cleanupForMonitorDisconnect(displayId: CGDirectDisplayID, migrateAnimations: Bool) {
-        if workspaceSwipe.flight?.preparation.monitor.displayId == displayId {
-            workspaceSwipe.cancel(reason: "display-disconnected")
-        }
+        workspaceSwipe.cancelFlights(onDisplay: displayId, reason: "display-disconnected")
         if let workspaceId = niriHandler.scrollAnimationByDisplay[displayId] {
             niriHandler.terminateViewportGesture(
                 for: workspaceId,

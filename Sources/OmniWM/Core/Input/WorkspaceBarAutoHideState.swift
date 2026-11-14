@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import CoreGraphics
 
@@ -71,7 +71,7 @@ struct WorkspaceBarAutoHideState {
 @MainActor
 final class WorkspaceBarAutoHideDelays {
     var sleep: @MainActor (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
-    private var pending: [Monitor.ID: (revealing: Bool, task: Task<Void, Never>)] = [:]
+    private(set) var pending: [Monitor.ID: (revealing: Bool, task: Task<Void, Never>)] = [:]
 
     var pendingIds: some Collection<Monitor.ID> {
         pending.keys

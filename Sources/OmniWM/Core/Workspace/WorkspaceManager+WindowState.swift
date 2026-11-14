@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import Foundation
@@ -9,9 +9,8 @@ extension WorkspaceManager {
     func setNiriRestorePlacements(_ placements: [WindowToken: PersistedNiriPlacement]) {
         let changedPlacements = placements.filter { token, placement in
             guard let entry = windowQueries.entry(for: token), entry.mode == .tiling else { return false }
-            let restoreIntent = StateReducer.restoreIntent(for: entry, monitors: monitors)
-            return restoreIntent.niriPlacement != placement
-                || restoreIntent.detachedNiriContainerSizingState != nil
+            return StateReducer.niriRestorePlacement(for: entry) != placement
+                || entry.restoreIntent?.detachedNiriContainerSizingState != nil
         }
         guard !changedPlacements.isEmpty else { return }
         recordReconcileEvent(
@@ -26,7 +25,7 @@ extension WorkspaceManager {
         var changedPlacements: [WindowToken: PersistedDwindlePlacement] = [:]
         for (token, captured) in placements {
             guard let entry = windowQueries.entry(for: token), entry.mode == .tiling else { continue }
-            let stored = StateReducer.restoreIntent(for: entry, monitors: monitors).dwindlePlacement
+            let stored = StateReducer.dwindleRestorePlacement(for: entry)
             let placement = captured.preservingPrunedSteps(of: stored)
             if placement != stored {
                 changedPlacements[token] = placement
@@ -85,7 +84,7 @@ extension WorkspaceManager {
 
     @discardableResult
     func setWindowMode(_ mode: TrackedWindowMode, for token: WindowToken) -> Bool {
-        guard let entry = entry(for: token) else { return false }
+        guard let entry = entry(for: token), entry.target.hostedMetadata?.role.parent == nil else { return false }
         let oldMode = entry.mode
         guard oldMode != mode else { return false }
 
@@ -155,6 +154,19 @@ extension WorkspaceManager {
             )
         )
         return windowQueries.admissionHints(for: token) == admissionHints
+    }
+
+    @discardableResult
+    func observeHostedWindowGeometry(frame: CGRect, for token: WindowToken) -> Bool {
+        guard token.pid == getpid(), let entry = entry(for: token), entry.target.hostedMetadata != nil,
+              frame.origin.x.isFinite, frame.origin.y.isFinite, frame.size.hasFinitePositiveDimensions(),
+              entry.observedState.frame != frame else { return false }
+        let reference = frame.center.monitorApproximation(in: monitors) ?? monitor(for: entry.workspaceId)
+        recordReconcileEvent(.hostedWindowGeometryObserved(
+            token: token, workspaceId: entry.workspaceId, monitorId: reference?.id, frame: frame,
+            source: .workspaceManager
+        ))
+        return true
     }
 
     func updateFloatingGeometry(
@@ -231,13 +243,6 @@ extension WorkspaceManager {
         for frame: CGRect,
         in visibleFrame: CGRect
     ) -> CGPoint {
-        let availableWidth = max(1, visibleFrame.width - frame.width)
-        let availableHeight = max(1, visibleFrame.height - frame.height)
-        let normalizedX = (frame.origin.x - visibleFrame.minX) / availableWidth
-        let normalizedY = (frame.origin.y - visibleFrame.minY) / availableHeight
-        return CGPoint(
-            x: min(max(0, normalizedX), 1),
-            y: min(max(0, normalizedY), 1)
-        )
+        FloatingFrameGeometry.normalizedOrigin(for: frame, in: visibleFrame)
     }
 }

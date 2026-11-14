@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import Foundation
@@ -29,8 +29,9 @@ extension LayoutRefreshController {
         guard let controller else { return }
         var allEntries: [(workspaceId: WorkspaceDescriptor.ID, windowId: Int)] = []
         for workspace in controller.workspaceManager.workspaces {
-            for entry in controller.workspaceManager.entries(in: workspace.id) {
-                allEntries.append((workspace.id, entry.windowId))
+            controller.workspaceManager.windowQueries.forEachToken(in: workspace.id) { token in
+                guard controller.workspaceManager.entry(for: token)?.axRef != nil else { return }
+                allEntries.append((workspace.id, token.windowId))
             }
         }
         controller.axManager.updateInactiveWorkspaceWindows(
@@ -45,10 +46,10 @@ extension LayoutRefreshController {
         let topology = controller.workspaceManager.spaceTopology
         guard topology.isPopulated else { return [] }
         var result: Set<Int> = []
-        for entry in controller.workspaceManager.allEntries()
-            where topology.isWindowOnKnownInactiveSpace(entry.windowId)
-        {
-            result.insert(entry.windowId)
+        controller.workspaceManager.windowQueries.forEachToken { token in
+            if topology.isWindowOnKnownInactiveSpace(token.windowId) {
+                result.insert(token.windowId)
+            }
         }
         return result
     }
@@ -74,6 +75,7 @@ extension LayoutRefreshController {
     func restoreWorkspaceInactiveFloatingWindows(activeWorkspaceIds: Set<WorkspaceDescriptor.ID>) -> Int {
         guard let controller else { return 0 }
         var frameUpdates: [AXFrameApplicationTarget] = []
+        var restoredCount = 0
         var visibleJobs: [(pid: pid_t, windowId: Int)] = []
 
         for workspaceId in activeWorkspaceIds {
@@ -81,10 +83,16 @@ extension LayoutRefreshController {
             for entry in controller.workspaceManager.floatingEntries(in: workspaceId) {
                 guard let frame = workspaceInactiveFloatingRestoreFrame(for: entry, monitor: monitor) else { continue }
                 controller.workspaceManager.setHiddenState(nil, for: entry.token)
+                restoredCount += 1
+                guard let axRef = entry.axRef else {
+                    controller.shellAppWindowManager.setFrame(frame, for: entry.token)
+                    controller.shellAppWindowManager.setHidden(false, for: entry.token)
+                    continue
+                }
                 visibleJobs.append((entry.pid, entry.windowId))
                 controller.axManager.markWindowActive(entry.windowId)
                 controller.axManager.forceApplyNextFrame(for: entry.windowId)
-                frameUpdates.append(.init(pid: entry.pid, window: entry.axRef, frame: frame))
+                frameUpdates.append(.init(pid: entry.pid, window: axRef, frame: frame))
             }
         }
 
@@ -92,7 +100,7 @@ extension LayoutRefreshController {
             controller.axManager.unsuppressFrameWrites(visibleJobs)
         }
         controller.axManager.applyFramesParallel(frameUpdates)
-        return frameUpdates.count
+        return restoredCount
     }
 
     private func workspaceInactiveFloatingRestoreFrame(
@@ -113,12 +121,13 @@ extension LayoutRefreshController {
 
     func hideInactiveWorkspaces(activeWorkspaceIds: Set<WorkspaceDescriptor.ID>) {
         guard let controller else { return }
+        controller.niriEdgePictures.retainWorkspaces(activeWorkspaceIds)
         let workspaceEntries = workspaceEntriesSnapshot(on: controller)
 
         var allEntries: [(workspaceId: WorkspaceDescriptor.ID, windowId: Int)] = []
         allEntries.reserveCapacity(workspaceEntries.reduce(into: 0) { $0 += $1.entries.count })
         for snapshot in workspaceEntries {
-            for entry in snapshot.entries {
+            for entry in snapshot.entries where entry.axRef != nil {
                 allEntries.append((snapshot.workspace.id, entry.windowId))
             }
         }
@@ -131,7 +140,7 @@ extension LayoutRefreshController {
         var inactiveWindowJobs: [(pid: pid_t, windowId: Int)] = []
         let hiddenPlacementMonitors = controller.workspaceManager.monitors.map(HiddenPlacementMonitorContext.init)
         for snapshot in workspaceEntries where !activeWorkspaceIds.contains(snapshot.workspace.id) {
-            for entry in snapshot.entries {
+            for entry in snapshot.entries where entry.axRef != nil {
                 inactiveWindowJobs.append((entry.pid, entry.windowId))
             }
         }
@@ -140,40 +149,33 @@ extension LayoutRefreshController {
         }
 
         let preferredSides = preferredHideSides(for: controller.workspaceManager.monitors)
+        var targets: [HideTarget] = []
+        targets.reserveCapacity(inactiveWindowJobs.count)
         for snapshot in workspaceEntries where !activeWorkspaceIds.contains(snapshot.workspace.id) {
             guard let monitor = controller.workspaceManager.monitor(for: snapshot.workspace.id) else { continue }
-            let preferredSide = preferredSides[monitor.id] ?? .right
-            hideWorkspace(
-                snapshot.entries,
-                monitor: monitor,
-                preferredSide: preferredSide,
-                hiddenPlacementMonitors: hiddenPlacementMonitors
-            )
+            targets += hideTargets(snapshot.entries, monitor: monitor, side: preferredSides[monitor.id] ?? .right)
         }
+        let activeWindowIds = workspaceEntries.filter { activeWorkspaceIds.contains($0.workspace.id) }
+            .flatMap { $0.entries.map(\.windowId) }
+        applyHides(
+            targets,
+            reason: .workspaceInactive,
+            hiddenPlacementMonitors: hiddenPlacementMonitors,
+            afterFrameWritesOf: Set(activeWindowIds)
+        )
     }
 
-    private func hideWorkspace(
-        _ entries: [WindowState],
-        monitor: Monitor,
-        preferredSide: HideSide,
-        hiddenPlacementMonitors: [HiddenPlacementMonitorContext]? = nil
-    ) {
-        guard let controller else { return }
-        for entry in entries {
+    private func hideTargets(_ entries: [WindowState], monitor: Monitor, side: HideSide) -> [HideTarget] {
+        guard let controller else { return [] }
+        return entries.compactMap { entry in
             guard controller.workspaceManager.layoutReason(for: entry.token) != .nativeFullscreen else {
-                continue
+                return nil
             }
-            controller.axManager.markWindowInactive(entry.windowId)
+            if entry.axRef != nil { controller.axManager.markWindowInactive(entry.windowId) }
             if isWindowOnKnownInactiveNativeSpace(entry.windowId) {
-                continue
+                return nil
             }
-            hideWindow(
-                entry,
-                monitor: monitor,
-                side: preferredSide,
-                reason: .workspaceInactive,
-                hiddenPlacementMonitors: hiddenPlacementMonitors
-            )
+            return HideTarget(entry: entry, monitor: monitor, side: side)
         }
     }
 }

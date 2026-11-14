@@ -1,13 +1,19 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import Foundation
 import OmniWMIPC
 
 extension WorkspaceNavigationHandler {
-    func switchWorkspace(index: Int) {
+    func switchWorkspace(index: Int, autoBackAndForth: Bool = false) {
         guard let rawWorkspaceID = WorkspaceIDPolicy.rawID(from: max(0, index) + 1) else { return }
+        if autoBackAndForth, let current = controller?.activeWorkspace(), current.name == rawWorkspaceID,
+           canSkipSwitch(toVisibleWorkspace: current.id)
+        {
+            workspaceBackAndForth()
+            return
+        }
         switchWorkspace(rawWorkspaceID: rawWorkspaceID)
     }
 
@@ -37,10 +43,10 @@ extension WorkspaceNavigationHandler {
         }
 
         guard let targetWorkspaceId = controller.workspaceManager.workspaceId(
-            for: rawWorkspaceID,
-            createIfMissing: false
-        ),
-            controller.workspaceManager.monitorForWorkspace(targetWorkspaceId) != nil
+                  for: rawWorkspaceID,
+                  createIfMissing: false
+              ),
+              controller.workspaceManager.monitorForWorkspace(targetWorkspaceId) != nil
         else {
             return false
         }
@@ -90,6 +96,50 @@ extension WorkspaceNavigationHandler {
         activateWorkspaceInOrder(targetWorkspace, from: currentWorkspace.id, on: currentMonitorId)
     }
 
+    func switchWorkspaceBySwipe(isNext: Bool, monitorId: Monitor.ID) {
+        guard let controller,
+              let currentWorkspace = controller.workspaceManager.activeWorkspaceOrFirst(on: monitorId),
+              let targetWorkspace = swipeTargetWorkspace(
+                  isNext: isNext, from: currentWorkspace.id, on: monitorId, createIfNeeded: true
+              )
+        else { return }
+        controller.layoutRefreshController.workspaceSwipe.noteSwitchWithoutPresentation(on: monitorId)
+        activateWorkspaceInOrder(targetWorkspace, from: currentWorkspace.id, on: monitorId)
+    }
+
+    func swipeTargetWorkspace(
+        isNext: Bool,
+        from workspaceId: WorkspaceDescriptor.ID,
+        on monitorId: Monitor.ID,
+        createIfNeeded: Bool
+    ) -> WorkspaceDescriptor? {
+        guard let controller else { return nil }
+        let manager = controller.workspaceManager
+        let edgeBehavior = controller.settings.gestures.workspaceSwipeEdgeBehavior
+        let skipEmpty = skipsEmptyWorkspaces(on: monitorId)
+        let wrapAround = edgeBehavior == .cycle
+        let adjacent = isNext
+            ? manager.nextWorkspaceInOrder(
+                on: monitorId,
+                from: workspaceId,
+                wrapAround: wrapAround,
+                skipEmpty: skipEmpty
+            )
+            : manager.previousWorkspaceInOrder(
+                on: monitorId, from: workspaceId, wrapAround: wrapAround, skipEmpty: skipEmpty
+            )
+        guard adjacent == nil, edgeBehavior == .onePast, isNext, manager.isOccupied(workspaceId) else {
+            return adjacent
+        }
+        let ordered = manager.workspaces(on: monitorId)
+        if let index = ordered.firstIndex(where: { $0.id == workspaceId }),
+           let empty = ordered[(index + 1)...].first(where: { !manager.isOccupied($0.id) })
+        {
+            return empty
+        }
+        return createIfNeeded ? createOverviewWorkspace(on: monitorId) : nil
+    }
+
     func skipsEmptyWorkspaces(on monitorId: Monitor.ID) -> Bool {
         guard let controller, let monitor = controller.workspaceManager.monitor(byId: monitorId) else {
             return false
@@ -104,13 +154,16 @@ extension WorkspaceNavigationHandler {
     }
 
     @discardableResult
-    func switchWorkspaceSlot(_ slot: Int) -> Bool {
+    func switchWorkspaceSlot(_ slot: Int, autoBackAndForth: Bool = false) -> Bool {
         guard let controller,
               let monitorId = interactionMonitorId(for: controller),
               let targetWorkspace = workspaceSlot(slot),
               let currentWorkspace = controller.workspaceManager.activeWorkspaceOrFirst(on: monitorId)
         else { return false }
         if currentWorkspace.id == targetWorkspace.id, canSkipSwitch(toVisibleWorkspace: targetWorkspace.id) {
+            if autoBackAndForth {
+                workspaceBackAndForth()
+            }
             return false
         }
         return activateWorkspaceInOrder(targetWorkspace, from: currentWorkspace.id, on: monitorId)

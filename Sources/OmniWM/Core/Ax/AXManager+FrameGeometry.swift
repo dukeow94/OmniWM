@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import ApplicationServices
@@ -64,6 +64,10 @@ extension AXManager {
 
     func hasPendingFrameWrite(for windowId: Int) -> Bool {
         frameLedger.hasPendingFrameWrite(for: windowId)
+    }
+
+    func hasInFlightFrameWrite(for token: WindowToken) -> Bool {
+        AppAXContextRegistry.contexts[token.pid]?.frameDelivery.hasInFlightFrameWrite(for: token.windowId) == true
     }
 
     func pendingFrameWrite(for windowId: Int) -> CGRect? {

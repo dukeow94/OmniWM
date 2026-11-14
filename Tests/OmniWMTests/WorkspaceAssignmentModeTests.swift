@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import Foundation
 @testable import OmniWM
@@ -61,6 +61,13 @@ final class WorkspaceAssignmentModeTests: XCTestCase {
             XCTAssertEqual(
                 try JSONDecoder().decode(IPCRuleSnapshot.self, from: JSONEncoder().encode(snapshot)), snapshot
             )
+            let request = IPCRequest(id: "assignment-mode", rule: .add(rule: definition))
+            XCTAssertEqual(try IPCWire.decodeRequest(from: IPCWire.encodeRequestLine(request)), request)
+            let response = IPCResponse.success(
+                id: "assignment-mode", kind: .query,
+                result: IPCResult(rules: IPCRulesQueryResult(rules: [snapshot]))
+            )
+            XCTAssertEqual(try IPCWire.decodeResponse(from: IPCWire.encodeResponseLine(response)), response)
         }
     }
 

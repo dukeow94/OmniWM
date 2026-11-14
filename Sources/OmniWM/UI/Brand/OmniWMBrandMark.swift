@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 
@@ -27,6 +27,16 @@ enum OmniWMBrandMark {
         }
         image.isTemplate = true
         return image
+    }
+
+    static func tintedStatusImage(pointSize: CGFloat, tint: NSColor) -> NSImage {
+        let template = statusItemImage(pointSize: pointSize)
+        return NSImage(size: template.size, flipped: false) { rect in
+            template.draw(in: rect)
+            tint.set()
+            rect.fill(using: .sourceAtop)
+            return true
+        }
     }
 
     static func secureInputStatusImage(pointSize: CGFloat, tint: NSColor) -> NSImage {

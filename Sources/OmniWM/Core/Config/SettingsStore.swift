@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import Carbon
@@ -8,7 +8,7 @@ import OmniWMIPC
 
 @MainActor @Observable
 final class SettingsStore {
-    private nonisolated static let defaultExport = SettingsExport.defaults()
+    nonisolated static let defaultExport = SettingsExport.defaults()
     let focus = FocusSettings()
     let pointer = PointerSettings()
     let monitors = MonitorConfigurationSettings()
@@ -17,12 +17,14 @@ final class SettingsStore {
     let dwindle: DwindlePreferences
     let gestures = GestureSettings()
     let workspaceBar = WorkspaceBarSettings()
+    let island = IslandSettings()
+    let shellPermissions = ShellPermissionSettings()
     let workspaces = WorkspaceSettings()
 
     private let persistence: SettingsFilePersistence
     private let runtimeState: RuntimeStateStore
     private let autosaveEnabled: Bool
-    private var isApplyingExport = false
+    private(set) var isApplyingExport = false
     private var isApplyingRuntimeState = false
     @ObservationIgnored private var lastEffectiveTrackpadAvailability: Bool?
     @ObservationIgnored private(set) var layoutConfigurationRevision: UInt64 = 0
@@ -38,8 +40,9 @@ final class SettingsStore {
     var onConfigNoticeChanged: (@MainActor () -> Void)?
     var onTrackpadGestureAvailabilityChanged: (@MainActor (Bool) -> Void)?
     var onPointerSettingsChanged: (@MainActor () -> Void)?
-    var onWorkspaceHotkeysChanged: (@MainActor () -> Void)?
+    var onDynamicHotkeysChanged: (@MainActor () -> Void)?
     var liveWorkspaceNamesForHotkeys: (@MainActor () -> [String])?
+    var liveShellNamesForHotkeys: (@MainActor () -> [String])?
     private(set) var configNotice: SettingsConfigNotice?
 
     var hotkeysEnabled = SettingsStore.defaultExport.hotkeysEnabled {
@@ -63,6 +66,8 @@ final class SettingsStore {
     let borders = BorderSettings()
 
     let overview = OverviewSettings()
+    let windowSwitcher = WindowSwitcherSettings()
+    let keyboardModes = KeyboardModeSettings()
 
     var hotkeyBindings = SettingsStore.defaultExport.hotkeyBindings {
         didSet { scheduleSave() }
@@ -129,46 +134,12 @@ final class SettingsStore {
     }
 
     let statusBar = StatusBarSettings()
+    let statusMenu = StatusMenuSettings()
 
     let hiddenBar = HiddenBarSettings()
 
     var commandPaletteLastMode = RuntimeStateStore.defaultCommandPaletteLastMode {
         didSet { runtimeState.commandPaletteLastMode = commandPaletteLastMode }
-    }
-
-    var commandPaletteApplicationsViewStyle: LauncherViewStyle {
-        get { runtimeState.commandPaletteViewStyle(for: .applications) }
-        set { runtimeState.setCommandPaletteViewStyle(newValue, for: .applications) }
-    }
-
-    var commandPaletteFilesViewStyle: LauncherViewStyle {
-        get { runtimeState.commandPaletteViewStyle(for: .files) }
-        set { runtimeState.setCommandPaletteViewStyle(newValue, for: .files) }
-    }
-
-    func recordLauncherLaunch(targetID: String, query: String, displayName: String? = nil) {
-        runtimeState.recordLauncherLaunch(
-            targetID: targetID,
-            displayName: displayName ?? URL(fileURLWithPath: targetID).lastPathComponent,
-            query: query
-        )
-    }
-
-    func launcherShortcutTarget(for query: String) -> String? {
-        runtimeState.launcherShortcutTarget(for: query)
-    }
-
-    func launcherLaunches(for targetID: String) -> [LauncherLaunch] {
-        runtimeState.launcherLaunches(for: targetID)
-    }
-
-    var launcherLaunchesSnapshot: [String: [LauncherLaunch]] {
-        runtimeState.launcherLaunchesSnapshot
-    }
-
-    var launcherHiddenSuggestions: Set<String> {
-        get { runtimeState.launcherHiddenSuggestions }
-        set { runtimeState.launcherHiddenSuggestions = newValue }
     }
 
     var animationsEnabled = SettingsStore.defaultExport.animationsEnabled {
@@ -188,6 +159,13 @@ final class SettingsStore {
 
     var language = SettingsStore.defaultExport.language {
         didSet { scheduleSave() }
+    }
+
+    var launcher = LauncherConfiguration() {
+        didSet {
+            if launcher.entries != oldValue.entries { reconcileDynamicHotkeys() }
+            scheduleSave()
+        }
     }
 
     let clipboard = ClipboardSettings()
@@ -232,24 +210,6 @@ final class SettingsStore {
         didSet { scheduleSave() }
     }
 
-    func loadPersistedWindowRestoreCatalog() -> PersistedWindowRestoreCatalog {
-        runtimeState.windowRestoreCatalog ?? .empty
-    }
-
-    func savePersistedWindowRestoreCatalog(_ catalog: PersistedWindowRestoreCatalog) {
-        runtimeState.windowRestoreCatalog = catalog.entries.isEmpty ? nil : catalog
-    }
-
-    var issueDraft: IssueDraft? {
-        get { runtimeState.issueDraft }
-        set { runtimeState.issueDraft = newValue }
-    }
-
-    var hasSeenIssueWalkthrough: Bool {
-        get { runtimeState.hasSeenIssueWalkthrough }
-        set { runtimeState.hasSeenIssueWalkthrough = newValue }
-    }
-
     var monitorSetupStatus = RuntimeStateStore.defaultMonitorSetupStatus {
         didSet { runtimeState.monitorSetupStatus = monitorSetupStatus }
     }
@@ -285,6 +245,8 @@ final class SettingsStore {
         }
         workspaceBar.onChange = { [weak self] in self?.layoutConfigurationDidChange() }
         workspaceBar.onNotificationBadgesChange = { [weak self] in self?.scheduleSave() }
+        island.onChange = { [weak self] in self?.scheduleSave() }
+        shellPermissions.onChange = { [weak self] in self?.scheduleSave() }
         workspaces.onChange = { [weak self] in self?.workspacesDidChange() }
         borders.onChange = { [weak self] in self?.layoutConfigurationDidChange() }
         overview.onChange = { [weak self] in
@@ -292,6 +254,9 @@ final class SettingsStore {
             self?.scheduleSave()
         }
         statusBar.onChange = { [weak self] in self?.scheduleSave() }
+        statusMenu.onChange = { [weak self] in self?.scheduleSave() }
+        windowSwitcher.onChange = { [weak self] in self?.scheduleSave() }
+        keyboardModes.onChange = { [weak self] in self?.scheduleSave() }
         hiddenBar.onChange = { [weak self] in self?.scheduleSave() }
         clipboard.onChange = { [weak self] in self?.scheduleSave() }
         quakeTerminal.onChange = { [weak self] in self?.scheduleSave() }
@@ -360,9 +325,65 @@ final class SettingsStore {
         guard autosaveEnabled, !isApplyingExport else { return }
         persistence.scheduleSave(toExport())
     }
+}
 
-    func scratchpadLabel(for index: Int) -> String? {
-        scratchpadLabels[String(index)]
+extension SettingsStore {
+    var commandPaletteApplicationsViewStyle: LauncherViewStyle {
+        get { runtimeState.commandPaletteViewStyle(for: .applications) }
+        set { runtimeState.setCommandPaletteViewStyle(newValue, for: .applications) }
+    }
+
+    var commandPaletteFilesViewStyle: LauncherViewStyle {
+        get { runtimeState.commandPaletteViewStyle(for: .files) }
+        set { runtimeState.setCommandPaletteViewStyle(newValue, for: .files) }
+    }
+
+    func recordLauncherLaunch(targetID: String, query: String, displayName: String? = nil) {
+        runtimeState.recordLauncherLaunch(
+            targetID: targetID,
+            displayName: displayName ?? URL(fileURLWithPath: targetID).lastPathComponent,
+            query: query
+        )
+    }
+
+    func launcherShortcutTarget(for query: String) -> String? {
+        runtimeState.launcherShortcutTarget(for: query)
+    }
+
+    func launcherLaunches(for targetID: String) -> [LauncherLaunch] {
+        runtimeState.launcherLaunches(for: targetID)
+    }
+
+    var launcherLaunchesSnapshot: [String: [LauncherLaunch]] {
+        runtimeState.launcherLaunchesSnapshot
+    }
+
+    var launcherHiddenSuggestions: Set<String> {
+        get { runtimeState.launcherHiddenSuggestions }
+        set { runtimeState.launcherHiddenSuggestions = newValue }
+    }
+
+    func loadPersistedWindowRestoreCatalog() -> PersistedWindowRestoreCatalog {
+        runtimeState.windowRestoreCatalog ?? .empty
+    }
+
+    func savePersistedWindowRestoreCatalog(_ catalog: PersistedWindowRestoreCatalog) {
+        runtimeState.windowRestoreCatalog = catalog.entries.isEmpty ? nil : catalog
+    }
+
+    var issueDraft: IssueDraft? {
+        get { runtimeState.issueDraft }
+        set { runtimeState.issueDraft = newValue }
+    }
+
+    var hasSeenIssueWalkthrough: Bool {
+        get { runtimeState.hasSeenIssueWalkthrough }
+        set { runtimeState.hasSeenIssueWalkthrough = newValue }
+    }
+
+    var appVolumes: [String: AppVolumeSetting] {
+        get { runtimeState.appVolumes }
+        set { runtimeState.appVolumes = newValue }
     }
 }
 
@@ -370,19 +391,6 @@ extension SettingsStore {
     private func layoutConfigurationDidChange() {
         layoutConfigurationRevision &+= 1
         scheduleSave()
-    }
-
-    static func normalizedScratchpadLabels(_ labels: [String: String]) -> [String: String] {
-        labels.reduce(into: [:]) { normalized, entry in
-            guard let index = Int(entry.key.trimmingCharacters(in: .whitespacesAndNewlines)),
-                  IPCScratchpadSlots.range.contains(index)
-            else {
-                return
-            }
-            let label = entry.value.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !label.isEmpty else { return }
-            normalized[String(index)] = label
-        }
     }
 
     func applyExport(_ export: SettingsExport) {
@@ -411,17 +419,21 @@ extension SettingsStore {
 
         workspaces.configurations = WorkspaceSettings.normalizedConfigurations(export.workspaceConfigurations)
         workspaces.defaultLayoutType = export.defaultLayoutType
+        workspaces.autoBackAndForth = export.workspaceAutoBackAndForth
 
         borders.apply(export.borders)
 
         overview.apply(export.overview, baseline: SettingsStore.defaultExport.overview)
+        windowSwitcher.apply(export.windowSwitcher)
+        keyboardModes.apply(export.keyboardModes)
 
         hyperKeyModifiersStorage = export.hyperKeyModifiers
         KeySymbolMapper.setHyperKeyModifiers(export.hyperKeyModifiers)
-        hotkeyBindings = withWorkspaceNumberHotkeys(export.hotkeyBindings)
+        hotkeyBindings = withDynamicHotkeys(export.hotkeyBindings)
         systemHyperTrigger = export.systemHyperTrigger
 
         workspaceBar.applyIdentity(export.workspaceBar)
+        island.apply(export.island)
         scratchpadLabels = SettingsStore.normalizedScratchpadLabels(export.scratchpads.labels)
         workspaceBar.applyAppearance(export.workspaceBar, monitorOverrides: export.monitorBarSettings)
 
@@ -433,21 +445,28 @@ extension SettingsStore {
         dwindle.monitorOverrides = export.monitorDwindleSettings
         gaps.monitorOverrides = export.monitorGapSettings.filter(\.hasOverrides)
 
+        applyServiceSettings(export)
+    }
+
+    private func applyServiceSettings(_ export: SettingsExport) {
         preventSleepEnabled = export.preventSleepEnabled
         updateChecksEnabled = export.updateChecksEnabled
         ipcEnabled = export.ipcEnabled
         gestures.apply(export.gestures)
         statusBar.apply(export.statusBar)
+        statusMenu.apply(export.statusMenu)
         hiddenBar.apply(export.hiddenBar)
         animationsEnabled = export.animationsEnabled
         animationSpeed = export.animationSpeed
         language = export.language
         clipboard.apply(export.clipboard)
+        launcher = export.launcher
 
         quakeTerminal.apply(export.quakeTerminal, baseline: SettingsStore.defaultExport.quakeTerminal)
 
         appearanceMode = export.appearanceMode
         tabRailAppIcons = export.tabRailAppIcons
+        shellPermissions.apply(export.shellPermissions)
     }
 
     private func pointerSettingsDidChange() {
@@ -461,35 +480,5 @@ extension SettingsStore {
         guard available != lastEffectiveTrackpadAvailability else { return }
         lastEffectiveTrackpadAvailability = available
         onTrackpadGestureAvailabilityChanged?(available)
-    }
-}
-
-extension SettingsStore {
-    func resetHotkeysToDefaults() {
-        hyperKeyModifiers = SettingsStore.defaultExport.hyperKeyModifiers
-        hotkeyBindings = withWorkspaceNumberHotkeys(HotkeyBindingRegistry.defaults())
-        systemHyperTrigger = SettingsStore.defaultExport.systemHyperTrigger
-    }
-
-    private func withWorkspaceNumberHotkeys(_ bindings: [HotkeyBinding]) -> [HotkeyBinding] {
-        HotkeyBindingRegistry.reconcilingWorkspaceNumberBindings(
-            bindings,
-            workspaceNames: workspaces.configuredNames() + (liveWorkspaceNamesForHotkeys?() ?? [])
-        )
-    }
-
-    private func workspacesDidChange() {
-        reconcileWorkspaceNumberHotkeys()
-        scheduleSave()
-    }
-
-    func reconcileWorkspaceNumberHotkeys() {
-        let reconciled = withWorkspaceNumberHotkeys(hotkeyBindings)
-        if reconciled != hotkeyBindings {
-            hotkeyBindings = reconciled
-            if !isApplyingExport {
-                onWorkspaceHotkeysChanged?()
-            }
-        }
     }
 }

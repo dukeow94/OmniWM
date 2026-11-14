@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import Foundation
 
@@ -38,6 +38,7 @@ public struct IPCSizeChange: Codable, Equatable, Sendable {
 
 public enum IPCCommandArgumentValue: Equatable, Sendable {
     case direction(IPCDirection)
+    case appID(String)
     case integer(Int)
     case layout(IPCWorkspaceLayout)
     case paletteMode(IPCCommandPaletteMode)
@@ -68,9 +69,13 @@ public enum IPCCommandRequest: Equatable, Sendable {
     case workspaceLayout(IPCWorkspaceLayoutCommand)
     case fullscreen(IPCFullscreenCommand)
     case presentation(IPCPresentationCommand)
+    case media(IPCMediaCommand)
+    case keyboardMode(IPCKeyboardModeCommand)
     case windowState(IPCWindowStateCommand)
     case scratchpad(IPCScratchpadCommand)
     case openMenuAnywhere
+    case shellAppOpen(appID: String)
+    case shellAppNewWindow(appID: String)
 
     public var name: IPCCommandName {
         switch self {
@@ -106,12 +111,20 @@ public enum IPCCommandRequest: Equatable, Sendable {
             .fullscreen(command)
         case let .presentation(command):
             .presentation(command)
+        case let .media(command):
+            .media(command)
+        case let .keyboardMode(command):
+            .keyboardMode(command)
         case let .windowState(command):
             .windowState(command)
         case let .scratchpad(command):
             .scratchpad(command.name)
         case .openMenuAnywhere:
             .openMenuAnywhere
+        case .shellAppOpen:
+            .shellAppOpen
+        case .shellAppNewWindow:
+            .shellAppNewWindow
         }
     }
 }

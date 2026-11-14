@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import CoreGraphics
 import Foundation
@@ -38,22 +38,47 @@ extension NiriLayoutEngine {
         )
         let viewStart = activePosition + state.viewOffset
         let settings = effectiveSettings(in: context.workspaceId)
+        if state.preservesGestureOffset, let bounds = NiriViewportGeometry(
+            gap: context.gaps, viewportSpan: viewportSpan, orientation: context.orientation,
+            edgeOverscroll: settings.edgeOverscroll
+        ).overscrollBounds(columns: cols) {
+            let bounded = viewStart.clamped(to: bounds)
+            guard abs(bounded - viewStart) > 0.5 else { return false }
+            state.animateToOffset(bounded - activePosition, motion: context.motion)
+            return true
+        }
         let scale = displayScale(in: context.workspaceId)
         let viewport = RemovalViewport(
             columns: cols, activeIndex: activeIdx, activePosition: activePosition,
             viewStart: viewStart, span: viewportSpan, scale: scale, viewFrame: monitor?.frame
         )
-        if settings.centerFocusedColumn == .always
-            || (cols.count == 1 && settings.alwaysCenterSingleColumn)
+        return settleRemovalViewport(
+            viewport, context: context, state: &state, settings: settings,
+            preservesCenteredView: preservesCenteredView
+        )
+    }
+
+    private func settleRemovalViewport(
+        _ viewport: RemovalViewport,
+        context: NiriInteractionContext,
+        state: inout ViewportState,
+        settings: ResolvedNiriSettings,
+        preservesCenteredView: Bool
+    ) -> Bool {
+        let centerMode = settings.centerFocusedColumn
+        let centerSingle = settings.alwaysCenterSingleColumn
+        let columnCount = viewport.columns.count
+        if centerMode == .always
+            || (columnCount == 1 && centerSingle)
         {
             return centerRemovalViewport(
                 viewport, context: context, state: &state,
-                centerMode: settings.centerFocusedColumn, centerSingle: settings.alwaysCenterSingleColumn
+                centerMode: centerMode, centerSingle: centerSingle
             )
         }
         return fitRemovalViewport(
             viewport, context: context, state: &state,
-            centerMode: settings.centerFocusedColumn, preservesCenteredView: preservesCenteredView
+            centerMode: centerMode, preservesCenteredView: preservesCenteredView
         )
     }
 

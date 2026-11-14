@@ -1,9 +1,12 @@
-// swift-tools-version: 6.4
+// swift-tools-version: 6.5
 import Foundation
 import PackageDescription
 
 let packageDirectory = URL(fileURLWithPath: #filePath).deletingLastPathComponent().path
 let ghosttyMacOSLibraryDirectory = "\(packageDirectory)/Frameworks/GhosttyKit.xcframework/macos-arm64"
+let liveCheckSettings: [SwiftSetting] = ProcessInfo.processInfo.environment["OMNIWM_LIVE_CHECKS"] == nil
+    ? []
+    : [.define("OMNIWM_LIVE_CHECKS")]
 
 let package = Package(
     name: "OmniWM",
@@ -19,6 +22,11 @@ let package = Package(
         .executable(
             name: "omniwmctl",
             targets: ["OmniWMCtl"]
+        ),
+        .library(
+            name: "OmniWMNowPlaying",
+            type: .dynamic,
+            targets: ["OmniWMNowPlaying"]
         )
     ],
     dependencies: [
@@ -45,9 +53,69 @@ let package = Package(
             ]
         ),
         .target(
+            name: "OmniWMAudioTap",
+            path: "Sources/OmniWMAudioTap",
+            cSettings: [
+                .treatAllWarnings(as: .error)
+            ]
+        ),
+        .target(
+            name: "OmniWMNowPlaying",
+            path: "Sources/OmniWMNowPlaying",
+            cSettings: [
+                .treatAllWarnings(as: .error)
+            ],
+            linkerSettings: [
+                .linkedFramework("Foundation")
+            ]
+        ),
+        .target(
             name: "OmniWMLauncherSPI",
             path: "Sources/OmniWMLauncherSPI",
             cSettings: [
+                .treatAllWarnings(as: .error)
+            ]
+        ),
+        .target(
+            name: "OmniWMLuau",
+            path: "Sources/OmniWMLuau",
+            exclude: ["LICENSE.txt", "lua_LICENSE.txt", "VERSION", "Bytecode/src/BytecodeGraph.cpp"],
+            cxxSettings: [
+                .headerSearchPath("Common/include"),
+                .headerSearchPath("Ast/include"),
+                .headerSearchPath("Bytecode/include"),
+                .headerSearchPath("Compiler/include"),
+                .headerSearchPath("VM/include"),
+                .headerSearchPath("VM/src"),
+                .unsafeFlags(["-O2"], .when(configuration: .debug)),
+                .treatAllWarnings(as: .error),
+                .treatWarning("unused-command-line-argument", as: .warning)
+            ]
+        ),
+        .target(
+            name: "OmniWMScriptHost",
+            dependencies: ["OmniWMLuau"],
+            path: "Sources/OmniWMScriptHost",
+            cxxSettings: [
+                .unsafeFlags(["-O2"], .when(configuration: .debug)),
+                .treatAllWarnings(as: .error),
+                .treatWarning("unused-command-line-argument", as: .warning)
+            ]
+        ),
+        .target(
+            name: "OmniWMMaterialColor",
+            path: "Sources/OmniWMMaterialColor",
+            cxxSettings: [
+                .headerSearchPath("."),
+                .treatAllWarnings(as: .error),
+                .treatWarning("unused-command-line-argument", as: .warning)
+            ]
+        ),
+        .target(
+            name: "OmniWMShellCore",
+            path: "Sources/OmniWMShellCore",
+            swiftSettings: [
+                .swiftLanguageMode(.v6),
                 .treatAllWarnings(as: .error)
             ]
         ),
@@ -56,20 +124,29 @@ let package = Package(
             dependencies: [
                 "GhosttyKit",
                 "OmniWMIPC",
+                "OmniWMAudioTap",
                 "OmniWMLayerCorners",
                 "OmniWMLauncherSPI",
+                "OmniWMMaterialColor",
+                "OmniWMScriptHost",
+                "OmniWMShellCore",
                 .product(name: "TOML", package: "swift-toml")
             ],
             path: "Sources/OmniWM",
             resources: [
                 .process("Resources"),
-                .copy("Core/IssueReporter/Prompts")
+                .copy("Core/IssueReporter/Prompts"),
+                .copy("ShellDefault"),
+                .copy("ShellApps")
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
                 .treatAllWarnings(as: .error),
                 .interoperabilityMode(.C),
-                .unsafeFlags(["-Xfrontend", "-disable-autolink-framework", "-Xfrontend", "FoundationModels"])
+                .unsafeFlags([
+                    "-Xfrontend", "-disable-autolink-framework", "-Xfrontend", "FoundationModels",
+                    "-Xfrontend", "-disable-round-trip-debug-types"
+                ])
             ],
             linkerSettings: [
                 .linkedFramework("AppKit"),
@@ -111,7 +188,11 @@ let package = Package(
         ),
         .testTarget(
             name: "OmniWMTests",
-            dependencies: ["OmniWM", "OmniWMCtl", "OmniWMLayerCorners"],
+            dependencies: [
+                "OmniWM", "OmniWMAudioTap", "OmniWMCtl", "OmniWMLayerCorners", "OmniWMMaterialColor",
+                "OmniWMScriptHost",
+                "OmniWMShellCore"
+            ],
             path: "Tests/OmniWMTests",
             resources: [
                 .copy("Fixtures")
@@ -119,7 +200,8 @@ let package = Package(
             swiftSettings: [
                 .swiftLanguageMode(.v6),
                 .treatAllWarnings(as: .error)
-            ]
+            ] + liveCheckSettings
         )
-    ]
+    ],
+    cxxLanguageStandard: .cxx17
 )

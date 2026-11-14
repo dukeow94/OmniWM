@@ -1,13 +1,19 @@
 ---
 title: Workspace Bar
-description: A floating per-display island that shows your workspaces and their windows at a glance.
+description: A per-display bar that shows your workspaces and their windows at a glance.
 sidebar:
   order: 4
 ---
 
-The workspace bar is a floating island centered along the selected edge of each display. It shows a chip per workspace — with the workspace's name, emoji-friendly — and the icons of the apps open there.
+The workspace bar runs along the selected edge of each display, as a floating island or, with **Full Width**, across the whole edge. It shows a chip per workspace — with the workspace's name, emoji-friendly — and the icons of the apps open there.
+
+The bar is drawn by [OmniShell](/omnishell/configuration/bars-drawers/) widgets that you can restyle or replace.
 
 Window hover previews can be turned off separately. Turning off the global Workspace Bar hides it on every monitor, while saved monitor overrides take effect again when it is re-enabled.
+
+## Settings
+
+Open **Settings > Styles & Widgets > Bar** to arrange widgets, select a widget for its options, and adjust placement, appearance and behavior. Use **Display** for display-specific settings. The enable switches, exclusions and icon overrides apply to every style. Select a style in the strip to edit it; choose **Use Style** to activate it. The bar’s controls remain editable while its enable switch is off.
 
 ## Clicking the bar
 
@@ -19,11 +25,21 @@ Window hover previews can be turned off separately. Turning off the global Works
 
 ## System Stats
 
-Optionally show a System Stats button that opens a CPU, memory, GPU, disk, and uptime popup. The `Toggle System Stats` hotkey and `omniwmctl command toggle-system-stats` drive the same popup, and both do nothing unless a monitor currently shows that workspace-bar button. See the [CLI reference](/reference/cli/overview/).
+Optionally show a System Stats button that opens a CPU, memory, GPU, disk, and uptime popup. The `Toggle System Stats` hotkey and `omniwmctl command toggle-system-stats` drive the same popup. They do nothing while the bar holding that button is hidden; if the widget isn't in the bar, as in Vitreus, the popup opens at the screen edge. See the [CLI reference](/reference/cli/overview/). The button is the shell's `system-stats` widget, so it must stay in one of the bar's groups (`trailing` by default).
+
+## Notifications
+
+The `notifications` widget shows retained macOS notifications. If your style does not already show it, use **Settings > Styles & Widgets > Bar > Add Widget…** to add **Notifications**. This is separate from the Dock badges described below.
+
+Grant OmniWM **Full Disk Access** in **System Settings > Privacy & Security**, then quit and reopen it. The widget's **Settings** button opens that pane. The feed reads Notification Center's database when it changes; native persistence can delay updates by several seconds. Storage errors and incomplete snapshots appear in the widget. **Details** shows participants, attachments, action definitions and native metadata.
+
+Use a notification's close button to request dismissal, or **Clear All** to process the retained snapshot. Missing optional details do not block clearing; an incomplete notification list or inconsistent identifiers do. The popout distinguishes incomplete notification membership from missing details and shows when another action is in progress. Detailed read issues are included in the diagnostics summary. **Cancel** stops Clear All after the current action; it cannot undo requests already dispatched. A **Reply** control appears only when the notification declares one uniquely identifiable text-input action with send-button metadata. Replies and dismissal require **Accessibility** and matching controls in Notification Center. Unsupported or ambiguous actions report their outcome; macOS may keep some notifications.
+
+“Reply submitted to Notification Center” confirms dispatch of the native action, not delivery to the recipient. If Notification Center remains open after an action, the widget asks you to close it. Custom widgets can use the same [notification data and commands](/omnishell/reference/context-data/#notification-snapshots).
 
 ## Notification badges
 
-In the global Workspace Bar settings, set **Notification Badges** to **Dot** or **Text** to show each app's Dock badge at the upper-left of its existing icons. **Text** shows the Dock's count or symbol, using an ellipsis when it cannot fit. Badges are off by default.
+With **All Displays** selected, set **Notification Badges** under **Workspace Bar Behavior** to **Dot** or **Text** to show each app's Dock badge at the upper-left of its existing icons. **Text** shows the Dock's count or symbol, using an ellipsis when it cannot fit. Badges are off by default.
 
 The same app-wide badge appears on every matching icon, including expanded scratchpads. Focusing a window does not clear it. Apps without a Dock badge do not show one, and badges do not add otherwise absent app icons.
 
@@ -40,9 +56,10 @@ notificationBadgeRefreshIntervalSeconds = 5
 Configure position, height, and appearance in Settings:
 
 - **Position** — overlap the menu bar, sit below it, or dock at **Bottom**, **Left**, or **Right**. Available globally and per display.
-- **Notch handling** — `Off`, `Move Below Menu Bar`, or a split layout (`Split — Active Left` / `Split — Active Right`) that flows the bar around the notch with your chosen side for the active workspace.
+- **Full Width** — span the whole edge, with the shell's `leading`, `center` and `trailing` widgets at its start, middle and end. With **Position → Below Menu Bar**, it leaves macOS's menu-bar auto-hide preference unchanged. At other positions, including bottom and side placements, an enabled full-width bar sets macOS's **Automatically hide and show the menu bar** to Always, including while automatic hiding or native fullscreen hides the bar. When the last bar requesting automatic hiding moves to **Below Menu Bar**, is disabled or hidden with Toggle Workspace Bar, or OmniWM quits normally, your previous choice returns if the macOS setting still matches the value OmniWM applied. Otherwise, OmniWM keeps your new choice. A full-width bar at another position on another display can still request automatic hiding, because this is a system-wide setting. A crash can leave automatic hiding active; relaunch OmniWM and move its full-width bars below the menu bar, disable them, or quit normally to restore the saved preference.
+- **Notch handling** — `Off`, `Move Below Menu Bar`, `Right of Notch`, or a split layout (`Split — Active Left` / `Split — Active Right`) that flows the bar around the notch with your chosen side for the active workspace. `Right of Notch` centers the bar without a notch, or places it 8 points to the right of the notch; offsets still apply.
 - **Automatically hide and show** — reveal at the bar's edge and hide when the pointer moves inward past the bar and interactions end. See [Automatic hiding](#automatic-hiding).
-- **Reveal on modifier hold** — keep the bar hidden until you hold a chosen modifier; with automatic hiding enabled, either trigger can reveal it.
+- **Reveal on modifier hold** — reveal automatically hidden bars while holding a chosen modifier. Displays with automatic hiding off keep their bars visible.
 - **Hide empty workspaces** — omit chips for workspaces with no windows.
 - **Reserve layout space** — reserve space at the bar's selected edge for tiled and layout-fullscreen windows.
 - **Hide in Native Fullscreen** — hide the bar on a monitor while that monitor shows a macOS native fullscreen window, and bring it back on exit; reserved tiled layout space is left untouched so windows do not shuffle around the fullscreen session.
@@ -62,7 +79,7 @@ Placement follows the usable display edge, avoiding a visible Dock. X/Y offsets 
 
 Side bars stack upright labels and icons and scroll vertically when needed. **Bar Thickness** (`height` in TOML) controls their width. Drag-and-drop follows the bar's horizontal or vertical order. Stats, hover previews, workspace rename panels, hidden-icon panels, and the fallback OmniWM menu open inward from the displayed bar or icon.
 
-Notch modes, including **Fill Left of Notch**, are ignored at bottom/left/right without changing your saved preference. Existing visibility settings still apply; modifier-hold bars remain overlay-only.
+Notch modes, including **Fill Left of Notch**, are ignored at bottom/left/right without changing your saved preference. Existing visibility settings still apply; automatically hidden bars remain overlay-only.
 
 ### Automatic hiding
 
@@ -81,14 +98,26 @@ The reveal edge follows the bar's placement and offsets. With no vertical offset
 
 **Auto-Hide Reveal Delay** is how long the pointer must stay at the edge before the bar appears; leaving the edge sooner cancels the reveal. **Auto-Hide Hide Delay** is how long the bar stays after the pointer moves inward past it and interactions end; returning to the bar sooner cancels the hide. Both default to 0 ms, apply to every display that auto-hides, and accept up to 1000 ms.
 
-Auto-hidden bars never reserve layout space, even while visible. Manual hiding, disabling, and native-fullscreen suppression take precedence. Existing modifier-only configurations remain unchanged; when combined with `autoHide`, touching the edge or holding the modifier can reveal the bar. The modifier hold delay applies only to the modifier trigger, and the auto-hide delays only to the pointer.
+Auto-hidden bars never reserve layout space, even while visible. Manual hiding, disabling, and native-fullscreen suppression take precedence. Touching the edge or holding the reveal modifier can reveal an auto-hidden bar. The modifier hold delay applies only to the modifier trigger, and the auto-hide delays only to the pointer.
+
+`autoHide = false` keeps a display's bar visible even when a reveal modifier is configured, and **Reserve layout space** still applies. To hide a bar that previously used only a reveal modifier, enable `autoHide`; both hover and the modifier will reveal it. For example, keep external bars visible while revealing the built-in display's bar on hover or Control+Shift. The example omits the override's generated identity fields; keep those from the override saved by the per-display settings editor:
+
+```toml
+[workspaceBar]
+autoHide = false
+revealModifier = "controlShift"
+
+[[monitorBarOverrides]]
+monitorName = "Built-in Retina Display"
+autoHide = true
+```
 
 ### Additional appearance controls
 
 - **Fill Left of Notch** — an additional notch mode that fills the menu-bar area left of the notch, covering application menus. Without a notch it uses the left half of the menu bar. When effective at a top position, this mode always hides in native fullscreen, regardless of **Hide in Native Fullscreen**.
-- **Inactive Icon Opacity** — adjust unfocused app icons from 0–100%; **Reset to System Default** clears the override.
+- **Inactive Icon Opacity** — adjust unfocused app icons from 0–100%; **Reset to Style Defaults** clears the override.
 - **Transparent Background** — hide the bar material, tint, and border while keeping its contents interactive.
-- **Solid Black Background** — use an opaque black bar; **Transparent Background** takes precedence when both are enabled.
+- **Solid Black Background** — use an opaque black bar; it takes precedence over **Transparent Background** when both are enabled.
 - **Show Item Backgrounds** — show or hide backgrounds behind workspace groups, floating windows, scratchpads, and stats.
 - **Show Accent Highlights** — show or hide the focused-workspace outline and focused-icon glow.
 

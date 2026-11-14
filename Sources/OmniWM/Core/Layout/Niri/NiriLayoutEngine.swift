@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import Foundation
@@ -24,7 +24,6 @@ final class NiriLayoutEngine {
 
     var layoutPool = LayoutResult(frames: [:], hiddenHandles: [:])
 
-    var axisSolveCache: [NiriAxisSolveKey: [NiriAxisSolver.Output]] = [:]
     private(set) var axisSolveConfigurationRevision: UInt64 = 0
 
     var excludedTokensByWorkspace: [WorkspaceDescriptor.ID: Set<WindowToken>] = [:]
@@ -37,6 +36,10 @@ final class NiriLayoutEngine {
     var alwaysCenterSingleColumn: Bool = false
 
     var singleWindowFit: SingleWindowFit = .fullScreen
+
+    var edgeOverscroll: NiriEdgeOverscroll = .disabled
+
+    var edgePicturesAvailable = true
 
     var renderStyle: NiriRenderStyle = .default
 
@@ -156,23 +159,23 @@ final class NiriLayoutEngine {
         }
 
         let effectiveExcludedTokens = excludedTokens ?? projectionExclusions(in: workspaceId)
-        let workspaceColumns = columns(in: workspaceId).compactMap { column -> (NiriContainer, [NiriWindow])? in
-            let windows = effectiveExcludedTokens.isEmpty
-                ? column.windowNodes
-                : column.windowNodes.filter { !effectiveExcludedTokens.contains($0.token) }
-            return windows.isEmpty ? nil : (column, windows)
+        var occupiedColumn: NiriContainer?
+        for column in columns(in: workspaceId)
+            where column.windowNodes.contains(where: { !effectiveExcludedTokens.contains($0.token) })
+        {
+            guard occupiedColumn == nil else { return nil }
+            occupiedColumn = column
         }
-        guard workspaceColumns.count == 1,
-              let (column, windows) = workspaceColumns.first,
-              !column.isTabbed
-        else {
+        guard let column = occupiedColumn, !column.isTabbed else {
             return nil
         }
 
-        guard windows.count == 1,
-              let window = windows.first,
-              window.sizingMode == .normal
-        else {
+        var projectedWindow: NiriWindow?
+        for candidate in column.windowNodes where !effectiveExcludedTokens.contains(candidate.token) {
+            guard projectedWindow == nil else { return nil }
+            projectedWindow = candidate
+        }
+        guard let window = projectedWindow, window.sizingMode == .normal else {
             return nil
         }
 
@@ -251,6 +254,7 @@ final class NiriLayoutEngine {
         centerFocusedColumn: CenterFocusedColumn? = nil,
         alwaysCenterSingleColumn: Bool? = nil,
         singleWindowFit: SingleWindowFit? = nil,
+        edgeOverscroll: NiriEdgeOverscroll? = nil,
         presetContainerPrimarySpans: [PresetSize]? = nil,
         defaultContainerPrimarySpan: CGFloat?? = nil
     ) {
@@ -266,6 +270,9 @@ final class NiriLayoutEngine {
         }
         if let centerSingle = alwaysCenterSingleColumn {
             self.alwaysCenterSingleColumn = centerSingle
+        }
+        if let edgeOverscroll {
+            self.edgeOverscroll = edgeOverscroll
         }
         if let singleWindowFit {
             self.singleWindowFit = singleWindowFit
@@ -302,10 +309,11 @@ extension NiriLayoutEngine {
     func resolvedContainerResetPrimarySpan(
         for monitorId: Monitor.ID?
     ) -> (proportion: CGFloat, presetWidthIdx: Int?) {
-        if let defaultContainerPrimarySpan {
-            return (defaultContainerPrimarySpan, matchingPresetIndex(for: defaultContainerPrimarySpan))
-        }
         let settings = monitorId.map(effectiveSettings(for:)) ?? globalResolvedSettings()
+        if let defaultSpan = settings.defaultContainerPrimarySpan {
+            let span = CGFloat(defaultSpan)
+            return (span, matchingPresetIndex(for: span))
+        }
         return (1.0 / CGFloat(settings.visibleContainerCount), nil)
     }
 
@@ -360,6 +368,8 @@ extension NiriLayoutEngine {
         column.cachedHeight = 0
         column.widthAnimation = nil
         column.targetWidth = nil
+        column.heightAnimation = nil
+        column.targetHeight = nil
     }
 
     func initializeNewContainerSizing(
@@ -385,7 +395,7 @@ extension NiriLayoutEngine {
         applyContainerSizingState(containerSizingState(for: sourceColumn), to: targetColumn)
     }
 
-    private func containerSizingState(for column: NiriContainer) -> NiriContainerSizingState {
+    func containerSizingState(for column: NiriContainer) -> NiriContainerSizingState {
         NiriContainerSizingState(
             width: column.width,
             presetWidthIndex: column.presetWidthIdx,

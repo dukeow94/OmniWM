@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import CoreGraphics
 import Darwin
@@ -10,7 +10,9 @@ enum FocusPolicyLeaseOwner: String, Equatable {
     case nativeMenu = "native_menu"
     case statusPanel = "status_panel"
     case commandPalette = "command_palette"
+    case windowSwitcher = "window_switcher"
     case workspaceBarRename = "workspace_bar_rename"
+    case shellIsland = "shell_island"
     case windowCloseFocusRecovery = "window_close_focus_recovery"
     case nativeAppSwitch = "native_app_switch"
 }
@@ -47,7 +49,9 @@ final class FocusPolicyEngine {
         .nativeMenu,
         .statusPanel,
         .commandPalette,
+        .windowSwitcher,
         .workspaceBarRename,
+        .shellIsland,
         .windowCloseFocusRecovery,
         .nativeAppSwitch
     ]

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import CoreGraphics
 @testable import OmniWM
@@ -30,11 +30,11 @@ final class NiriResizeAnimationTakeoverTests: NiriInteractionTestCase {
         XCTAssertTrue(beginResize(fixture, at: start))
 
         let resize = try XCTUnwrap(fixture.engine.interactiveResize)
-        XCTAssertEqual(try XCTUnwrap(resize.originalContainerSpan), expectedSpan, accuracy: 0.001)
+        XCTAssertEqual(try XCTUnwrap(resize.originalContainerSpan), expectedSpan)
         XCTAssertTrue(resize.edges.contains(.right))
         XCTAssertFalse(resize.edges.contains(.left))
         XCTAssertNil(fixture.column.widthAnimation)
-        XCTAssertEqual(fixture.column.cachedWidth, expectedSpan, accuracy: 0.001)
+        XCTAssertEqual(fixture.column.cachedWidth, expectedSpan)
         XCTAssertTrue(fixture.controller.mouseEventHandler.state.isResizing)
         XCTAssertEqual(fixture.controller.mouseEventHandler.state.capturedInteractionButton, .right)
     }
@@ -67,10 +67,10 @@ final class NiriResizeAnimationTakeoverTests: NiriInteractionTestCase {
         XCTAssertTrue(beginResize(fixture, at: start))
 
         let resize = try XCTUnwrap(fixture.engine.interactiveResize)
-        XCTAssertEqual(try XCTUnwrap(resize.originalViewOffset), liveOffset, accuracy: 0.001)
+        XCTAssertEqual(try XCTUnwrap(resize.originalViewOffset), liveOffset)
         XCTAssertEqual(
             fixture.controller.workspaceManager.niriViewportState(for: fixture.workspaceId).viewOffset,
-            liveOffset, accuracy: 0.001
+            liveOffset
         )
         XCTAssertFalse(driver.hasMotion(in: fixture.workspaceId))
         await WindowAdmissionTestSupport.drainLayoutRefreshes(fixture.controller)
@@ -92,7 +92,7 @@ final class NiriResizeAnimationTakeoverTests: NiriInteractionTestCase {
             XCTAssertFalse(beginResize(fixture, at: fixture.clickedFrame.center))
 
             XCTAssertTrue(fixture.column.widthAnimation === spring)
-            XCTAssertEqual(fixture.column.cachedWidth, fixture.rawSpan, accuracy: 0.001)
+            XCTAssertEqual(fixture.column.cachedWidth, fixture.rawSpan)
             XCTAssertEqual(driver.gestureSessionID(in: fixture.workspaceId), session)
             XCTAssertNil(fixture.engine.interactiveResize)
             XCTAssertFalse(fixture.controller.mouseEventHandler.state.isResizing)
@@ -132,6 +132,7 @@ final class NiriResizeAnimationTakeoverTests: NiriInteractionTestCase {
     private func makeFixture() throws -> Fixture {
         let controller = WindowAdmissionTestSupport.controller(prefix: "NiriResizeAnimationTakeoverTests")
         controller.settings.niri.visibleContainerCount = 3
+        controller.settings.niri.defaultContainerPrimarySpan = nil
         let monitor = Monitor(
             id: .init(displayId: 51_061), displayId: 51_061,
             frame: CGRect(x: 0, y: 0, width: 1200, height: 900),

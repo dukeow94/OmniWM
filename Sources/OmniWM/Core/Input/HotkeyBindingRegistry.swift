@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import Foundation
 import OmniWMIPC
@@ -21,7 +21,7 @@ enum HotkeyBindingRegistry {
 
     static func defaultBinding(for id: String) -> HotkeyBinding? {
         if let binding = bindingsByID[id] { return binding }
-        guard let spec = ActionCatalog.workspaceNumberSpec(for: id) else { return nil }
+        guard let spec = ActionCatalog.dynamicSpec(for: id) else { return nil }
         return HotkeyBinding(id: id, command: spec.command, binding: spec.defaultBinding)
     }
 
@@ -30,9 +30,9 @@ enum HotkeyBindingRegistry {
         return HotkeyBinding(id: id, command: command, binding: binding)
     }
 
-    static func makeBinding(id: String, trigger: HotkeyTrigger) -> HotkeyBinding? {
+    static func makeBinding(id: String, trigger: HotkeyTrigger, modeKey: KeyBinding? = nil) -> HotkeyBinding? {
         guard let command = command(for: id) else { return nil }
-        return HotkeyBinding(id: id, command: command, trigger: trigger)
+        return HotkeyBinding(id: id, command: command, trigger: trigger, modeKey: modeKey)
     }
 
     static func reconcilingWorkspaceNumberBindings(
@@ -46,7 +46,11 @@ enum HotkeyBindingRegistry {
             .map { spec in
                 existing[spec.id] ?? HotkeyBinding(id: spec.id, command: spec.command, binding: spec.defaultBinding)
             }
-        var result = bindings.filter { bindingsByID[$0.id] != nil }
+        var result = bindings.filter {
+            bindingsByID[$0.id] != nil || ActionCatalog.shellToggleSpec(for: $0.id) != nil
+                || ActionCatalog.openAppBundleID(for: $0.id) != nil
+                || ActionCatalog.shellAppSpec(for: $0.id) != nil
+        }
         let groups = Dictionary(grouping: workspaceBindings) { rowGroup(of: $0.id) }
         let insertions = groups.map { group, rows in
             (index: result.lastIndex { rowGroup(of: $0.id) == group }.map { $0 + 1 } ?? result.count, rows: rows)
@@ -57,12 +61,48 @@ enum HotkeyBindingRegistry {
         return result
     }
 
+    static func reconcilingShellToggleBindings(_ bindings: [HotkeyBinding], names: [String]) -> [HotkeyBinding] {
+        reconcilingDynamicBindings(
+            bindings,
+            specs: names.compactMap(ActionCatalog.shellToggleSpec(name:)),
+            isMember: { ActionCatalog.shellToggleSpec(for: $0) != nil }
+        )
+    }
+
+    static func reconcilingOpenAppBindings(_ bindings: [HotkeyBinding], bundleIDs: [String]) -> [HotkeyBinding] {
+        reconcilingDynamicBindings(
+            bindings,
+            specs: bundleIDs.compactMap(ActionCatalog.openAppSpec(bundleID:)),
+            isMember: { ActionCatalog.openAppBundleID(for: $0) != nil }
+        )
+    }
+
+    private static func reconcilingDynamicBindings(
+        _ bindings: [HotkeyBinding],
+        specs: [ActionSpec],
+        isMember: (String) -> Bool
+    ) -> [HotkeyBinding] {
+        let current = Set(specs.map(\.id))
+        var rows = Dictionary(
+            bindings
+                .filter {
+                    isMember($0.id) && (!$0.binding.isUnassigned || $0.modeKey != nil || current.contains($0.id))
+                }
+                .map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        for spec in specs where rows[spec.id] == nil {
+            rows[spec.id] = HotkeyBinding(id: spec.id, command: spec.command, binding: spec.defaultBinding)
+        }
+        return bindings.filter { !isMember($0.id) } + rows.keys.sorted().compactMap { rows[$0] }
+    }
+
     private static func rowGroup(of id: String) -> WorkspaceNumberActionKind? {
         WorkspaceNumberActionKind.parse(id)?.kind.rowGroup
     }
 
     static func resolve(_ persisted: [PersistedHotkeyBinding]) throws -> [HotkeyBinding] {
-        var overrides: [String: HotkeyTrigger] = [:]
+        var overrides: [String: PersistedHotkeyBinding] = [:]
         for entry in persisted {
             guard command(for: entry.id) != nil else {
                 if ActionCatalog.visibility(for: entry.id) == .unassignable {
@@ -73,14 +113,19 @@ enum HotkeyBindingRegistry {
             guard overrides[entry.id] == nil else {
                 throw HotkeyBindingResolutionError.duplicateActionID(entry.id)
             }
-            overrides[entry.id] = canonicalizeTrigger(entry.binding)
+            overrides[entry.id] = entry
         }
         let staticBindings = defaultBindings.map { binding in
-            HotkeyBinding(id: binding.id, command: binding.command, trigger: overrides[binding.id] ?? .unassigned)
+            HotkeyBinding(
+                id: binding.id,
+                command: binding.command,
+                trigger: overrides[binding.id]?.binding ?? .unassigned,
+                modeKey: overrides[binding.id]?.modeKey
+            )
         }
         let workspaceNumberBindings = persisted
             .filter { bindingsByID[$0.id] == nil }
-            .compactMap { makeBinding(id: $0.id, trigger: $0.binding) }
+            .compactMap { makeBinding(id: $0.id, trigger: $0.binding, modeKey: $0.modeKey) }
         return staticBindings + workspaceNumberBindings
     }
 
@@ -95,6 +140,11 @@ enum HotkeyBindingRegistry {
         }
     }
 
+    static func canonicalizeModeKey(_ modeKey: KeyBinding?) -> KeyBinding? {
+        guard let modeKey, !modeKey.isUnassigned else { return nil }
+        return modeKey
+    }
+
     static func retargetingHyperChords(
         _ bindings: [HotkeyBinding],
         to composition: HyperKeyModifiers
@@ -105,7 +155,7 @@ enum HotkeyBindingRegistry {
             guard !binding.binding.isUnassigned,
                   let trigger = HotkeyTrigger.fromHumanReadable(string)
             else { return binding }
-            return HotkeyBinding(id: binding.id, command: binding.command, trigger: trigger)
+            return HotkeyBinding(id: binding.id, command: binding.command, trigger: trigger, modeKey: binding.modeKey)
         }
     }
 }

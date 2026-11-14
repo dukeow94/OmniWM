@@ -1,10 +1,64 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 @testable import OmniWM
 import XCTest
 
 final class HiddenBarLifecyclePolicyTests: XCTestCase {
+    @MainActor
+    func testNativeMenuAccessIsHeldUntilLastRevealEndsAndReleasedByCleanupOrDisable() {
+        for terminal in 0 ..< 3 {
+            let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+            defer { try? FileManager.default.removeItem(at: directory) }
+            let state = RuntimeStateStore(directory: directory, deferSaves: false)
+            let settings = SettingsStore(
+                persistence: SettingsFilePersistence(directory: directory, startWatching: false, deferSaves: false),
+                runtimeState: state,
+                autosaveEnabled: false
+            )
+            let menuBar = FakeMenuBarAutohide()
+            menuBar.preference = true
+            let hold = MenuBarAutohideHold(system: menuBar.system, runtimeState: state)
+            let hiddenBar = HiddenBarController(settings: settings, setMenuAccess: { hold.setMenuAccess($0) })
+            hiddenBar.startReconcealForTests(revealedBundleIDs: ["first", "second"])
+            XCTAssertFalse(menuBar.nativeAutohide)
+            hiddenBar.concealRevealed(["first"])
+            XCTAssertFalse(menuBar.nativeAutohide)
+
+            switch terminal {
+            case 0: hiddenBar.concealRevealed(["second"])
+            case 1: hiddenBar.cleanup()
+            default: hiddenBar.setEnabled(false)
+            }
+
+            XCTAssertTrue(menuBar.nativeAutohide)
+            XCTAssertTrue(hiddenBar.revealedBundleIDs.isEmpty)
+            hiddenBar.cleanup()
+            XCTAssertEqual(menuBar.calls, [false, true])
+        }
+    }
+
+    @MainActor
+    func testFailedNativeMenuAccessDoesNotBeginRevealOrReconcealment() {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let settings = SettingsStore(
+            persistence: SettingsFilePersistence(directory: directory, startWatching: false, deferSaves: false),
+            runtimeState: RuntimeStateStore(directory: directory, deferSaves: false),
+            autosaveEnabled: false
+        )
+        var accesses: [Bool] = []
+        let hiddenBar = HiddenBarController(settings: settings, setMenuAccess: {
+            accesses.append($0)
+            return false
+        })
+
+        hiddenBar.startReconcealForTests(revealedBundleIDs: ["first"])
+        XCTAssertTrue(hiddenBar.revealedBundleIDs.isEmpty)
+        hiddenBar.cleanup()
+        XCTAssertEqual(accesses, [true])
+    }
+
     func testRefreshRequiresEnabledAvailableAndConfiguredHiddenApp() {
         XCTAssertFalse(HiddenBarConcealmentPolicy.wantsRefresh(
             enabled: false,
@@ -147,81 +201,39 @@ final class HiddenBarLifecyclePolicyTests: XCTestCase {
         hiddenBar.observation.onRunningApplicationsRefreshForTests = { refreshes += 1 }
         hiddenBar.setup()
 
-        // Queue the refresh directly so cleanup retires its generation before
-        // it can run, without relying on the timing of the observer-event hop.
         let queuedRefresh = try XCTUnwrap(hiddenBar.observation.queueRunningApplicationsRefreshForTests())
         hiddenBar.cleanup()
         await queuedRefresh.value
         XCTAssertEqual(refreshes, 0)
 
         hiddenBar.setup()
+        let laterRefresh = expectation(description: "Later running-applications refresh ran")
+        laterRefresh.assertForOverFulfill = false
+        hiddenBar.observation.onRunningApplicationsRefreshForTests = { laterRefresh.fulfill() }
         let laterObserverEvent = hiddenBar.observation.enqueueRunningApplicationsChangedForTests()
         await laterObserverEvent.value
-        let refreshed = await waitUntil { refreshes >= 1 }
-        XCTAssertTrue(refreshed)
+        await fulfillment(of: [laterRefresh], timeout: failureBound)
         hiddenBar.cleanup()
     }
 
-    func testLaunchCaptureStaysAllowedDuringAnotherAppsReveal() {
-        let effectiveHidden = HiddenBarConcealmentPolicy.effectiveHiddenBundleIDs(
-            configured: ["revealed", "newly-launched", "concealed"],
-            temporarilyRevealed: ["revealed"],
-            pendingCapture: ["newly-launched"]
-        )
-        XCTAssertEqual(effectiveHidden, ["concealed"])
-    }
-
-    func testOpenMenuDoesNotConsumeRehideTime() {
-        XCTAssertEqual(
-            HiddenBarMenuGuardPolicy.rehideRemaining(
-                remaining: .seconds(5),
-                elapsed: .seconds(2),
-                previousMenuOpen: false,
-                menuOpen: true
-            ),
-            .seconds(5)
-        )
-    }
-
-    func testUnknownMenuStateDoesNotConsumeRehideTime() {
-        XCTAssertEqual(
-            HiddenBarMenuGuardPolicy.rehideRemaining(
-                remaining: .seconds(5),
-                elapsed: .seconds(2),
-                previousMenuOpen: false,
-                menuOpen: nil
-            ),
-            .seconds(5)
-        )
-    }
-
-    func testClosedIntervalsAccumulateUntilRehideExpires() {
-        var remaining = Duration.seconds(5)
-        remaining = HiddenBarMenuGuardPolicy.rehideRemaining(
-            remaining: remaining,
-            elapsed: .seconds(2),
-            previousMenuOpen: false,
-            menuOpen: false
-        )
-        remaining = HiddenBarMenuGuardPolicy.rehideRemaining(
-            remaining: remaining,
-            elapsed: .seconds(4),
-            previousMenuOpen: false,
-            menuOpen: true
-        )
-        remaining = HiddenBarMenuGuardPolicy.rehideRemaining(
-            remaining: remaining,
-            elapsed: .seconds(3),
-            previousMenuOpen: true,
-            menuOpen: false
-        )
-        remaining = HiddenBarMenuGuardPolicy.rehideRemaining(
-            remaining: remaining,
-            elapsed: .seconds(3),
-            previousMenuOpen: false,
-            menuOpen: false
-        )
-        XCTAssertEqual(remaining, .zero)
+    func testCountdownIsNotConsumedWithoutAConfirmedClosedInterval() {
+        let cases: [(label: String, elapsed: Duration, previousMenuOpen: Bool?, menuOpen: Bool?)] = [
+            ("open menu", .seconds(2), false, true),
+            ("unknown menu state", .seconds(2), false, nil),
+            ("first closed sample", .seconds(2), nil, false)
+        ]
+        for testCase in cases {
+            XCTAssertEqual(
+                HiddenBarMenuGuardPolicy.rehideRemaining(
+                    remaining: .seconds(5),
+                    elapsed: testCase.elapsed,
+                    previousMenuOpen: testCase.previousMenuOpen,
+                    menuOpen: testCase.menuOpen
+                ),
+                .seconds(5),
+                testCase.label
+            )
+        }
     }
 
     func testNegativeElapsedTimeDoesNotIncreaseCountdown() {
@@ -236,16 +248,36 @@ final class HiddenBarLifecyclePolicyTests: XCTestCase {
         )
     }
 
-    func testFirstClosedSampleStartsCountdownWithFullInterval() {
-        XCTAssertEqual(
-            HiddenBarMenuGuardPolicy.rehideRemaining(
-                remaining: .seconds(5),
-                elapsed: .seconds(2),
-                previousMenuOpen: nil,
-                menuOpen: false
-            ),
-            .seconds(5)
+    func testClosedIntervalsAccumulateUntilRehideExpires() {
+        var remaining = Duration.seconds(5)
+        remaining = HiddenBarMenuGuardPolicy.rehideRemaining(
+            remaining: remaining,
+            elapsed: .seconds(2),
+            previousMenuOpen: false,
+            menuOpen: false
         )
+        XCTAssertEqual(remaining, .seconds(3))
+        remaining = HiddenBarMenuGuardPolicy.rehideRemaining(
+            remaining: remaining,
+            elapsed: .seconds(4),
+            previousMenuOpen: false,
+            menuOpen: true
+        )
+        XCTAssertEqual(remaining, .seconds(3))
+        remaining = HiddenBarMenuGuardPolicy.rehideRemaining(
+            remaining: remaining,
+            elapsed: .seconds(3),
+            previousMenuOpen: true,
+            menuOpen: false
+        )
+        XCTAssertEqual(remaining, .seconds(3))
+        remaining = HiddenBarMenuGuardPolicy.rehideRemaining(
+            remaining: remaining,
+            elapsed: .seconds(3),
+            previousMenuOpen: false,
+            menuOpen: false
+        )
+        XCTAssertEqual(remaining, .zero)
     }
 
     func testMenuGuardPollingBacksOffAndCaps() {
@@ -273,7 +305,6 @@ final class HiddenBarLifecyclePolicyTests: XCTestCase {
         hiddenBar.reconcealment.menuGuardNow = { now }
         hiddenBar.reconcealment.menuGuardSleeper = { delay in
             now = now.advanced(by: delay)
-            await Task.yield()
         }
         hiddenBar.reconcealment.menuOpenProviderForTests = { _ in nil }
         hiddenBar.performance.begin()
@@ -289,6 +320,46 @@ final class HiddenBarLifecyclePolicyTests: XCTestCase {
     }
 
     @MainActor
+    func testReconcealmentWaitsForNativePanelToClose() async {
+        let controller = WindowAdmissionTestSupport.controller(prefix: "HiddenBarNativePanelGuard")
+        let hiddenBar = controller.hiddenBarController
+        addTeardownBlock { [weak hiddenBar] in
+            XCTAssertNil(hiddenBar)
+        }
+        controller.settings.hiddenBar.rehideIntervalSeconds = 5
+        let startedAt = ContinuousClock().now
+        var now = startedAt
+        var panelOpen = true
+        let menuBar = CGRect(x: 0, y: 0, width: 2560, height: 24)
+        let panel = HiddenBarMenuGuard.WindowInfo(
+            layer: Int(CGWindowLevelForKey(.statusWindow)), ownerPID: 500, title: nil,
+            bounds: CGRect(x: 2150, y: 24, width: 280, height: 180)
+        )
+        hiddenBar.reconcealment.menuGuardNow = { now }
+        hiddenBar.reconcealment.menuGuardSleeper = { [weak hiddenBar] delay in
+            now = now.advanced(by: delay)
+            if startedAt.duration(to: now) >= .seconds(8), panelOpen {
+                XCTAssertEqual(hiddenBar?.temporarilyRevealedBundleIDsForTests.isEmpty, false)
+                panelOpen = false
+            }
+        }
+        hiddenBar.reconcealment.menuOpenProviderForTests = { _ in
+            HiddenBarMenuGuard.isMenuOpen(
+                windows: panelOpen ? [panel] : [], menuOwnerPIDs: [500], menuBarFrames: [menuBar]
+            )
+        }
+        hiddenBar.performance.begin()
+        hiddenBar.startReconcealForTests(revealedBundleIDs: ["com.omniwm.native-panel"])
+        await driveReconcealTask(hiddenBar)
+
+        XCTAssertFalse(panelOpen)
+        XCTAssertGreaterThanOrEqual(startedAt.duration(to: now), .seconds(13))
+        XCTAssertEqual(hiddenBar.performance.end()?.terminalReason, .concealed)
+        XCTAssertTrue(hiddenBar.temporarilyRevealedBundleIDsForTests.isEmpty)
+        hiddenBar.cleanup()
+    }
+
+    @MainActor
     func testDefinitelyOpenMenuUsesWatchdogInsteadOfUnknownBound() async {
         let controller = WindowAdmissionTestSupport.controller(prefix: "HiddenBarWatchdog")
         let hiddenBar = controller.hiddenBarController
@@ -296,22 +367,16 @@ final class HiddenBarLifecyclePolicyTests: XCTestCase {
         hiddenBar.reconcealment.menuGuardNow = { now }
         hiddenBar.reconcealment.menuGuardSleeper = { delay in
             now = now.advanced(by: delay)
-            await Task.yield()
         }
-        hiddenBar.reconcealment.menuOpenProviderForTests = { _ in true }
+        hiddenBar.reconcealment.menuOpenProviderForTests = { [weak hiddenBar] _ in
+            XCTAssertNil(hiddenBar?.performance.snapshot()?.terminalReason)
+            return true
+        }
         hiddenBar.performance.begin()
 
         hiddenBar.startReconcealForTests(revealedBundleIDs: ["com.omniwm.open"])
         await driveReconcealTask(hiddenBar)
 
-        let terminalSnapshot = hiddenBar.performance.snapshot()
-        for _ in 0 ..< 8 {
-            await Task.yield()
-        }
-        XCTAssertEqual(
-            hiddenBar.performance.snapshot()?.menuGuardQueries,
-            terminalSnapshot?.menuGuardQueries
-        )
         let snapshot = hiddenBar.performance.end()
         XCTAssertGreaterThan(snapshot?.menuGuardQueries ?? 0, 3)
         XCTAssertEqual(snapshot?.terminalReason, .watchdog)
@@ -371,23 +436,13 @@ final class HiddenBarLifecyclePolicyTests: XCTestCase {
 
     @MainActor
     private func driveReconcealTask(_ hiddenBar: HiddenBarController) async {
-        for _ in 0 ..< 256 {
-            if hiddenBar.performance.snapshot()?.terminalReason != nil {
-                return
-            }
-            await Task.yield()
+        guard let reconcealTask = hiddenBar.reconcealment.task else {
+            return XCTFail("Reconceal task was not scheduled")
         }
-        XCTFail("Reconceal task did not reach a terminal state")
-    }
-
-    @MainActor
-    private func waitUntil(_ predicate: () -> Bool) async -> Bool {
-        for _ in 0 ..< 128 {
-            if predicate() {
-                return true
-            }
-            await Task.yield()
-        }
-        return false
+        await reconcealTask.value
+        XCTAssertNotNil(
+            hiddenBar.performance.snapshot()?.terminalReason,
+            "Reconceal task did not reach a terminal state"
+        )
     }
 }

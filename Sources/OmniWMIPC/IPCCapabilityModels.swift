@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import Foundation
 
@@ -24,17 +24,23 @@ public struct IPCCommandsQueryResult: Codable, Equatable, Sendable {
     public let workspaceActions: [IPCWorkspaceActionDescriptor]
     public let windowActions: [IPCWindowActionDescriptor]
     public let windowMarkActions: [IPCWindowMarkActionDescriptor]
+    public let windowGatherActions: [IPCWindowGatherActionDescriptor]
+    public let shellActions: [IPCShellActionDescriptor]
 
     public init(
         commands: [IPCCommandDescriptor],
         workspaceActions: [IPCWorkspaceActionDescriptor],
         windowActions: [IPCWindowActionDescriptor],
-        windowMarkActions: [IPCWindowMarkActionDescriptor]
+        windowMarkActions: [IPCWindowMarkActionDescriptor],
+        windowGatherActions: [IPCWindowGatherActionDescriptor],
+        shellActions: [IPCShellActionDescriptor]
     ) {
         self.commands = commands
         self.workspaceActions = workspaceActions
         self.windowActions = windowActions
         self.windowMarkActions = windowMarkActions
+        self.windowGatherActions = windowGatherActions
+        self.shellActions = shellActions
     }
 }
 
@@ -58,6 +64,8 @@ public struct IPCCapabilitiesQueryResult: Codable, Equatable, Sendable {
     public let workspaceActions: [IPCWorkspaceActionDescriptor]
     public let windowActions: [IPCWindowActionDescriptor]
     public let windowMarkActions: [IPCWindowMarkActionDescriptor]
+    public let windowGatherActions: [IPCWindowGatherActionDescriptor]
+    public let shellActions: [IPCShellActionDescriptor]
     public let subscriptions: [IPCSubscriptionDescriptor]
 
     public init(
@@ -72,6 +80,8 @@ public struct IPCCapabilitiesQueryResult: Codable, Equatable, Sendable {
         workspaceActions: [IPCWorkspaceActionDescriptor],
         windowActions: [IPCWindowActionDescriptor],
         windowMarkActions: [IPCWindowMarkActionDescriptor],
+        windowGatherActions: [IPCWindowGatherActionDescriptor],
+        shellActions: [IPCShellActionDescriptor],
         subscriptions: [IPCSubscriptionDescriptor]
     ) {
         self.protocolVersion = protocolVersion
@@ -85,6 +95,8 @@ public struct IPCCapabilitiesQueryResult: Codable, Equatable, Sendable {
         self.workspaceActions = workspaceActions
         self.windowActions = windowActions
         self.windowMarkActions = windowMarkActions
+        self.windowGatherActions = windowGatherActions
+        self.shellActions = shellActions
         self.subscriptions = subscriptions
     }
 }

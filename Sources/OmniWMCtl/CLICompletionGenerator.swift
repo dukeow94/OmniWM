@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import Foundation
 
@@ -25,6 +25,7 @@ enum CLICompletionGenerator {
             "topLevelCommands": shellWords(Catalog.topLevelCommands),
             "queryNames": shellWords(Catalog.queryNames),
             "queryFieldsByName": renderZshCase(map: Catalog.queryFieldsByName),
+            "querySortValues": shellWords(Catalog.flagValuesByName["--sort"] ?? []),
             "queryFlagsByName": renderZshCase(map: Catalog.queryFlagsByName),
             "commandFirstWords": shellWords(Catalog.commandFirstWords),
             "commandSlotThreeSuggestionsByFirst": renderZshCase(map: Catalog.commandSlotThreeSuggestionsByFirst),
@@ -44,7 +45,10 @@ enum CLICompletionGenerator {
             "workspaceMoveOptionalFlags": shellWords(Catalog.workspaceMoveOptionalFlags),
             "windowActionNames": shellWords(Catalog.windowActionNames),
             "windowMarkActionNames": shellWords(Catalog.windowMarkActionNames),
-            "windowMarkListFlags": shellWords(Catalog.windowMarkListFlags)
+            "windowMarkListFlags": shellWords(Catalog.windowMarkListFlags),
+            "windowGatherReachFlag": Catalog.windowGatherReachFlag,
+            "windowGatherReaches": shellWords(Catalog.windowGatherReaches),
+            "shellActionNames": shellWords(Catalog.shellActionNames)
         ])
     }
 
@@ -54,6 +58,7 @@ enum CLICompletionGenerator {
             "topLevelCommands": shellWords(Catalog.topLevelCommands),
             "queryNames": shellWords(Catalog.queryNames),
             "queryFieldsByName": renderBashCase(map: Catalog.queryFieldsByName),
+            "querySortValues": shellWords(Catalog.flagValuesByName["--sort"] ?? []),
             "queryFlagsByName": renderBashCase(map: Catalog.queryFlagsByName),
             "commandFirstWords": shellWords(Catalog.commandFirstWords),
             "commandSlotThreeSuggestionsByFirst": renderBashCase(map: Catalog.commandSlotThreeSuggestionsByFirst),
@@ -73,7 +78,10 @@ enum CLICompletionGenerator {
             "workspaceMoveOptionalFlags": shellWords(Catalog.workspaceMoveOptionalFlags),
             "windowActionNames": shellWords(Catalog.windowActionNames),
             "windowMarkActionNames": shellWords(Catalog.windowMarkActionNames),
-            "windowMarkListFlags": shellWords(Catalog.windowMarkListFlags)
+            "windowMarkListFlags": shellWords(Catalog.windowMarkListFlags),
+            "windowGatherReachFlag": Catalog.windowGatherReachFlag,
+            "windowGatherReaches": shellWords(Catalog.windowGatherReaches),
+            "shellActionNames": shellWords(Catalog.shellActionNames)
         ])
     }
 
@@ -81,10 +89,7 @@ enum CLICompletionGenerator {
         let query = "__fish_seen_subcommand_from query"
         let command = "__fish_seen_subcommand_from command"
         let rule = "__fish_seen_subcommand_from rule"
-        let capture = "__fish_seen_subcommand_from capture"
-        let workspace = "__fish_seen_subcommand_from workspace"
-        let moveWorkspace = "\(workspace); and __fish_seen_subcommand_from \(Catalog.workspaceMoveActionName)"
-        return renderTemplate(PackageResources.completion_fish, values: [
+        return renderTemplate(PackageResources.completion_fish, values: fishActionValues().merging([
             "workspaceMoveActionName": Catalog.workspaceMoveActionName,
             "baseLines": fishCompletions(Catalog.topLevelCommands, when: "__fish_use_subcommand"),
             "queryLines": fishCompletions(Catalog.queryNames, when: query),
@@ -93,6 +98,10 @@ enum CLICompletionGenerator {
                 Catalog.queryFieldsByName,
                 when: query,
                 suffix: "; and __omniwmctl_prev_arg_is --fields"
+            ),
+            "querySortLines": fishCompletions(
+                Catalog.flagValuesByName["--sort"] ?? [],
+                when: query + "; and __omniwmctl_prev_arg_is --sort"
             ),
             "commandRootLines": fishCompletions(Catalog.commandFirstWords, when: command),
             "commandNestedLines": fishCases(Catalog.commandSlotThreeSuggestionsByFirst, when: command),
@@ -104,7 +113,15 @@ enum CLICompletionGenerator {
             "ruleApplyLines": fishCompletions(
                 Catalog.ruleApplyFlags,
                 when: "\(rule); and __fish_seen_subcommand_from apply"
-            ),
+            )
+        ]) { action, _ in action })
+    }
+
+    private static func fishActionValues() -> [String: String] {
+        let capture = "__fish_seen_subcommand_from capture"
+        let workspace = "__fish_seen_subcommand_from workspace"
+        let moveWorkspace = "\(workspace); and __fish_seen_subcommand_from \(Catalog.workspaceMoveActionName)"
+        return [
             "captureActionLines": fishChoiceCompletions(Catalog.captureActionNames, when: capture),
             "captureProfileLines": fishChoiceCompletions(
                 Catalog.captureProfiles,
@@ -121,11 +138,16 @@ enum CLICompletionGenerator {
             "windowLines": fishCompletions(Catalog.windowActionNames, when: "__fish_seen_subcommand_from window"),
             "windowMarkActionLines": fishWindowMarkActionLines(),
             "windowMarkListFlagLines": fishWindowMarkListFlagLines(),
+            "windowGatherLines": fishWindowGatherLines(),
+            "shellActionLines": fishChoiceCompletions(
+                Catalog.shellActionNames,
+                when: "__fish_seen_subcommand_from shell"
+            ),
             "shellLines": fishCompletions(
                 CLIShell.allCases.map(\.rawValue),
                 when: "__fish_seen_subcommand_from completion"
             )
-        ])
+        ]
     }
 
     private static func fishCompletion(_ token: String, when condition: String) -> String {
@@ -193,6 +215,18 @@ enum CLICompletionGenerator {
             Catalog.windowMarkListFlags,
             when: "__fish_seen_subcommand_from window; and __fish_seen_subcommand_from mark; and __fish_seen_subcommand_from list"
         )
+    }
+
+    private static func fishWindowGatherLines() -> String {
+        let gather = "__fish_seen_subcommand_from window; and __fish_seen_subcommand_from gather"
+        let flag = Catalog.windowGatherReachFlag
+        return [
+            fishCompletions(Catalog.windowGatherReaches, when: "\(gather); and __omniwmctl_prev_arg_is \(flag)"),
+            fishCompletion(
+                flag,
+                when: "\(gather); and not __omniwmctl_prev_arg_is \(flag); and not __omniwmctl_has_arg \(flag)"
+            )
+        ].joined(separator: "\n")
     }
 
     static func renderTemplate(_ bytes: [UInt8], values: [String: String]) -> String {

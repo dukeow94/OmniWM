@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import QuartzCore
@@ -90,7 +90,7 @@ extension OverviewLayerRenderer {
                 guard frame.contains(local) else { continue }
                 if let mask = controlLayer.mask,
                    !OverviewLayerMotion.displayedFrame(of: mask)
-                   .offsetBy(dx: frame.minX, dy: frame.minY).contains(local)
+                       .offsetBy(dx: frame.minX, dy: frame.minY).contains(local)
                 {
                     continue
                 }

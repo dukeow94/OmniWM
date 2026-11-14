@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import Foundation
@@ -10,7 +10,7 @@ extension WorkspaceManager {
         settings.liveWorkspaceNamesForHotkeys = { [weak self] in
             self?.workspaceCatalog.descriptors.values.map(\.name) ?? []
         }
-        settings.reconcileWorkspaceNumberHotkeys()
+        settings.reconcileDynamicHotkeys()
     }
 
     func garbageCollectUnusedWorkspaces(focusedWorkspaceId: WorkspaceDescriptor.ID?) {

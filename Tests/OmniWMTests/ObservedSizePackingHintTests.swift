@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import ApplicationServices
 import Foundation
@@ -36,6 +36,64 @@ final class ObservedSizePackingHintTests: XCTestCase {
             .contains("move ws=\(fixture.workspaceId.uuidString) left win=709202 outcome=movedWithinWorkspace"))
     }
 
+    func testDirectionalMoveSwapsColumnsWhenStackingDisabled() throws {
+        let fixture = try makeFixture()
+        defer { cleanup(fixture) }
+        fixture.controller.settings.niri.moveWindowStacksIntoColumn = false
+        let engine = try XCTUnwrap(fixture.controller.niriEngine)
+
+        XCTAssertEqual(fixture.controller.niriLayoutHandler.moveWindow(direction: .left), .movedWithinWorkspace)
+        XCTAssertEqual(
+            engine.columns(in: fixture.workspaceId).map { $0.windowNodes.map(\.token) },
+            [[fixture.tokens[1]], [fixture.tokens[0]]]
+        )
+        XCTAssertEqual(fixture.controller.niriLayoutHandler.moveWindow(direction: .left), .atWorkspaceEdge)
+    }
+
+    func testDirectionalMoveKeepsHiddenSiblingInMovedColumnWhenStackingDisabled() throws {
+        let fixture = try makeFixture()
+        defer { cleanup(fixture) }
+        let controller = fixture.controller
+        let manager = controller.workspaceManager
+        let engine = try XCTUnwrap(controller.niriEngine)
+        let hiddenToken = fixture.tokens[0]
+        let selectedToken = fixture.tokens[1]
+        let selectedHandle = try XCTUnwrap(manager.handle(for: selectedToken))
+        XCTAssertEqual(controller.niriLayoutHandler.moveWindow(direction: .left), .movedWithinWorkspace)
+        let selectedNode = try XCTUnwrap(engine.findNode(for: selectedToken, in: fixture.workspaceId))
+        let column = try XCTUnwrap(engine.findColumn(containing: selectedNode, in: fixture.workspaceId))
+        XCTAssertEqual(Set(column.windowNodes.map(\.token)), Set(fixture.tokens))
+
+        let neighborToken = WindowToken(pid: 709_103, windowId: 709_203)
+        _ = WindowAdmissionTestSupport.track(neighborToken, in: fixture.workspaceId, controller: controller)
+        _ = try rebuild(fixture)
+        let neighborNode = try XCTUnwrap(engine.findNode(for: neighborToken, in: fixture.workspaceId))
+        let neighborColumn = try XCTUnwrap(engine.findColumn(containing: neighborNode, in: fixture.workspaceId))
+        XCTAssertEqual(engine.columns(in: fixture.workspaceId).map(\.id), [column.id, neighborColumn.id])
+
+        manager.setAppHidden(true, pid: hiddenToken.pid, source: .service)
+        _ = try rebuild(fixture)
+        XCTAssertTrue(engine.isExcludedFromProjection(hiddenToken, in: fixture.workspaceId))
+        controller.settings.niri.moveWindowStacksIntoColumn = false
+
+        let mutation = try XCTUnwrap(controller.niriLayoutHandler.moveWindow(
+            handle: selectedHandle,
+            direction: .right
+        ).mutation)
+        XCTAssertEqual(engine.columns(in: fixture.workspaceId).map(\.id), [neighborColumn.id, column.id])
+        XCTAssertTrue(mutation.selectedHandle === selectedHandle)
+        XCTAssertTrue(engine.isExcludedFromProjection(hiddenToken, in: fixture.workspaceId))
+
+        manager.setAppHidden(false, pid: hiddenToken.pid, source: .service)
+        _ = try rebuild(fixture)
+        XCTAssertFalse(engine.isExcludedFromProjection(hiddenToken, in: fixture.workspaceId))
+        XCTAssertEqual(engine.columns(in: fixture.workspaceId).map(\.id), [neighborColumn.id, column.id])
+        XCTAssertEqual(
+            Set(engine.projectedWindows(in: column, workspaceId: fixture.workspaceId).map(\.token)),
+            Set(fixture.tokens)
+        )
+    }
+
     func testBoundedHeightGrowthBecomesHintAndKeepsStackedMoveFeasible() throws {
         for learnedCount in 1 ... 2 {
             let fixture = try makeFixture()
@@ -58,8 +116,8 @@ final class ObservedSizePackingHintTests: XCTestCase {
                 let node = try XCTUnwrap(engine.findNode(for: token, in: fixture.workspaceId))
                 XCTAssertEqual(node.constraints.minSize.height, 100)
                 XCTAssertEqual(node.packingHints, evidence.hints)
-                XCTAssertEqual(try XCTUnwrap(frames[token]).height, columnHeight, accuracy: 0.01)
-                let window = try XCTUnwrap(controller.workspaceManager.entry(for: token)).axRef
+                XCTAssertEqual(try XCTUnwrap(frames[token]).height, columnHeight)
+                let window = try XCTUnwrap(controller.workspaceManager.entry(for: token)?.axRef)
                 XCTAssertNil(WindowAdmissionTestSupport.frameRequest(
                     controller.axManager.frameLedger,
                     pid: token.pid,
@@ -75,7 +133,7 @@ final class ObservedSizePackingHintTests: XCTestCase {
             let stacked = try rebuild(fixture)
             let first = try XCTUnwrap(stacked[fixture.tokens[0]])
             let second = try XCTUnwrap(stacked[fixture.tokens[1]])
-            XCTAssertEqual(first.height + second.height + 3 * 3, workingHeight, accuracy: 0.01)
+            XCTAssertEqual(first.height + second.height + 3 * 3, workingHeight)
             XCTAssertFalse(first.intersects(second))
         }
     }
@@ -115,7 +173,7 @@ final class ObservedSizePackingHintTests: XCTestCase {
         let seeded = ObservedSizeEvidence(minSize: CGSize(width: 1, height: workingHeight))
         XCTAssertTrue(controller.workspaceManager.setObservedSizeEvidence(seeded, for: token))
         let target = try XCTUnwrap(fixture.frames[token])
-        let window = try XCTUnwrap(controller.workspaceManager.entry(for: token)).axRef
+        let window = try XCTUnwrap(controller.workspaceManager.entry(for: token)?.axRef)
         let stale = AXWindowRef(element: AXUIElementCreateApplication(token.pid + 50), windowId: token.windowId)
 
         for (label, expectedWindow, components, observed) in [
@@ -154,23 +212,23 @@ final class ObservedSizePackingHintTests: XCTestCase {
         let usable = workingHeight - 3 * 3
 
         var frames = try rebuild(fixture)
-        XCTAssertEqual(try XCTUnwrap(frames[hinted]).height, usable / 2, accuracy: 0.01)
+        XCTAssertEqual(try XCTUnwrap(frames[hinted]).height, usable / 2)
 
         XCTAssertTrue(controller.workspaceManager.setObservedSizeEvidence(
             ObservedSizeEvidence(hints: ObservedPackingHints(height: ObservedAxisHint(requested: 770, observed: 780))),
             for: hinted
         ))
         frames = try rebuild(fixture)
-        XCTAssertEqual(try XCTUnwrap(frames[hinted]).height, 780, accuracy: 0.01)
-        XCTAssertEqual(try XCTUnwrap(frames[other]).height, usable - 780, accuracy: 0.01)
+        XCTAssertEqual(try XCTUnwrap(frames[hinted]).height, 780)
+        XCTAssertEqual(try XCTUnwrap(frames[other]).height, usable - 780)
 
         XCTAssertTrue(controller.workspaceManager.setObservedSizeEvidence(
             ObservedSizeEvidence(hints: ObservedPackingHints(height: ObservedAxisHint(requested: 800, observed: 810))),
             for: hinted
         ))
         frames = try rebuild(fixture)
-        XCTAssertEqual(try XCTUnwrap(frames[hinted]).height, usable / 2, accuracy: 0.01)
-        XCTAssertEqual(try XCTUnwrap(frames[other]).height, usable / 2, accuracy: 0.01)
+        XCTAssertEqual(try XCTUnwrap(frames[hinted]).height, usable / 2)
+        XCTAssertEqual(try XCTUnwrap(frames[other]).height, usable / 2)
     }
 
     func testDiscardedWidthHintResetsCachedColumnWidth() throws {
@@ -188,11 +246,11 @@ final class ObservedSizePackingHintTests: XCTestCase {
             for: token
         ))
         var frames = try rebuild(fixture)
-        XCTAssertEqual(try XCTUnwrap(frames[token]).width, initialWidth + 8, accuracy: 0.01)
+        XCTAssertEqual(try XCTUnwrap(frames[token]).width, initialWidth + 8)
 
         XCTAssertTrue(controller.workspaceManager.setObservedSizeEvidence(ObservedSizeEvidence(), for: token))
         frames = try rebuild(fixture)
-        XCTAssertEqual(try XCTUnwrap(frames[token]).width, initialWidth, accuracy: 0.01)
+        XCTAssertEqual(try XCTUnwrap(frames[token]).width, initialWidth)
     }
 
     func testDiagnosticsReportListsObservedSizing() throws {
@@ -216,7 +274,7 @@ final class ObservedSizePackingHintTests: XCTestCase {
     private func learnBoundedHeightGrowth(for token: WindowToken, in fixture: Fixture) throws {
         let controller = fixture.controller
         let axManager = controller.axManager
-        let window = try XCTUnwrap(controller.workspaceManager.entry(for: token)).axRef
+        let window = try XCTUnwrap(controller.workspaceManager.entry(for: token)?.axRef)
         let target = try XCTUnwrap(fixture.frames[token])
         let observed = CGRect(x: target.minX, y: target.minY - 6, width: target.width, height: target.height + 6)
         let first = try XCTUnwrap(WindowAdmissionTestSupport.frameRequest(
@@ -238,7 +296,7 @@ final class ObservedSizePackingHintTests: XCTestCase {
 
     private func confirmFullWrite(for token: WindowToken, in fixture: Fixture) throws {
         let axManager = fixture.controller.axManager
-        let window = try XCTUnwrap(fixture.controller.workspaceManager.entry(for: token)).axRef
+        let window = try XCTUnwrap(fixture.controller.workspaceManager.entry(for: token)?.axRef)
         let target = try XCTUnwrap(fixture.frames[token])
         axManager.forceApplyNextFrame(for: token.windowId)
         let request = try XCTUnwrap(WindowAdmissionTestSupport.frameRequest(

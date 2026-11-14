@@ -1,16 +1,10 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import OmniWMIPC
 import XCTest
 
 final class IPCRuleValidatorTests: XCTestCase {
-    func testEmptyBundleWithoutMatchersIsInvalid() {
-        let report = IPCRuleValidator.validate(IPCRuleDefinition(bundleId: ""))
-        XCTAssertNotNil(report.identifierError)
-        XCTAssertFalse(report.isValid)
-    }
-
     func testEmptyBundleWithAppNameIsValid() {
         let report = IPCRuleValidator.validate(
             IPCRuleDefinition(bundleId: "", appNameSubstring: "VMD", layout: .float)
@@ -28,30 +22,26 @@ final class IPCRuleValidatorTests: XCTestCase {
         XCTAssertTrue(report.isValid)
     }
 
-    func testEmptyBundleWithAxOnlyIsInvalid() {
-        let report = IPCRuleValidator.validate(
-            IPCRuleDefinition(bundleId: "", axSubrole: "AXStandardWindow", layout: .float)
-        )
-        XCTAssertNotNil(report.identifierError)
-        XCTAssertFalse(report.isValid)
-    }
-
-    func testMalformedBundleIsRejected() {
-        let report = IPCRuleValidator.validate(IPCRuleDefinition(bundleId: "not a bundle id"))
-        XCTAssertNotNil(report.bundleIdError)
-        XCTAssertFalse(report.isValid)
+    func testInvalidDefinitionsReportTheirError() {
+        let cases: [(label: String, rule: IPCRuleDefinition, error: KeyPath<IPCRuleValidationReport, String?>)] = [
+            ("empty bundle without matchers", IPCRuleDefinition(bundleId: ""), \.identifierError),
+            (
+                "empty bundle with ax matcher only",
+                IPCRuleDefinition(bundleId: "", axSubrole: "AXStandardWindow", layout: .float),
+                \.identifierError
+            ),
+            ("malformed bundle", IPCRuleDefinition(bundleId: "not a bundle id"), \.bundleIdError),
+            ("matcher without effect", IPCRuleDefinition(bundleId: "com.test.app"), \.effectError)
+        ]
+        for testCase in cases {
+            let report = IPCRuleValidator.validate(testCase.rule)
+            XCTAssertNotNil(report[keyPath: testCase.error], testCase.label)
+            XCTAssertFalse(report.isValid, testCase.label)
+        }
     }
 
     func testEmptyBundleStringHasNoFormatError() {
         XCTAssertNil(IPCRuleValidator.bundleIdError(for: ""))
-    }
-
-    func testIdentifyingMatcherWithoutEffectIsInvalid() {
-        let report = IPCRuleValidator.validate(
-            IPCRuleDefinition(bundleId: "com.test.app")
-        )
-        XCTAssertNotNil(report.effectError)
-        XCTAssertFalse(report.isValid)
     }
 
     func testWorkspaceAssignmentCountsAsEffect() {
@@ -70,27 +60,24 @@ final class IPCRuleValidatorTests: XCTestCase {
         XCTAssertFalse(report.isValid)
     }
 
-    func testNonPositiveMinSizeRejected() {
-        for value in [0.0, -10.0, Double.nan] {
+    func testMinimumSizeValidationPreservesEveryBoundary() {
+        let cases: [(width: Double?, height: Double?, valid: Bool)] = [
+            (0, nil, false), (-10, nil, false), (.nan, nil, false),
+            (.infinity, nil, false), (-.infinity, nil, false), (-0.0, nil, false),
+            (nil, -1, false), (nil, .infinity, false),
+            (400, 300, true), (1, nil, true), (.leastNonzeroMagnitude, nil, true)
+        ]
+        for row in cases {
             let report = IPCRuleValidator.validate(
-                IPCRuleDefinition(bundleId: "com.test.app", minWidth: value)
+                IPCRuleDefinition(bundleId: "com.test.app", minWidth: row.width, minHeight: row.height)
             )
-            XCTAssertNotNil(report.minSizeError, "min width \(value) should be rejected")
-            XCTAssertFalse(report.isValid)
+            XCTAssertEqual(
+                report.minSizeError == nil,
+                row.valid,
+                "width=\(String(describing: row.width)) height=\(String(describing: row.height))"
+            )
+            XCTAssertEqual(report.isValid, row.valid)
         }
-
-        let height = IPCRuleValidator.validate(
-            IPCRuleDefinition(bundleId: "com.test.app", minHeight: -1)
-        )
-        XCTAssertNotNil(height.minSizeError)
-    }
-
-    func testPositiveMinSizeAccepted() {
-        let report = IPCRuleValidator.validate(
-            IPCRuleDefinition(bundleId: "com.test.app", minWidth: 400, minHeight: 300)
-        )
-        XCTAssertNil(report.minSizeError)
-        XCTAssertTrue(report.isValid)
     }
 
     func testInitialContainerPrimarySpanInclusiveBoundsAccepted() {
@@ -168,9 +155,23 @@ final class IPCRuleValidatorTests: XCTestCase {
 
     func testMessagesAggregateAllErrors() {
         let report = IPCRuleValidator.validate(IPCRuleDefinition(bundleId: ""))
+        XCTAssertEqual(report.messages, [
+            "Set a bundle ID, app name, or title matcher",
+            "Set a layout, workspace, initial container primary span, or minimum size — this rule has no effect"
+        ])
         XCTAssertEqual(report.messages, report.messages.filter { !$0.isEmpty })
         XCTAssertFalse(report.messages.isEmpty)
         XCTAssertTrue(report.messages.contains { $0 == report.identifierError })
+        let complete = IPCRuleValidationReport(
+            bundleIdError: "bundle",
+            invalidRegexMessage: "regex",
+            identifierError: "identifier",
+            titleMatcherError: "title",
+            initialContainerPrimarySpanError: "span",
+            effectError: "effect",
+            minSizeError: "size"
+        )
+        XCTAssertEqual(complete.messages, ["bundle", "regex", "identifier", "title", "span", "effect", "size"])
     }
 
     func testSnapshotCodecToleratesMissingValidationMessages() throws {
@@ -230,31 +231,5 @@ final class IPCRuleValidatorTests: XCTestCase {
 
     func testInvalidRegexReturnsMessage() {
         XCTAssertNotNil(IPCRuleValidator.invalidRegexMessage(for: "["))
-    }
-
-    func testMinSizeRejectsNonFiniteAndNegativeZero() {
-        for value in [Double.infinity, -Double.infinity, -0.0] {
-            let report = IPCRuleValidator.validate(
-                IPCRuleDefinition(bundleId: "com.test.app", minWidth: value)
-            )
-            XCTAssertNotNil(report.minSizeError, "min width \(value) should be rejected")
-        }
-
-        let height = IPCRuleValidator.validate(
-            IPCRuleDefinition(bundleId: "com.test.app", minHeight: .infinity)
-        )
-        XCTAssertNotNil(height.minSizeError)
-    }
-
-    func testMinSizeAcceptsSmallestPositiveFinite() {
-        let one = IPCRuleValidator.validate(
-            IPCRuleDefinition(bundleId: "com.test.app", minWidth: 1)
-        )
-        XCTAssertNil(one.minSizeError)
-
-        let smallestPositive = IPCRuleValidator.validate(
-            IPCRuleDefinition(bundleId: "com.test.app", minWidth: Double.leastNonzeroMagnitude)
-        )
-        XCTAssertNil(smallestPositive.minSizeError)
     }
 }

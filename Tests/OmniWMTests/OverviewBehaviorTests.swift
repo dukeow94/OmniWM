@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import Carbon
@@ -130,7 +130,7 @@ final class OverviewBehaviorTests: XCTestCase {
             screenFrame: screenFrame
         )
 
-        XCTAssertEqual(offset, -26.25, accuracy: 0.0001)
+        XCTAssertEqual(offset, -26.25)
     }
 
     func testRevealAtEverySupportedZoomStepRemainsBoundedAndVisible() {
@@ -371,21 +371,14 @@ final class OverviewBehaviorTests: XCTestCase {
         XCTAssertNotEqual(zoomedFirst.scrollOffset, zoomedSecond.scrollOffset)
         XCTAssertEqual(
             zoomedWindow.overviewFrame.midY - zoomedFirst.scrollOffset,
-            firstMidpoint,
-            accuracy: 0.0001
+            firstMidpoint
         )
-        XCTAssertFalse(
-            OverviewLayoutCalculator.scrollOffsetBounds(layout: zoomedSecond, screenFrame: screenFrame)
-                .contains(secondDesiredOffset)
+        let bounds = OverviewLayoutCalculator.scrollOffsetBounds(
+            layout: zoomedSecond,
+            screenFrame: screenFrame
         )
-        XCTAssertEqual(
-            zoomedSecond.scrollOffset,
-            OverviewLayoutCalculator.clampedScrollOffset(
-                secondDesiredOffset,
-                layout: zoomedSecond,
-                screenFrame: screenFrame
-            )
-        )
+        XCTAssertLessThan(secondDesiredOffset, bounds.lowerBound)
+        XCTAssertEqual(zoomedSecond.scrollOffset, bounds.lowerBound)
     }
 
     func testSelectionSearchZoomRemovalSequenceMaintainsViewportInvariants() throws {
@@ -538,25 +531,25 @@ final class OverviewBehaviorTests: XCTestCase {
         XCTAssertEqual(settings.overview.zoom, 1)
         XCTAssertEqual(saves, 0)
         overview.dismiss(animated: false)
-        XCTAssertEqual(settings.overview.zoom, 1.05, accuracy: 0.0001)
+        XCTAssertEqual(settings.overview.zoom, 1.05)
         XCTAssertEqual(saves, 1)
         overview.prepareOpenState()
         overview.onAnimationComplete(state: .open)
         overview.input.handleScroll(zoom, on: monitorId)
         overview.invalidateDeferredActionsForServiceStop()
-        XCTAssertEqual(settings.overview.zoom, 1.1, accuracy: 0.0001)
+        XCTAssertEqual(settings.overview.zoom, 1.1)
         XCTAssertEqual(saves, 2)
         overview.invalidateDeferredActionsForServiceStop()
         XCTAssertEqual(saves, 2)
         settings.flushNow()
         let persisted = try SettingsTOMLCodec.decode(Data(contentsOf: settings.settingsFileURL))
-        XCTAssertEqual(persisted.overview.zoom, 1.1, accuracy: 0.0001)
+        XCTAssertEqual(persisted.overview.zoom, 1.1)
         settings.applyExport(persisted)
         saves = 0
         overview.prepareOpenState()
         overview.onAnimationComplete(state: .open)
         overview.dismiss(animated: false)
-        XCTAssertEqual(settings.overview.zoom, 1.1, accuracy: 0.0001)
+        XCTAssertEqual(settings.overview.zoom, 1.1)
         XCTAssertEqual(saves, 0)
     }
 
@@ -589,7 +582,22 @@ final class OverviewBehaviorTests: XCTestCase {
         overview.onAnimationComplete(state: .open)
         overview.input.handleScroll(zoom, on: monitorId)
         overview.dismiss(animated: false)
-        XCTAssertEqual(fixture.controller.settings.overview.zoom, 1.1, accuracy: 0.0001)
+        XCTAssertEqual(fixture.controller.settings.overview.zoom, 1.1)
+    }
+
+    func testCommandWClosesSelectionByTypedLetterOnNonQwertyLayouts() {
+        func action(_ keyCode: Int, _ characters: String) -> OverviewInputHandler.KeyHandlingResult {
+            OverviewInputHandler.keyHandlingResult(
+                keyCode: UInt16(keyCode),
+                modifierFlags: .command,
+                charactersIgnoringModifiers: characters,
+                searchQuery: ""
+            )
+        }
+
+        XCTAssertEqual(action(kVK_ANSI_Z, "w").action, .closeSelection)
+        XCTAssertNotEqual(action(kVK_ANSI_W, "z").action, .closeSelection)
+        XCTAssertEqual(action(kVK_ANSI_W, "ц").action, .closeSelection)
     }
 
     func testCommandWClosesSelectionWithoutRepeating() {
@@ -1003,26 +1011,32 @@ final class OverviewBehaviorTests: XCTestCase {
         }
     }
 
-    func testPostCloseFocusHandoffIsDiscardedAfterNewerAppActivationIntent() throws {
-        let fixture = try makeRuntimeOverviewFixture(windowCount: 1)
-        let handoffScheduler = OverviewPostCloseHandoffScheduler()
-        var environment = fixture.environment
-        environment.schedulePostCloseHandoff = handoffScheduler.schedule
-        let overview = OverviewController(
-            wmController: fixture.controller,
-            motionPolicy: fixture.controller.motionPolicy,
-            environment: environment
-        )
-        overview.prepareOpenState()
-        overview.onAnimationComplete(state: .open)
-        var activatedHandle: WindowHandle?
-        overview.onActivateWindow = { handle, _ in activatedHandle = handle }
+    func testNewOrReusedAppActivationsDiscardPostCloseFocusHandoff() throws {
+        for reusedIntent in [false, true] {
+            let fixture = try makeRuntimeOverviewFixture(windowCount: 1)
+            let handoffScheduler = OverviewPostCloseHandoffScheduler()
+            var environment = fixture.environment
+            environment.schedulePostCloseHandoff = handoffScheduler.schedule
+            let overview = OverviewController(
+                wmController: fixture.controller,
+                motionPolicy: fixture.controller.motionPolicy,
+                environment: environment
+            )
+            overview.prepareOpenState()
+            overview.onAnimationComplete(state: .open)
+            var activatedHandle: WindowHandle?
+            overview.onActivateWindow = { handle, _ in activatedHandle = handle }
 
-        overview.input.dismissToSelection(animated: false)
-        _ = fixture.controller.intentLedger.registerActivateApp(pid: 91_299)
-        handoffScheduler.runNext()
+            if reusedIntent {
+                _ = fixture.controller.intentLedger.registerActivateApp(pid: 91_299)
+            }
 
-        XCTAssertNil(activatedHandle)
+            overview.input.dismissToSelection(animated: false)
+            _ = fixture.controller.intentLedger.registerActivateApp(pid: 91_299)
+            handoffScheduler.runNext()
+
+            XCTAssertNil(activatedHandle)
+        }
     }
 
     func testPostCloseFocusHandoffIsDiscardedAfterIntentLedgerReset() throws {
@@ -1092,29 +1106,6 @@ final class OverviewBehaviorTests: XCTestCase {
             return XCTFail("Expected service stop to close the in-flight overview")
         }
         XCTAssertEqual(handoffScheduler.count, 0)
-    }
-
-    func testPostCloseFocusHandoffIsDiscardedAfterReusedAppActivationIntent() throws {
-        let fixture = try makeRuntimeOverviewFixture(windowCount: 1)
-        let handoffScheduler = OverviewPostCloseHandoffScheduler()
-        var environment = fixture.environment
-        environment.schedulePostCloseHandoff = handoffScheduler.schedule
-        let overview = OverviewController(
-            wmController: fixture.controller,
-            motionPolicy: fixture.controller.motionPolicy,
-            environment: environment
-        )
-        overview.prepareOpenState()
-        overview.onAnimationComplete(state: .open)
-        var activatedHandle: WindowHandle?
-        overview.onActivateWindow = { handle, _ in activatedHandle = handle }
-        _ = fixture.controller.intentLedger.registerActivateApp(pid: 91_299)
-
-        overview.input.dismissToSelection(animated: false)
-        _ = fixture.controller.intentLedger.registerActivateApp(pid: 91_299)
-        handoffScheduler.runNext()
-
-        XCTAssertNil(activatedHandle)
     }
 
     func testPostCloseFocusHandoffIsDiscardedAfterNewerFocusIntentDuringClosing() throws {
@@ -1465,7 +1456,7 @@ final class OverviewBehaviorTests: XCTestCase {
 
         animator.startCloseAnimation(targetWindow: nil, displayIds: [displayId])
 
-        XCTAssertEqual(animator.currentProgress, openingProgress, accuracy: 0.000_000_1)
+        XCTAssertEqual(animator.currentProgress, openingProgress)
         XCTAssertEqual(animator.activeDisplayIds, [displayId])
     }
 
@@ -1502,8 +1493,8 @@ final class OverviewBehaviorTests: XCTestCase {
         let openingGeneration = animator.generation
 
         XCTAssertGreaterThan(openingGeneration, closingGeneration)
-        XCTAssertEqual(animator.currentProgress, closingProgress, accuracy: 0.000_000_1)
-        XCTAssertEqual(animator.currentVelocity, closingVelocity, accuracy: 0.000_000_1)
+        XCTAssertEqual(animator.currentProgress, closingProgress)
+        XCTAssertEqual(animator.currentVelocity, closingVelocity)
         XCTAssertEqual(animator.activeDisplayIds, [firstDisplayId, secondDisplayId])
         XCTAssertEqual(startedSessions.count, 4)
         XCTAssertEqual(Set(startedSessions.suffix(2).map(\.1)), [openingGeneration])
@@ -1687,9 +1678,9 @@ final class OverviewBehaviorTests: XCTestCase {
         XCTAssertTrue(harness.installed.isEmpty)
 
         overview.updateInteractiveTransition(cumulativeUnits: 20, timestamp: 100)
-        XCTAssertEqual(overview.transitionProgress, 0, accuracy: 0.000000000001)
+        XCTAssertEqual(overview.transitionProgress, 0)
         overview.updateInteractiveTransition(cumulativeUnits: 170, timestamp: 100.1)
-        XCTAssertEqual(overview.transitionProgress, 0.5, accuracy: 0.000000000001)
+        XCTAssertEqual(overview.transitionProgress, 0.5)
         XCTAssertTrue(harness.installed.isEmpty)
         XCTAssertEqual(harness.activations, 0)
 
@@ -1700,16 +1691,15 @@ final class OverviewBehaviorTests: XCTestCase {
         XCTAssertEqual(harness.activations, 1)
         XCTAssertEqual(harness.installed.count, 1)
         let transition = try XCTUnwrap(harness.installed.last)
-        XCTAssertEqual(transition.from, 0.5, accuracy: 0.000000000001)
+        XCTAssertEqual(transition.from, 0.5)
         XCTAssertEqual(transition.target, 1)
-        XCTAssertEqual(transition.initialVelocity, 5, accuracy: 0.000000001)
+        XCTAssertEqual(transition.initialVelocity, 0.5 / (100.1 - 100))
         XCTAssertEqual(
             transition.response,
-            OverviewNativeTransition.compressedResponse(forReleaseVelocity: 5),
-            accuracy: 0.000000000001
+            OverviewNativeTransition.compressedResponse(forReleaseVelocity: 5)
         )
         XCTAssertEqual(transition.startTime, 100.1)
-        XCTAssertEqual(overview.transitionProgress, 0.5, accuracy: 0.000000000001)
+        XCTAssertEqual(overview.transitionProgress, 0.5)
 
         try harness.completeLastTransition()
         guard case .open = overview.state else { return XCTFail("Expected the committed spring to open") }
@@ -1781,7 +1771,7 @@ final class OverviewBehaviorTests: XCTestCase {
         XCTAssertTrue(overview.beginInteractiveTransition())
         overview.updateInteractiveTransition(cumulativeUnits: 20, timestamp: 100)
         overview.updateInteractiveTransition(cumulativeUnits: 110, timestamp: 100.5)
-        XCTAssertEqual(overview.transitionProgress, 0.3, accuracy: 0.000000000001)
+        XCTAssertEqual(overview.transitionProgress, 0.3)
 
         harness.clock.time = 100.9
         overview.endInteractiveTransition(timestamp: 100.9)
@@ -1792,7 +1782,7 @@ final class OverviewBehaviorTests: XCTestCase {
         XCTAssertEqual(harness.activations, 0)
         let transition = try XCTUnwrap(harness.installed.last)
         XCTAssertEqual(harness.installed.count, 1)
-        XCTAssertEqual(transition.from, 0.3, accuracy: 0.000000000001)
+        XCTAssertEqual(transition.from, 0.3)
         XCTAssertEqual(transition.target, 0)
         XCTAssertEqual(transition.initialVelocity, 0)
         XCTAssertEqual(transition.response, 0.25)
@@ -1821,7 +1811,7 @@ final class OverviewBehaviorTests: XCTestCase {
         XCTAssertEqual(harness.installed.count, 1)
         overview.updateInteractiveTransition(cumulativeUnits: 0, timestamp: 10)
         overview.updateInteractiveTransition(cumulativeUnits: -240, timestamp: 10.1)
-        XCTAssertEqual(overview.transitionProgress, 0.2, accuracy: 0.000000000001)
+        XCTAssertEqual(overview.transitionProgress, 1 + TrackpadGestureIntent.overviewProgress(units: -240))
 
         harness.clock.time = 10.6
         overview.endInteractiveTransition(timestamp: 10.6)
@@ -1830,7 +1820,7 @@ final class OverviewBehaviorTests: XCTestCase {
         XCTAssertEqual(target, selectedHandle)
         XCTAssertEqual(harness.installed.count, 2)
         let transition = try XCTUnwrap(harness.installed.last)
-        XCTAssertEqual(transition.from, 0.2, accuracy: 0.000000000001)
+        XCTAssertEqual(transition.from, 1 + TrackpadGestureIntent.overviewProgress(units: -240))
         XCTAssertEqual(transition.target, 0)
         XCTAssertEqual(transition.initialVelocity, 0)
         XCTAssertEqual(harness.activations, 1)
@@ -1853,7 +1843,7 @@ final class OverviewBehaviorTests: XCTestCase {
         overview.updateInteractiveTransition(cumulativeUnits: 0, timestamp: 10)
         overview.updateInteractiveTransition(cumulativeUnits: -150, timestamp: 10.1)
         overview.updateInteractiveTransition(cumulativeUnits: -120, timestamp: 10.3)
-        XCTAssertEqual(overview.transitionProgress, 0.6, accuracy: 0.000000000001)
+        XCTAssertEqual(overview.transitionProgress, 0.6)
         harness.clock.time = 10.32
         overview.endInteractiveTransition(timestamp: 10.32)
 
@@ -1862,8 +1852,8 @@ final class OverviewBehaviorTests: XCTestCase {
         let transition = try XCTUnwrap(harness.installed.last)
         XCTAssertEqual(harness.installed.count, 2)
         XCTAssertEqual(transition.target, 1)
-        XCTAssertEqual(transition.from, 0.6, accuracy: 0.000000000001)
-        XCTAssertEqual(transition.initialVelocity, 5, accuracy: 0.000000001)
+        XCTAssertEqual(transition.from, 0.6)
+        XCTAssertEqual(transition.initialVelocity, (0.6 - 0.5) / (10.32 - 10.3))
 
         try harness.completeLastTransition()
         guard case .open = overview.state else { return XCTFail("Expected the reopened spring to settle open") }
@@ -1885,25 +1875,28 @@ final class OverviewBehaviorTests: XCTestCase {
 
         XCTAssertEqual(harness.installed.count, 1)
         XCTAssertTrue(overview.isInteractiveTransitionActive)
-        XCTAssertEqual(overview.transitionProgress, caught, accuracy: 0.000000000001)
+        XCTAssertEqual(overview.transitionProgress, caught)
         guard case .opening = overview.state else { return XCTFail("Expected the caught flight to stay in .opening") }
         try XCTUnwrap(harness.completions.first).complete()
         XCTAssertTrue(overview.isInteractiveTransitionActive)
         guard case .opening = overview.state else { return XCTFail("Expected a stale completion to be ignored") }
 
+        let anchor = TrackpadGestureIntent.overviewProgress(units: 100)
+        let anchored = caught + anchor - anchor
+        let tracked = caught + TrackpadGestureIntent.overviewProgress(units: 130) - anchor
         overview.updateInteractiveTransition(cumulativeUnits: 100, timestamp: 0.05)
-        XCTAssertEqual(overview.transitionProgress, caught, accuracy: 0.000000000001)
+        XCTAssertEqual(overview.transitionProgress, anchored)
         overview.updateInteractiveTransition(cumulativeUnits: 130, timestamp: 0.1)
-        XCTAssertEqual(overview.transitionProgress, caught + 0.1, accuracy: 0.000000000001)
+        XCTAssertEqual(overview.transitionProgress, tracked)
 
         harness.clock.time = 0.1
         overview.endInteractiveTransition(timestamp: 0.1)
 
         XCTAssertEqual(harness.installed.count, 2)
         let transition = try XCTUnwrap(harness.installed.last)
-        XCTAssertEqual(transition.from, caught + 0.1, accuracy: 0.000000000001)
+        XCTAssertEqual(transition.from, tracked)
         XCTAssertEqual(transition.target, 1)
-        XCTAssertEqual(transition.initialVelocity, 2, accuracy: 0.000000001)
+        XCTAssertEqual(transition.initialVelocity, ((anchored - caught) + (tracked - anchored)) / (0.1 - 0.05))
         try harness.completeLastTransition()
         guard case .open = overview.state else { return XCTFail("Expected the resumed flight to open") }
         overview.completeCloseTransition(targetWindow: nil)
@@ -1927,7 +1920,7 @@ final class OverviewBehaviorTests: XCTestCase {
             XCTAssertFalse(overview.isInteractiveTransitionActive)
             XCTAssertEqual(harness.installed.count, 2)
             let transition = try XCTUnwrap(harness.installed.last)
-            XCTAssertEqual(transition.from, caught, accuracy: 0.000000000001)
+            XCTAssertEqual(transition.from, caught)
             XCTAssertEqual(transition.initialVelocity, 0)
             if late {
                 guard case .opening = overview.state else { return XCTFail("Expected a late tap to resume opening") }
@@ -1995,7 +1988,7 @@ final class OverviewBehaviorTests: XCTestCase {
         XCTAssertLessThan(caught, 0.5)
 
         XCTAssertTrue(overview.beginInteractiveTransition())
-        XCTAssertEqual(overview.transitionProgress, caught, accuracy: 0.000000000001)
+        XCTAssertEqual(overview.transitionProgress, caught)
         overview.endInteractiveTransition(timestamp: nil)
 
         guard case let .closing(target) = overview.state else { return XCTFail("Expected the lift to close again") }
@@ -2021,9 +2014,13 @@ final class OverviewBehaviorTests: XCTestCase {
             XCTAssertFalse(overview.isInteractiveTransitionActive)
             XCTAssertEqual(harness.installed.count, 1)
             let transition = try XCTUnwrap(harness.installed.last)
-            XCTAssertEqual(transition.from, aboveHalf ? 0.7 : 0.1, accuracy: 0.000000000001)
+            XCTAssertEqual(
+                transition.from,
+                TrackpadGestureIntent.overviewProgress(units: aboveHalf ? 230 : 50)
+                    - TrackpadGestureIntent.overviewProgress(units: 20)
+            )
             overview.updateInteractiveTransition(cumulativeUnits: 300, timestamp: 100.2)
-            XCTAssertEqual(overview.transitionProgress, transition.from, accuracy: 0.000000000001)
+            XCTAssertEqual(overview.transitionProgress, transition.target + (transition.from - transition.target))
             if aboveHalf {
                 guard case let .closing(target) = overview.state else {
                     return XCTFail("Expected the hotkey above half to close")
@@ -2056,10 +2053,10 @@ final class OverviewBehaviorTests: XCTestCase {
         guard case .closing = overview.state else { return XCTFail("Expected external deactivation to close") }
         let transition = try XCTUnwrap(harness.installed.last)
         XCTAssertEqual(harness.installed.count, 1)
-        XCTAssertEqual(transition.from, 0.3, accuracy: 0.000000000001)
+        XCTAssertEqual(transition.from, 0.3)
         XCTAssertEqual(transition.target, 0)
         overview.updateInteractiveTransition(cumulativeUnits: 300, timestamp: 100.6)
-        XCTAssertEqual(overview.transitionProgress, 0.3, accuracy: 0.000000000001)
+        XCTAssertEqual(overview.transitionProgress, 0.3)
         try harness.completeLastTransition()
         XCTAssertFalse(overview.state.isOpen)
     }
@@ -2092,7 +2089,7 @@ final class OverviewBehaviorTests: XCTestCase {
         XCTAssertTrue(overview.beginInteractiveTransition())
         overview.updateInteractiveTransition(cumulativeUnits: 0, timestamp: 100)
         overview.updateInteractiveTransition(cumulativeUnits: 330, timestamp: 100.1)
-        XCTAssertEqual(overview.transitionProgress, 1.0464788732394366, accuracy: 0.000000000001)
+        XCTAssertEqual(overview.transitionProgress, 1.0464788732394366)
         harness.clock.time = 100.1
 
         overview.endInteractiveTransition(timestamp: 100.1)
@@ -2100,7 +2097,7 @@ final class OverviewBehaviorTests: XCTestCase {
         guard case .opening = overview.state else { return XCTFail("Expected an overscroll release to open") }
         let transition = try XCTUnwrap(harness.installed.last)
         XCTAssertEqual(harness.installed.count, 1)
-        XCTAssertEqual(transition.from, 1.0464788732394366, accuracy: 0.000000000001)
+        XCTAssertEqual(transition.from, 1.0464788732394366)
         XCTAssertEqual(transition.target, 1)
         XCTAssertEqual(harness.activations, 1)
         try harness.completeLastTransition()
@@ -2139,7 +2136,7 @@ final class OverviewBehaviorTests: XCTestCase {
         overview.completeCloseTransition(targetWindow: nil)
     }
 
-    func testImmediateSelectionDismissDoesNotRecloseReversedOverview() async throws {
+    func testImmediateSelectionDismissDoesNotRecloseReversedOverview() throws {
         let fixture = try makeRuntimeOverviewFixture(windowCount: 1)
         let harness = InteractiveOverviewHarness(fixture: fixture)
         let overview = harness.overview
@@ -2155,8 +2152,6 @@ final class OverviewBehaviorTests: XCTestCase {
         XCTAssertTrue(target === selectedHandle)
         harness.clock.time = 10.03
         overview.toggle()
-        await Task.yield()
-        await Task.yield()
 
         guard case .opening = overview.state else {
             return XCTFail("Expected reversal to remain opening")
@@ -2314,7 +2309,7 @@ final class OverviewBehaviorTests: XCTestCase {
         XCTAssertEqual(selected, target)
         XCTAssertEqual(manager.activeWorkspace(on: monitor.id)?.id, destination)
         XCTAssertEqual(view.layout.anchorWorkspaceId, destination)
-        XCTAssertEqual(harness.installed.last?.from ?? -1, 0.2, accuracy: 0.000000001)
+        XCTAssertEqual(harness.installed.last?.from ?? -1, 1 + TrackpadGestureIntent.overviewProgress(units: -240))
         XCTAssertEqual(harness.installed.last?.target, 0)
         while let task = fixture.controller.layoutRefreshController.layoutState.activeRefreshTask { await task.value }
         try harness.completeLastTransition()
@@ -2633,15 +2628,25 @@ final class OverviewBehaviorTests: XCTestCase {
         fixture.environment.onThumbnailCaptureStarted = {
             captureStarts += 1
         }
+        let driver = OverviewPreviewTestDriver()
+        let capture = driver.makeCapture(hasCaptureAccess: { true })
         let overview = OverviewController(
             wmController: fixture.controller,
             motionPolicy: fixture.controller.motionPolicy,
-            environment: fixture.environment
+            environment: fixture.environment,
+            previewCapture: capture
         )
-        overview.prepareOpenState()
-        overview.onAnimationComplete(state: .open)
+        defer {
+            overview.dismiss(animated: false)
+            capture.clear()
+            driver.completeAllStarts()
+        }
+        overview.open()
         XCTAssertEqual(titleReads, 2)
         XCTAssertEqual(frameReads, 2)
+
+        XCTAssertGreaterThan(captureStarts, 0)
+        let initialCaptureStarts = captureStarts
 
         titleReads = 0
         frameReads = 0
@@ -2650,7 +2655,7 @@ final class OverviewBehaviorTests: XCTestCase {
 
         XCTAssertEqual(titleReads, 0)
         XCTAssertEqual(frameReads, 0)
-        XCTAssertEqual(captureStarts, 0)
+        XCTAssertEqual(captureStarts, initialCaptureStarts)
     }
 
     func testDismissedOverviewRejectsLatePreviewFrame() async throws {
@@ -2663,18 +2668,23 @@ final class OverviewBehaviorTests: XCTestCase {
             environment: fixture.environment,
             previewCapture: capture
         )
+        defer {
+            overview.dismiss(animated: false)
+            capture.clear()
+            driver.finish()
+        }
         overview.prepareOpenState()
         overview.onAnimationComplete(state: .open)
         let handle = try XCTUnwrap(overview.selectedWindowHandle)
         capture.reconcile(represented: [handle], visible: [
             OverviewPreviewRequest(handle: handle, pixelWidth: 80, pixelHeight: 60)
         ])
-        await driver.waitForStarts(1)
+        try await driver.waitForStarts(1)
         let frame = try makeOverviewPreviewFrame()
         let published = expectation(description: "preview published independently")
         capture.onPreview = { _, frame in if frame != nil { published.fulfill() } }
         driver.streams[0].output.offer(frame)
-        await fulfillment(of: [published], timeout: 1)
+        await fulfillment(of: [published], timeout: failureBound)
         XCTAssertTrue(capture.preview(for: handle) === frame)
 
         overview.dismiss(animated: false)
@@ -2695,26 +2705,31 @@ final class OverviewBehaviorTests: XCTestCase {
             environment: fixture.environment,
             previewCapture: capture
         )
+        defer {
+            overview.dismiss(animated: false)
+            capture.clear()
+            driver.finish()
+        }
         let handle = try XCTUnwrap(fixture.handles.first)
         let request = OverviewPreviewRequest(handle: handle, pixelWidth: 80, pixelHeight: 60)
         overview.prepareOpenState()
         overview.onAnimationComplete(state: .open)
         capture.reconcile(represented: [handle], visible: [request])
-        await driver.waitForStarts(1)
+        try await driver.waitForStarts(1)
         overview.dismiss(animated: false)
         driver.completeAllStarts()
 
         overview.prepareOpenState()
         overview.onAnimationComplete(state: .open)
         capture.reconcile(represented: [handle], visible: [request])
-        await driver.waitForStarts(2)
+        try await driver.waitForStarts(2)
         let oldFrame = try makeOverviewPreviewFrame()
         let newFrame = try makeOverviewPreviewFrame()
         let published = expectation(description: "new session preview")
         capture.onPreview = { _, frame in if frame != nil { published.fulfill() } }
         driver.streams[1].output.offer(newFrame)
         driver.streams[0].output.offer(oldFrame)
-        await fulfillment(of: [published], timeout: 1)
+        await fulfillment(of: [published], timeout: failureBound)
         XCTAssertTrue(capture.preview(for: handle) === newFrame)
         XCTAssertNil(driver.streams[0].output.take())
         driver.completeAllStarts()
@@ -3004,7 +3019,12 @@ final class OverviewBehaviorTests: XCTestCase {
             max(0, (viewport.height - target.height) / 2)
         )
         let paddedViewport = viewport.insetBy(dx: 0, dy: padding)
-        XCTAssertGreaterThanOrEqual(target.minY + 0.0001, paddedViewport.minY, message, file: file, line: line)
-        XCTAssertLessThanOrEqual(target.maxY - 0.0001, paddedViewport.maxY, message, file: file, line: line)
+        let rounding = CGFloat.rounding(
+            operations: 8,
+            at: abs(offset) + max(abs(target.minY), abs(target.maxY))
+                + max(abs(paddedViewport.minY), abs(paddedViewport.maxY))
+        )
+        XCTAssertGreaterThanOrEqual(target.minY, paddedViewport.minY - rounding, message, file: file, line: line)
+        XCTAssertLessThanOrEqual(target.maxY, paddedViewport.maxY + rounding, message, file: file, line: line)
     }
 }

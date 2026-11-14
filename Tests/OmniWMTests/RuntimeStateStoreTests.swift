@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import Foundation
 @testable import OmniWM
@@ -68,6 +68,9 @@ final class RuntimeStateStoreTests: XCTestCase {
         XCTAssertEqual(dates, dates.sorted())
         XCTAssertEqual(dates.last, 5_000)
         XCTAssertTrue(dates.contains(1_000))
+        let allDates = store.launcherLaunchesSnapshot.values.flatMap { $0.map(\.date.timeIntervalSince1970) }
+        XCTAssertEqual(allDates.count, 1_000)
+        XCTAssertEqual(allDates.min(), 11)
     }
 
     func testLauncherShortcutKeyUsesTheQueryAsTyped() {
@@ -75,6 +78,31 @@ final class RuntimeStateStoreTests: XCTestCase {
         store.recordLauncherLaunch(targetID: "/Applications/Safari.app", displayName: "Safari", query: "Safari ")
         XCTAssertEqual(store.launcherShortcutTarget(for: "safari "), "/Applications/Safari.app")
         XCTAssertNil(store.launcherShortcutTarget(for: "safari"))
+    }
+
+    func testWelcomePresentedDecodesMissingKeyAsFalseAndRoundTrips() throws {
+        let directory = makeDirectory()
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try Data(#"{"hasSeenIssueWalkthrough":true}"#.utf8)
+            .write(to: directory.appendingPathComponent(RuntimeStateStore.fileName))
+        let store = RuntimeStateStore(directory: directory, deferSaves: false)
+        XCTAssertFalse(store.welcomePresented)
+
+        store.welcomePresented = true
+
+        XCTAssertEqual(try persistedState(store).welcomePresented, true)
+        XCTAssertTrue(RuntimeStateStore(directory: directory, deferSaves: false).welcomePresented)
+    }
+
+    func testScreenRecordingPromptDeclinedDefaultsToFalseAndRoundTrips() throws {
+        let directory = makeDirectory()
+        let store = RuntimeStateStore(directory: directory, deferSaves: false)
+        XCTAssertFalse(store.screenRecordingPromptDeclined)
+
+        store.screenRecordingPromptDeclined = true
+
+        XCTAssertEqual(try persistedState(store).screenRecordingPromptDeclined, true)
+        XCTAssertTrue(RuntimeStateStore(directory: directory, deferSaves: false).screenRecordingPromptDeclined)
     }
 
     func testDeferredSavesCoalesceAndWriteOffMainThread() async throws {

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import Foundation
@@ -8,6 +8,7 @@ import QuartzCore
 struct LayoutResult {
     var frames: [WindowToken: CGRect]
     var hiddenHandles: [WindowToken: HideSide]
+    var edgeHiddenFrames: [WindowToken: CGRect] = [:]
 }
 
 struct NiriContainerPlacement {
@@ -101,18 +102,29 @@ extension NiriLayoutEngine {
         viewOffsetOverride: CGFloat? = nil,
         settledVisibilityOffset: CGFloat? = nil,
         isSettled: Bool = false,
-        excludedTokens: Set<WindowToken>? = nil
+        excludedTokens: Set<WindowToken>? = nil,
+        edgePictures: NiriEdgePictureState = .none,
+        recordsPresentationGeometry: Bool = false
     ) {
+        result.edgeHiddenFrames.removeAll(keepingCapacity: true)
         if let excludedTokens { setProjectionExclusions(excludedTokens, in: workspaceId) }
         let excludedTokens = projectionExclusions(in: workspaceId)
         let projectedColumns = projectedColumns(in: workspaceId)
-        guard !projectedColumns.isEmpty else { return }
+        guard !projectedColumns.isEmpty else {
+            if recordsPresentationGeometry {
+                for column in columns(in: workspaceId) { column.edgeHiddenFrame = nil }
+            }
+            return
+        }
         let context = NiriCalculationContext(
             geometry: geometry, time: animationTime ?? CACurrentMediaTime(),
             hiddenPlacementMonitor: hiddenPlacementMonitor,
-            hiddenPlacementMonitors: hiddenPlacementMonitors
+            hiddenPlacementMonitors: hiddenPlacementMonitors, edgePictures: edgePictures,
+            recordsPresentationGeometry: recordsPresentationGeometry
         )
-        clearExcludedColumnFrames(in: workspaceId, excluding: excludedTokens)
+        clearExcludedColumnFrames(
+            in: workspaceId, excluding: excludedTokens, recordsPresentationGeometry: recordsPresentationGeometry
+        )
         if animationTime == nil {
             reconcilePrimarySpanFit(
                 in: workspaceId,
@@ -123,27 +135,22 @@ extension NiriLayoutEngine {
             )
         }
         if let single = singleWindowLayoutContext(in: workspaceId, excluding: excludedTokens) {
-            layoutSingleWindow(single, context: context, result: &result)
+            layoutSingleWindow(
+                single, context: context, result: &result,
+                viewportOffset: effectiveSettings(in: workspaceId).edgeOverscroll == .disabled
+                    ? 0 : viewOffsetOverride ?? state.viewOffset
+            )
             return
         }
-        let prepared = prepareLayoutColumns(
-            projectedColumns, area: context.area, primaryGap: context.primaryGap,
-            time: context.time, orientation: context.orientation
+        layoutProjectedColumns(
+            projectedColumns, selection: NiriViewportSelection(state: state, workspaceId: workspaceId),
+            context: context,
+            sampling: NiriViewportSampling(
+                viewOffset: viewOffsetOverride ?? state.viewOffset,
+                settledVisibilityOffset: settledVisibilityOffset, isSettled: isSettled
+            ),
+            result: &result
         )
-        let sampling = NiriViewportSampling(
-            viewOffset: viewOffsetOverride ?? state.viewOffset,
-            settledVisibilityOffset: settledVisibilityOffset,
-            isSettled: isSettled
-        )
-        let pass = columnLayoutPass(
-            selection: NiriViewportSelection(state: state, workspaceId: workspaceId), columns: projectedColumns,
-            prepared: prepared, context: context, sampling: sampling
-        )
-        for index in projectedColumns.indices {
-            layoutProjectedColumn(
-                projectedColumns[index], prepared: prepared[index], at: index, pass: pass, result: &result
-            )
-        }
     }
 
     func prepareLayoutColumns(
@@ -221,13 +228,11 @@ extension NiriLayoutEngine {
             layoutFrames: layoutFrames
         )
 
-        let availableSpace = containerFrames.secondarySpan()
-
         let resolvedSpans = resolveWindowSpans(
             container: container,
             windows: windows,
             axis: NiriAxisLayout(
-                availableSpace: availableSpace,
+                availableSpace: containerFrames.secondarySpan(),
                 gap: secondaryGap,
                 isTabbed: isTabbed,
                 orientation: layoutFrames.orientation
@@ -237,8 +242,9 @@ extension NiriLayoutEngine {
 
         var pos = containerFrames.secondaryStart(gap: secondaryGap)
 
-        for i in 0 ..< windows.count {
-            let window = windows[i]
+        let windowSpan = windows.span
+        for i in windowSpan.indices {
+            let window = windowSpan[i]
             let span = resolvedSpans[i].value
             let sizingMode = window.sizingMode
 
@@ -277,7 +283,6 @@ extension NiriLayoutEngine {
         guard !windows.isEmpty else { return [] }
 
         let cacheKey = NiriAxisSolveKey(
-            containerId: container.id,
             containerRevision: container.axisSolveRevision,
             configurationRevision: axisSolveConfigurationRevision,
             availableSpace: axis.availableSpace,
@@ -286,8 +291,8 @@ extension NiriLayoutEngine {
             isVertical: axis.orientation == .vertical
         )
         let outputs: [NiriAxisSolver.Output]
-        if let cached = axisSolveCache[cacheKey] {
-            outputs = cached
+        if let memo = container.axisSolveMemo, memo.key == cacheKey {
+            outputs = memo.outputs
         } else {
             let inputs = windows.map { window in
                 axisSolverInput(for: window, axis: axis)
@@ -304,18 +309,16 @@ extension NiriLayoutEngine {
                 hardOutputs: hardOutputs,
                 axis: axis
             )
-            if axisSolveCache.count >= 256 {
-                axisSolveCache.removeAll(keepingCapacity: true)
-            }
-            axisSolveCache[cacheKey] = outputs
+            container.axisSolveMemo = (cacheKey, outputs)
         }
 
+        let windowSpan = windows.span
         for (i, output) in outputs.enumerated() {
             switch axis.orientation {
             case .horizontal:
-                windows[i].heightFixedByConstraint = output.wasConstrained
+                windowSpan[i].heightFixedByConstraint = output.wasConstrained
             case .vertical:
-                windows[i].widthFixedByConstraint = output.wasConstrained
+                windowSpan[i].widthFixedByConstraint = output.wasConstrained
             }
         }
 
@@ -338,7 +341,7 @@ extension NiriLayoutEngine {
             var floor = max(NiriAxisSolver.minimumRenderableSpan, input.minConstraint)
             if let hinted = windows[index].packingHints.secondary(for: axis.orientation)?
                 .floor(for: hardOutputs[index].value, limit: usableSpace),
-                hinted > floor
+               hinted > floor
             {
                 floor = hinted
                 packed = true

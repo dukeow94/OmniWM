@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import CoreGraphics
 import Foundation
@@ -204,6 +204,27 @@ enum TrackpadGestureIntent {
         }
         guard workspaceCandidate, workspaceAxis == dominantAxis else { return nil }
         return .workspaceSwitch(axis: workspaceAxis)
+    }
+
+    static let recognitionThreshold: CGFloat = 16
+    static let undecidedDirectionTravelLimit = recognitionThreshold * 4
+    static let undecidedDirectionAxisRatio: CGFloat = 2
+    static let appScrollFingerCount = GestureFingerCount.two.rawValue
+
+    static func directionMayStillResolve(
+        _ config: Config,
+        fingerCount: Int,
+        cumulativeTranslation: CGVector
+    ) -> Bool {
+        guard fingerCount != appScrollFingerCount else { return false }
+        let horizontal = abs(cumulativeTranslation.dx)
+        let vertical = abs(cumulativeTranslation.dy)
+        let travelSquared = horizontal * horizontal + vertical * vertical
+        guard travelSquared < undecidedDirectionTravelLimit * undecidedDirectionTravelLimit,
+              min(horizontal, vertical) * undecidedDirectionAxisRatio >= max(horizontal, vertical)
+        else { return false }
+        return (config.workspaceSwipeEnabled && fingerCount == config.workspaceSwipeFingerCount)
+            || (config.overviewAction != nil && fingerCount == config.overviewFingerCount)
     }
 
     static func windowGestureLocation(

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import CoreGraphics
@@ -24,6 +24,10 @@ enum RuntimeDiagnosticsReport {
                 FullscreenPlaceholderDiagnosticsSnapshot.capture(controller).formatted()
             ),
             section("Interaction Monitor Writes", InteractionMonitorWriteRecorder.shared.dump()),
+            section(
+                "Shell Notifications",
+                controller.workspaceBarManager.shellHost?.resources.notifications.diagnosticsSummary ?? "host=unavailable"
+            ),
             section("Reconcile Snapshot", controller.workspaceManager.reconcileSnapshotDump()),
             section("Reconcile Trace", controller.workspaceManager.reconcileTraceDump(limit: traceLimit)),
             section("Invariant Violations", controller.workspaceManager.invariantViolationCountsDump()),
@@ -189,7 +193,7 @@ enum RuntimeDiagnosticsReport {
         for entry in controller.workspaceManager.allEntries() {
             guard let hiddenState = controller.workspaceManager.hiddenState(for: entry.token) else { continue }
             let placement = switch hiddenState.reason {
-            case let .layoutTransient(side): "side=\(side)"
+            case let .layoutTransient(side): "layoutEdge=\(AxisHideEdge(encodedHideSide: side))"
             case .workspaceInactive: "inactive"
             case .scratchpad: "scratchpad"
             }

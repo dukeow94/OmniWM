@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import Foundation
@@ -15,6 +15,7 @@ final class WindowActionHandler {
     weak var controller: WMController?
     private let floatingWindows: FloatingWindowRaiser
     private let appReveal: AppRevealActions
+    private let unminimizeWindow: (AXWindowRef) -> Bool
 
     @ObservationIgnored
     private var overviewControllerStorage: OverviewController?
@@ -24,6 +25,7 @@ final class WindowActionHandler {
         }
         guard let controller else { fatal("WindowActionHandler requires controller") }
         let oc = OverviewController(wmController: controller, motionPolicy: controller.motionPolicy)
+        oc.onVisibilityChanged = { [weak self] in self?.controller?.niriEdgePictures.reconcileLiveStreams() }
         oc.onPrepareActivation = { [weak self] handle, workspaceId in
             self?.prepareOverviewSelection(handle: handle, workspaceId: workspaceId)
         }
@@ -56,9 +58,11 @@ final class WindowActionHandler {
                 return .applicationUnavailable
             }
             return app.unhide() ? .requestReportedSent : .requestReportedNotSent
-        }
+        },
+        unminimizeWindow: @escaping (AXWindowRef) -> Bool = AXWindowService.unminimize
     ) {
         self.controller = controller
+        self.unminimizeWindow = unminimizeWindow
         floatingWindows = FloatingWindowRaiser(
             controller: controller,
             visibleOwnedWindowsProvider: visibleOwnedWindowsProvider,
@@ -91,13 +95,13 @@ final class WindowActionHandler {
 
     func toggleOverview() {
         guard controller?.settings.overview.enabled == true else { return }
-        controller?.layoutRefreshController.workspaceSwipe.cancel(reason: "overview")
+        controller?.layoutRefreshController.workspaceSwipe.cancelAll(reason: "overview")
         overviewController.toggle()
     }
 
     func openOverview() {
         guard controller?.settings.overview.enabled == true else { return }
-        controller?.layoutRefreshController.workspaceSwipe.cancel(reason: "overview")
+        controller?.layoutRefreshController.workspaceSwipe.cancelAll(reason: "overview")
         overviewController.input.beginGestureScrollSuppression()
         overviewController.open()
     }
@@ -120,7 +124,7 @@ final class WindowActionHandler {
 
     func beginOverviewGesture() -> Bool {
         guard controller?.settings.overview.enabled == true else { return false }
-        controller?.layoutRefreshController.workspaceSwipe.cancel(reason: "overview")
+        controller?.layoutRefreshController.workspaceSwipe.cancelAll(reason: "overview")
         return overviewController.beginInteractiveTransition()
     }
 
@@ -151,6 +155,7 @@ final class WindowActionHandler {
     func releaseOverviewController() {
         overviewControllerStorage?.invalidateDeferredActionsForServiceStop()
         overviewControllerStorage = nil
+        controller?.niriEdgePictures.reconcileLiveStreams()
     }
 
     func handleOverviewWindowRemoved(_ entry: WindowState) {
@@ -189,7 +194,10 @@ final class WindowActionHandler {
         guard let controller else { return false }
         guard let entry = controller.workspaceManager.entry(for: handle) else { return false }
 
-        let element = entry.axRef.element
+        guard let axRef = entry.axRef else {
+            return controller.shellAppWindowManager.close(entry.token)
+        }
+        let element = axRef.element
         return MainThreadAXSpanTrace.measure(.closeButtonPress, pid: entry.pid, windowId: entry.windowId) {
             var closeButton: CFTypeRef?
             if AXUIElementCopyAttributeValue(element, kAXCloseButtonAttribute as CFString, &closeButton) == .success,
@@ -304,6 +312,7 @@ final class WindowActionHandler {
         handle: WindowHandle,
         focusOrigin: ManagedFocusOrigin = .keyboardOrProgrammatic
     ) -> Bool {
+        guard restoreMinimizedWindowIfNeeded(handle) else { return false }
         let navigated = navigateToExplicitlySelectedWindow(handle: handle, focusOrigin: focusOrigin)
         if navigated,
            let controller,
@@ -316,7 +325,9 @@ final class WindowActionHandler {
         }
         return navigated
     }
+}
 
+extension WindowActionHandler {
     func runningAppsWithWindows() -> [RunningAppInfo] {
         guard let controller else { return [] }
         var appInfoMap: [String: RunningAppInfo] = [:]
@@ -330,7 +341,8 @@ final class WindowActionHandler {
 
             if appInfoMap[key] != nil { continue }
 
-            let frame = (AXWindowService.framePreferFast(entry.axRef)) ?? .zero
+            let frame = entry.axRef.flatMap(AXWindowService.framePreferFast)
+                ?? controller.shellAppWindowManager.frame(for: entry.token) ?? .zero
 
             appInfoMap[key] = RunningAppInfo(
                 id: key,
@@ -343,5 +355,18 @@ final class WindowActionHandler {
         }
 
         return appInfoMap.values.sorted { $0.appName < $1.appName }
+    }
+
+    private func restoreMinimizedWindowIfNeeded(_ handle: WindowHandle) -> Bool {
+        guard let controller,
+              let entry = controller.workspaceManager.entry(for: handle)
+        else { return true }
+        if entry.target.hostedMetadata != nil {
+            return controller.shellAppWindowManager.restoreFamilyIfMinimized(for: entry.token)
+        }
+        guard entry.observedState.isMinimized, let axRef = entry.axRef else { return true }
+        guard unminimizeWindow(axRef) else { return false }
+        controller.axEventHandler.updateWindowMinimizedState(false, token: entry.token)
+        return true
     }
 }

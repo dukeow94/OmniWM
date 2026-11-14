@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import Foundation
@@ -19,7 +19,7 @@ extension WMController {
 
     func updateMonitorNiriSettings() {
         guard niriEngine != nil else { return }
-        niriLayoutHandler.refreshResolvedMonitorSettings()
+        niriLayoutHandler.refreshResolvedMonitorSettings(rebalanceChangedSpans: true)
         layoutRefreshController.requestRelayout(reason: .monitorSettingsChanged)
     }
 
@@ -78,6 +78,7 @@ extension WMController {
         centerFocusedColumn: CenterFocusedColumn? = nil,
         alwaysCenterSingleColumn: Bool? = nil,
         singleWindowFit: SingleWindowFit? = nil,
+        edgeOverscroll: NiriEdgeOverscroll? = nil,
         containerPrimarySpanPresets: [Double]? = nil,
         defaultContainerPrimarySpan: Double?? = nil
     ) {
@@ -87,13 +88,14 @@ extension WMController {
             centerFocusedColumn: centerFocusedColumn,
             alwaysCenterSingleColumn: alwaysCenterSingleColumn,
             singleWindowFit: singleWindowFit,
+            edgeOverscroll: edgeOverscroll,
             containerPrimarySpanPresets: containerPrimarySpanPresets,
             defaultContainerPrimarySpan: defaultContainerPrimarySpan
         )
     }
 
-    func balanceNiriSizesAllWorkspaces() {
-        niriLayoutHandler.balanceSizesAllWorkspaces()
+    func rebalanceNiriSizesForVisibleContainerCountChange(on monitorId: Monitor.ID? = nil) {
+        niriLayoutHandler.balanceSizesAllWorkspaces(on: monitorId, onlyAutomaticSpans: true)
     }
 
     func enableDwindleLayout() {

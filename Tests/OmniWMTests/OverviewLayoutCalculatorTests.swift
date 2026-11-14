@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 @testable import OmniWM
@@ -7,6 +7,72 @@ import XCTest
 
 @MainActor
 final class OverviewLayoutCalculatorTests: XCTestCase {
+    func testNotchedDisplayKeepsSearchAndContentBelowSafeAreaAtEveryZoom() throws {
+        let viewport = CGRect(x: 0, y: 0, width: 1512, height: 982)
+        let safeAreaInset: CGFloat = 32
+        let workspace = OverviewWorkspaceLayoutItem(id: UUID(), name: "Main", isActive: true)
+
+        for scale: CGFloat in [0.5, 1, 1.5] {
+            for query in ["", "Safari"] {
+                let layout = OverviewLayoutCalculator(
+                    screenFrame: viewport,
+                    scale: scale,
+                    topSafeAreaInset: safeAreaInset
+                ).calculateLayout(workspaces: [workspace], windows: [:], searchQuery: query)
+                let section = try XCTUnwrap(layout.workspaceSections.first)
+
+                XCTAssertEqual(
+                    layout.searchBarFrame.maxY,
+                    viewport.maxY - safeAreaInset - OverviewLayoutMetrics.searchBarPadding * scale
+                )
+                XCTAssertLessThan(section.labelFrame.maxY, layout.searchBarFrame.minY)
+                XCTAssertEqual(layout.viewportFrame, viewport)
+                XCTAssertEqual(
+                    OverviewLayoutCalculator.visibleContentFrame(layout: layout, screenFrame: viewport).maxY,
+                    layout.searchBarFrame.minY - OverviewLayoutMetrics.contentTopPadding * scale
+                )
+            }
+        }
+    }
+
+    func testProjectionUsesEachMonitorsNotchHeightForSearchPosition() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let settings = SettingsStore(
+            persistence: SettingsFilePersistence(
+                directory: directory.appendingPathComponent("config"), startWatching: false, deferSaves: false
+            ),
+            runtimeState: RuntimeStateStore(directory: directory.appendingPathComponent("state"), deferSaves: false),
+            autosaveEnabled: false
+        )
+        let controller = WMController(settings: settings)
+        let monitors = [CGFloat(0), 32].enumerated().map { index, notchHeight in
+            let displayId = CGDirectDisplayID(93_001 + index)
+            let frame = CGRect(x: index * 1512, y: 200, width: 1512, height: 982)
+            return Monitor(
+                id: .init(displayId: displayId), displayId: displayId, frame: frame, visibleFrame: frame,
+                hasNotch: notchHeight > 0, notchHeight: notchHeight, name: "Projection Test \(index)"
+            )
+        }
+        controller.workspaceManager.applyMonitorConfigurationChange(monitors)
+        let snapshot = OverviewSnapshot(
+            wmController: controller,
+            facts: OverviewWindowFacts(wmController: controller, environment: OverviewEnvironment())
+        )
+        let scale: CGFloat = 1.25
+        let projection = OverviewViewportProjection(wmController: controller, snapshot: snapshot, scale: scale)
+
+        projection.rebuildProjectedLayouts()
+
+        for monitor in monitors {
+            let layout = try XCTUnwrap(projection.layoutsByMonitor[monitor.id])
+            XCTAssertEqual(
+                layout.searchBarFrame.maxY,
+                monitor.frame.height - monitor.notchHeight - OverviewLayoutMetrics.searchBarPadding * scale
+            )
+        }
+    }
+
     func testGenericFallbackProjectsMonitorLocalFramesAtUniformStripScale() throws {
         let (layout, handles) = makeMixedLayout()
         let section = try XCTUnwrap(layout.workspaceSections.first)
@@ -171,7 +237,7 @@ final class OverviewLayoutCalculatorTests: XCTestCase {
 
         XCTAssertEqual(layout.workspaceSections.count, 3)
         XCTAssertEqual(layout.scale, 1.25)
-        XCTAssertEqual(layout.totalContentHeight, 1515, accuracy: 1e-10)
+        XCTAssertEqual(layout.totalContentHeight, 1515, accuracy: CGFloat.rounding(operations: 19, at: 1515))
         XCTAssertEqual(layout.allWindows.map(\.matchesSearch), [false, true, true, false, false])
         for (window, handle) in zip(layout.allWindows, handles) {
             XCTAssertTrue(window.handle === handle)
@@ -180,7 +246,7 @@ final class OverviewLayoutCalculatorTests: XCTestCase {
             layout: layout,
             screenFrame: CGRect(x: -200, y: -100, width: 1000, height: 800)
         )
-        XCTAssertEqual(bounds.lowerBound, -820, accuracy: 1e-10)
+        XCTAssertEqual(bounds.lowerBound, -820, accuracy: CGFloat.rounding(operations: 21, at: 1515))
         XCTAssertEqual(bounds.upperBound, 0)
     }
 
@@ -213,8 +279,12 @@ final class OverviewLayoutCalculatorTests: XCTestCase {
             assertFrame(window.interpolatedFrame(progress: 1), window.overviewFrame)
             XCTAssertEqual(
                 window.interpolatedFrame(progress: 0.5).midY,
-                (expected.midY + window.overviewFrame.midY) / 2,
-                accuracy: 0.001
+                CGRect(
+                    x: 0,
+                    y: expected.minY + (window.overviewFrame.minY - expected.minY) * 0.5,
+                    width: 0,
+                    height: expected.height + (window.overviewFrame.height - expected.height) * 0.5
+                ).midY
             )
             if window.workspaceId == section.workspaceId {
                 XCTAssertNil(window.restFrame)
@@ -268,10 +338,11 @@ final class OverviewLayoutCalculatorTests: XCTestCase {
 
 extension OverviewLayoutCalculatorTests {
     private func assertFrame(_ actual: CGRect, _ expected: CGRect, file: StaticString = #filePath, line: UInt = #line) {
-        XCTAssertEqual(actual.minX, expected.minX, accuracy: 0.001, file: file, line: line)
-        XCTAssertEqual(actual.minY, expected.minY, accuracy: 0.001, file: file, line: line)
-        XCTAssertEqual(actual.width, expected.width, accuracy: 0.001, file: file, line: line)
-        XCTAssertEqual(actual.height, expected.height, accuracy: 0.001, file: file, line: line)
+        let frameBound = CGFloat.rounding(operations: 15, at: 1000)
+        XCTAssertEqual(actual.minX, expected.minX, accuracy: frameBound, file: file, line: line)
+        XCTAssertEqual(actual.minY, expected.minY, accuracy: frameBound, file: file, line: line)
+        XCTAssertEqual(actual.width, expected.width, accuracy: frameBound, file: file, line: line)
+        XCTAssertEqual(actual.height, expected.height, accuracy: frameBound, file: file, line: line)
     }
 
     private func assertFrames(

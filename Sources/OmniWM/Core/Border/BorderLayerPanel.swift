@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import OmniWMLayerCorners
@@ -8,6 +8,10 @@ import QuartzCore
 @MainActor
 class BorderLayerPanel: NSPanel {
     let borderLayer = CALayer()
+    private(set) var placedFrame: CGRect?
+    private var placementIsMoving = false
+    private var layerContext: NSObject?
+    private var appliedColorSpace: CGColorSpace?
     private let containerLayer = CALayer()
     private let effects = BorderEffectLayers()
     var glowColorLayer: CAGradientLayer {
@@ -28,6 +32,7 @@ class BorderLayerPanel: NSPanel {
 
     init?(frame: CGRect) {
         guard omniwm_layer_border_available() else { return nil }
+        omniwm_window_manager_begin_coordinator_capture()
         super.init(
             contentRect: frame.integral,
             styleMask: [.borderless, .nonactivatingPanel],
@@ -46,8 +51,7 @@ class BorderLayerPanel: NSPanel {
         animationBehavior = .none
         isRestorable = false
 
-        let view = NSView(frame: CGRect(origin: .zero, size: frame.integral.size))
-        view.wantsLayer = true
+        omniwm_window_manager_end_coordinator_capture()
         borderLayer.cornerCurve = .continuous
         borderLayer.rimOpacity = 1
         borderLayer.actions = [
@@ -57,8 +61,21 @@ class BorderLayerPanel: NSPanel {
         containerLayer.actions = ["hidden": NSNull()]
         containerLayer.addSublayer(effects.root)
         containerLayer.addSublayer(borderLayer)
-        view.layer = containerLayer
-        contentView = view
+        guard let layerContext = SkyLight.shared.attachLayerContext(
+            rootLayer: containerLayer, toWindow: UInt32(windowNumber)
+        ) else {
+            super.close()
+            return nil
+        }
+        self.layerContext = layerContext
+    }
+
+    override func close() {
+        if let layerContext {
+            omniwm_layer_context_invalidate(layerContext)
+            self.layerContext = nil
+        }
+        super.close()
     }
 
     override var canBecomeKey: Bool {
@@ -73,24 +90,87 @@ class BorderLayerPanel: NSPanel {
         frameRect
     }
 
-    func applyFrame(targetFrame: CGRect, surfaceFrame: CGRect) {
-        let panelFrame = surfaceFrame.integral
-        let layerFrame = targetFrame.offsetBy(dx: -panelFrame.minX, dy: -panelFrame.minY)
-        let effectsFrame = surfaceFrame.offsetBy(dx: -panelFrame.minX, dy: -panelFrame.minY)
-        guard frame != panelFrame || borderLayer.frame != layerFrame
-            || effects.root.frame != effectsFrame else { return }
+    override func setFrame(_: NSRect, display _: Bool, animate _: Bool) {}
+
+    override func sendEvent(_ event: NSEvent) {
+        guard event.isWindowServerMove else {
+            super.sendEvent(event)
+            return
+        }
+        if !placementIsMoving { reassertPlacement() }
+    }
+
+    func applyFrame(
+        targetFrame: CGRect, surfaceFrame: CGRect, displayClip: CGRect? = nil,
+        presentation: BorderPresentation? = nil, isMoving: Bool = false
+    ) {
+        let moving = presentation?.isMoving ?? isMoving
+        placementIsMoving = moving
+        let stableBacking = (presentation != nil || moving) && displayClip == nil
+        let backingFrame = stableBacking ? SurfacePanelGeometry.backingFrame(for: surfaceFrame)
+            : displayClip.map { surfaceFrame.integral.intersection($0) } ?? surfaceFrame.integral
+        let contentOrigin = stableBacking ? surfaceFrame.origin : backingFrame.origin
+        let nextFrame = stableBacking && presentation == nil
+            ? CGRect(origin: surfaceFrame.origin, size: backingFrame.size) : backingFrame
+        let placed = placedFrame == nextFrame || placeInWindowServer(nextFrame)
+        if !placed {
+            setFrame(backingFrame, display: false)
+            placedFrame = backingFrame
+        }
+        let origin = placed ? contentOrigin : backingFrame.origin
+        let layerFrame = targetFrame.offsetBy(dx: -origin.x, dy: -origin.y)
+        let effectsFrame = surfaceFrame.offsetBy(dx: -origin.x, dy: -origin.y)
+        guard borderLayer.frame != layerFrame || effects.root.frame != effectsFrame else { return }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        if frame != panelFrame {
-            setFrame(panelFrame, display: false)
-        }
-        if borderLayer.frame != layerFrame {
-            borderLayer.frame = layerFrame
-        }
-        if effects.root.frame != effectsFrame {
-            effects.root.frame = effectsFrame
-        }
+        borderLayer.frame = layerFrame
+        effects.root.frame = effectsFrame
         CATransaction.commit()
+    }
+
+    func invalidatePlacement() {
+        placedFrame = nil
+    }
+
+    func setDisplayColorSpace(_ colorSpace: CGColorSpace?) {
+        guard let layerContext, appliedColorSpace !== colorSpace else { return }
+        appliedColorSpace = colorSpace
+        omniwm_layer_context_set_color_space(layerContext, colorSpace)
+    }
+
+    private func reassertPlacement() {
+        guard let placedFrame,
+              let bounds = SkyLight.shared.currentWindowBounds(UInt32(windowNumber)),
+              !bounds.approximatelyEqual(
+                  to: ScreenCoordinateSpace.toWindowServer(rect: placedFrame), tolerance: FrameTolerance.frameWrite
+              )
+        else { return }
+        _ = reshapeInWindowServer(to: placedFrame)
+    }
+
+    private func placeInWindowServer(_ target: CGRect) -> Bool {
+        let placed = windowServerSizeMatches(target.size)
+            ? moveInWindowServer(to: target)
+            : reshapeInWindowServer(to: target)
+        if placed { placedFrame = target }
+        return placed
+    }
+
+    private func windowServerSizeMatches(_ size: CGSize) -> Bool {
+        guard placedFrame?.size == size else { return false }
+        return placementIsMoving || SkyLight.shared.currentWindowBounds(UInt32(windowNumber))?.size == size
+    }
+
+    func moveInWindowServer(to target: CGRect) -> Bool {
+        SkyLight.shared.moveJoiningOpenTransaction(
+            UInt32(windowNumber), origin: ScreenCoordinateSpace.toWindowServer(rect: target).origin
+        )
+    }
+
+    func reshapeInWindowServer(to target: CGRect) -> Bool {
+        SkyLight.shared.transactionReshape(
+            UInt32(windowNumber), origin: ScreenCoordinateSpace.toWindowServer(rect: target).origin, size: target.size
+        )
     }
 
     func updateBorder(
@@ -128,7 +208,8 @@ extension BorderLayerPanel {
         cornerRadii: WindowCornerRadii,
         config: BorderConfig,
         baseColor: CGColor,
-        scale: CGFloat
+        scale: CGFloat,
+        cornerContour: WindowCornerContour? = nil
     ) {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -137,9 +218,10 @@ extension BorderLayerPanel {
             cornerRadii: cornerRadii,
             config: config,
             baseColor: baseColor,
-            scale: scale
+            scale: scale,
+            cornerContour: cornerContour
         )
-        borderLayer.rimOpacity = config.gradient?.enabled == true ? 0 : 1
+        borderLayer.rimOpacity = config.gradient?.enabled == true || cornerContour != nil ? 0 : 1
         CATransaction.commit()
     }
 

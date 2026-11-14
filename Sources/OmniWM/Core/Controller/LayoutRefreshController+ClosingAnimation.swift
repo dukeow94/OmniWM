@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import Foundation
@@ -8,7 +8,7 @@ import QuartzCore
 extension LayoutRefreshController {
     func startWindowCloseAnimation(entry: WindowState, monitor: Monitor) {
         guard controller?.motionPolicy.animationsEnabled != false else { return }
-        guard let controller else { return }
+        guard let controller, let axRef = entry.axRef else { return }
         guard !controller.workspaceManager.isWindowSuppressedByMacOS(entry.token) else { return }
         guard let frame = fastFrame(for: entry.token, axRef: entry.axRef) else { return }
 
@@ -26,7 +26,7 @@ extension LayoutRefreshController {
         animations[entry.windowId] = LayoutRefreshState.ClosingAnimation(
             pid: entry.pid,
             windowId: entry.windowId,
-            axRef: entry.axRef,
+            axRef: axRef,
             fromFrame: frame,
             displacement: displacement,
             animation: animation

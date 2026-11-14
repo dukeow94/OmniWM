@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import Foundation
 @testable import OmniWMCtl
@@ -12,12 +12,13 @@ final class NuCompletionTests: XCTestCase {
         XCTAssertFalse(script.contains("#{{"))
         XCTAssertTrue(script.contains("    windowMarkActionNames: ["))
         XCTAssertTrue(script.contains("    windowMarkListFlags: ["))
+        XCTAssertTrue(script.contains("    windowGatherReachFlag: \"--from\""))
         XCTAssertEqual(script, CLICompletionGenerator.script(for: .nu))
     }
 
-    func testMissingNushellIsAnExplicitSkip() {
+    func testMissingNushellIsAnExplicitFailure() {
         XCTAssertThrowsError(try NuCompletionTestSupport.nuExecutable(path: "")) { error in
-            XCTAssertTrue(error is XCTSkip)
+            XCTAssertTrue(error is MissingTestPrerequisite)
         }
     }
 
@@ -26,10 +27,10 @@ final class NuCompletionTests: XCTestCase {
             do {
                 _ = try NuCompletionTestSupport.run(body)
                 XCTFail("Expected Nushell to fail: \(body)")
-            } catch let skip as XCTSkip {
-                throw skip
+            } catch let missing as MissingTestPrerequisite {
+                throw missing
             } catch {
-                XCTAssertFalse(error is XCTSkip)
+                XCTAssertFalse(error is MissingTestPrerequisite)
             }
         }
     }
@@ -59,20 +60,29 @@ final class NuCompletionTests: XCTestCase {
             ("omniwmctl capture ", CLICompletionCatalog.captureActionNames),
             ("omniwmctl workspace ", CLICompletionCatalog.workspaceActionNames),
             ("omniwmctl window ", CLICompletionCatalog.windowActionNames),
-            ("omniwmctl window mark ", CLICompletionCatalog.windowMarkActionNames),
-            ("omniwmctl window mark list ", CLICompletionCatalog.windowMarkListFlags),
             ("omniwmctl completion ", CLIShell.allCases.map(\.rawValue)),
             ("omniwmctl que", ["query"])
         ]
-        for (input, expected) in cases {
-            try assertCompletions(input, expected)
-        }
+        try assertCompletions(cases)
     }
 
     func testWindowMarkActionAndListFlagCompletions() throws {
-        try assertCompletions("omniwmctl window mark ", CLICompletionCatalog.windowMarkActionNames)
-        try assertCompletions("omniwmctl window mark list ", CLICompletionCatalog.windowMarkListFlags)
-        try assertCompletions("omniwmctl window mark set saved ", [])
+        try assertCompletions([
+            ("omniwmctl window mark ", CLICompletionCatalog.windowMarkActionNames),
+            ("omniwmctl window mark list ", CLICompletionCatalog.windowMarkListFlags),
+            ("omniwmctl window mark set saved ", [])
+        ])
+    }
+
+    func testWindowGatherReachFlagAndValueCompletions() throws {
+        let cases: [(String, [String])] = [
+            ("omniwmctl window gather ", ["--from"]),
+            ("omniwmctl window gather ow_a ", ["--from"]),
+            ("omniwmctl window gather --from ", CLICompletionCatalog.windowGatherReaches),
+            ("omniwmctl window gather --from mo", ["monitor"]),
+            ("omniwmctl window gather --from all ow_a ", [])
+        ]
+        try assertCompletions(cases)
     }
 
     func testNestedCommandsAndLiteralArguments() throws {
@@ -87,35 +97,36 @@ final class NuCompletionTests: XCTestCase {
             ("omniwmctl capture start ", ["trace", "performance"]),
             ("omniwmctl command resize vertical sh", ["shrink"])
         ]
-        for (input, expected) in cases {
-            try assertCompletions(input, expected)
-        }
         let layout = try XCTUnwrap(IPCAutomationManifest.commandDescriptors.first {
             $0.arguments.first?.kind == .layout
         })
-        try assertCompletions(
+        try assertCompletions(cases + [(
             "omniwmctl command \(layout.commandWords.joined(separator: " ")) ",
             ["default", "niri", "dwindle"]
-        )
+        )])
     }
 
     func testQuerySpecificFlagsAndFields() throws {
-        try assertCompletions("omniwmctl query windows ", CLICompletionCatalog.queryFlagsByName["windows"] ?? [])
-        try assertCompletions("omniwmctl query displays --fields ", IPCAutomationManifest.displayFieldCatalog)
-        try assertCompletions("omniwmctl query workspaces --fields display-n", ["display-name"])
-        try assertCompletions("omniwmctl query windows --fields id,ti", ["id,title"])
         let remaining = IPCAutomationManifest.windowFieldCatalog.filter { $0 != "id" }.map { "id,\($0)" }
-        try assertCompletions("omniwmctl query windows --fields id,", remaining)
+        try assertCompletions([
+            ("omniwmctl query windows ", CLICompletionCatalog.queryFlagsByName["windows"] ?? []),
+            ("omniwmctl query displays --fields ", IPCAutomationManifest.displayFieldCatalog),
+            ("omniwmctl query workspaces --fields display-n", ["display-name"]),
+            ("omniwmctl query windows --fields id,ti", ["id,title"]),
+            ("omniwmctl query windows --fields id,", remaining)
+        ])
     }
 
     func testRulesAndSubscriptionChoices() throws {
-        try assertCompletions("omniwmctl rule add ", CLICompletionCatalog.ruleDefinitionFlags)
-        try assertCompletions("omniwmctl rule apply ", CLICompletionCatalog.ruleApplyFlags)
-        try assertCompletions("omniwmctl subscribe ", CLICompletionCatalog.subscribeTokens)
-        try assertCompletions("omniwmctl watch ", CLICompletionCatalog.watchTokens)
-        try assertCompletions("omniwmctl subscribe focus,work", ["focus,workspace-bar"])
         let channels = IPCSubscriptionChannel.allCases.filter { $0 != .focus }.map { "focus,\($0.rawValue)" }
-        try assertCompletions("omniwmctl watch focus,", channels)
+        try assertCompletions([
+            ("omniwmctl rule add ", CLICompletionCatalog.ruleDefinitionFlags),
+            ("omniwmctl rule apply ", CLICompletionCatalog.ruleApplyFlags),
+            ("omniwmctl subscribe ", CLICompletionCatalog.subscribeTokens),
+            ("omniwmctl watch ", CLICompletionCatalog.watchTokens),
+            ("omniwmctl subscribe focus,work", ["focus,workspace-bar"]),
+            ("omniwmctl watch focus,", channels)
+        ])
     }
 
     func testGlobalAndValueTakingFlagsPreserveArgumentPositions() throws {
@@ -132,33 +143,31 @@ final class NuCompletionTests: XCTestCase {
             ("omniwmctl rule apply --pid ", []),
             ("omniwmctl query windows --app 'Visual Studio Code' --fields ti", ["title"])
         ]
-        for (input, expected) in cases {
-            try assertCompletions(input, expected)
-        }
+        try assertCompletions(cases)
     }
 
     func testQuotedWorkspaceTargetsCountAsOneArgument() throws {
-        try assertCompletions(
-            "omniwmctl workspace move-to-monitor 'Design Space' ",
-            ["left", "right", "up", "down", "--force"]
-        )
-        try assertCompletions(
-            "omniwmctl workspace move-to-monitor \"Design Space\" --force --format json ",
-            ["left", "right", "up", "down"]
-        )
+        try assertCompletions([
+            (
+                "omniwmctl workspace move-to-monitor 'Design Space' ",
+                ["left", "right", "up", "down", "--force"]
+            ),
+            (
+                "omniwmctl workspace move-to-monitor \"Design Space\" --force --format json ",
+                ["left", "right", "up", "down"]
+            )
+        ])
     }
 
     func testFreeArgumentsAndWatchChildrenDoNotGetOmniWMCompletions() throws {
-        for input in [
+        try assertCompletions([
             "omniwmctl window focus ",
             "omniwmctl workspace focus-name ",
             "omniwmctl command focus-column 3 ",
             "omniwmctl watch focus --exec ",
             "omniwmctl watch focus --exec nu --format ",
             "omniwmctl watch focus --exec nu --json "
-        ] {
-            try assertCompletions(input, [])
-        }
+        ].map { ($0, []) })
     }
 
     func testImportedCommandPreservesExternalArguments() throws {
@@ -176,9 +185,17 @@ final class NuCompletionTests: XCTestCase {
                 ["command", "set-window-primary-span", "-10%", "--json"]
             )
         ]
-        for (body, expected) in cases {
-            let output = try NuCompletionTestSupport.run(body)
-            let arguments = String(decoding: output, as: UTF8.self)
+        let marker = "@@@"
+        let output = try NuCompletionTestSupport.run(
+            cases.map(\.0).joined(separator: "; print -n \"\(marker)\"; ")
+        )
+        let text = String(decoding: output, as: UTF8.self)
+        let invocations = text.components(separatedBy: marker)
+        guard invocations.count == cases.count else {
+            return XCTFail("expected \(cases.count) invocations, got \(invocations.count): \(text)")
+        }
+        for (invocation, (body, expected)) in zip(invocations, cases) {
+            let arguments = invocation
                 .split(separator: "\0", omittingEmptySubsequences: false).dropLast().map(String.init)
             XCTAssertEqual(arguments, expected, body)
         }
@@ -199,18 +216,13 @@ final class NuCompletionTests: XCTestCase {
     }
 
     private func assertCompletions(
-        _ input: String,
-        _ expected: [String],
+        _ cases: [(String, [String])],
         file: StaticString = #filePath,
         line: UInt = #line
     ) throws {
-        let completions = try NuCompletionTestSupport.completions(input)
-        XCTAssertEqual(
-            Set(completions),
-            Set(expected),
-            input,
-            file: file,
-            line: line
-        )
+        let results = try NuCompletionTestSupport.completions(cases.map(\.0))
+        for (completions, (input, expected)) in zip(results, cases) {
+            XCTAssertEqual(Set(completions), Set(expected), input, file: file, line: line)
+        }
     }
 }

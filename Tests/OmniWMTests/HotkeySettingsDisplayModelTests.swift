@@ -1,35 +1,29 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import Carbon
 @testable import OmniWM
 import XCTest
 
 final class HotkeySettingsDisplayModelTests: XCTestCase {
-    func testSearchFindsAdvancedSizingCommands() {
-        let ids = [
-            "setContainerPrimarySpan.decrease10Percent",
-            "setContainerPrimarySpan.increase10Percent",
-            "setWindowSecondarySpan.decrease10Percent",
-            "setWindowSecondarySpan.increase10Percent"
+    func testSearchFindsSizingColumnAndNormalCommands() {
+        let sizing = [
+            "resizeContainerPrimarySpan.shrink",
+            "resizeContainerPrimarySpan.grow",
+            "resizeWindowSecondarySpan.shrink",
+            "resizeWindowSecondarySpan.grow"
         ]
-        let bindings = HotkeyBindingRegistry.defaults().filter { ids.contains($0.id) }
-
-        XCTAssertEqual(
-            Set(searchIDs("increase", bindings: bindings)),
-            Set(["setContainerPrimarySpan.increase10Percent", "setWindowSecondarySpan.increase10Percent"])
-        )
-        XCTAssertEqual(
-            Set(searchIDs("decrease", bindings: bindings)),
-            Set(["setContainerPrimarySpan.decrease10Percent", "setWindowSecondarySpan.decrease10Percent"])
-        )
-    }
-
-    func testSearchFindsAdvancedColumnCommands() {
-        let ids = ["moveColumn.left", "moveColumn.right"]
-        let bindings = HotkeyBindingRegistry.defaults().filter { ids.contains($0.id) }
-
-        XCTAssertEqual(Set(searchIDs("column", bindings: bindings)), Set(ids))
+        let cases: [(String, [String], [String])] = [
+            ("increase", sizing, ["resizeContainerPrimarySpan.grow", "resizeWindowSecondarySpan.grow"]),
+            ("decrease", sizing, ["resizeContainerPrimarySpan.shrink", "resizeWindowSecondarySpan.shrink"]),
+            ("column", ["moveColumn.left", "moveColumn.right"], ["moveColumn.left", "moveColumn.right"]),
+            ("left", ["move.left", "moveColumn.left"], ["move.left", "moveColumn.left"])
+        ]
+        for (search, ids, expected) in cases {
+            let bindings = HotkeyBindingRegistry.defaults().filter { ids.contains($0.id) }
+            XCTAssertEqual(bindings.count, ids.count, search)
+            XCTAssertEqual(Set(searchIDs(search, bindings: bindings)), Set(expected), search)
+        }
     }
 
     func testSearchFindsWindowMarkActionsAndTheyDefaultUnassigned() throws {
@@ -48,19 +42,11 @@ final class HotkeySettingsDisplayModelTests: XCTestCase {
     func testSearchFindsAdvancedCommandByConfiguredShortcut() throws {
         let shortcut = try XCTUnwrap(KeySymbolMapper.fromHumanReadable("Hyper+Minus"))
         let binding = try XCTUnwrap(HotkeyBindingRegistry.makeBinding(
-            id: "setContainerPrimarySpan.decrease10Percent",
+            id: "resizeContainerPrimarySpan.shrink",
             binding: shortcut
         ))
 
         XCTAssertEqual(searchIDs("hyper+minus", bindings: [binding]), [binding.id])
-    }
-
-    func testSearchIncludesNormalAndAdvancedCommands() {
-        let ids = ["move.left", "moveColumn.left"]
-        let bindings = HotkeyBindingRegistry.defaults().filter { ids.contains($0.id) }
-
-        XCTAssertEqual(bindings.count, ids.count)
-        XCTAssertEqual(Set(searchIDs("left", bindings: bindings)), Set(ids))
     }
 
     func testListShowsAdvancedCommandsAndExcludesUnassignableCommands() throws {

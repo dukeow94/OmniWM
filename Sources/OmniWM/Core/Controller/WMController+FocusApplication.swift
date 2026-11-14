@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import Foundation
@@ -47,6 +47,9 @@ extension WMController {
         guard validateMouseFocusRequest(liveRequest, validatesPointer: validatesPointer) else { return false }
 
         let focusesWithoutRaise = !shouldRaiseManagedFocus(origin: liveRequest.origin, entry: entry)
+        guard let axRef = entry.axRef else {
+            return focusHostedWindow(entry, request: liveRequest, raisesWindow: !focusesWithoutRaise)
+        }
         guard focusesWithoutRaise else {
             return frontManagedFocusRequest(liveRequest, entry: entry, raisesWindow: raisesWindow)
         }
@@ -78,11 +81,19 @@ extension WMController {
             }
             return false
         }
-        return performWindowFocusOnly(
-            pid: entry.pid,
-            windowId: entry.windowId,
-            axRef: entry.axRef
-        )
+        return performWindowFocusOnly(pid: entry.pid, windowId: entry.windowId, axRef: axRef)
+    }
+
+    private func focusHostedWindow(
+        _ entry: WindowState,
+        request: ManagedFocusRequest,
+        raisesWindow: Bool
+    ) -> Bool {
+        guard canFocusWindow(pid: entry.pid, windowId: entry.windowId) else {
+            cancelManagedFocusRequestAndRestoreSource(request)
+            return false
+        }
+        return shellAppWindowManager.focus(entry.token, raisesWindow: raisesWindow)
     }
 
     func completeSameAppFocusHandoff(_ request: ManagedFocusRequest) {
@@ -100,9 +111,7 @@ extension WMController {
             return
         }
         guard focusFollowsMouseEnabled,
-              !mouseEventHandler.hasLatestFocusFollowsMouseSample
-              || mouseEventHandler.latestFocusFollowsMouseToken() == liveRequest.token,
-              focusPolicyEngine.evaluate(.focusFollowsMouse).allowsFocusChange,
+              focusFollowsMouseAllowsFocus(on: liveRequest.token, validatesPointer: true),
               canFocusWindow(pid: entry.pid, windowId: entry.windowId)
         else {
             cancelManagedFocusRequestAndRestoreSource(
@@ -112,13 +121,17 @@ extension WMController {
             return
         }
         let raisesWindow = shouldRaiseManagedFocus(origin: liveRequest.origin, entry: entry)
+        guard let axRef = entry.axRef else {
+            _ = shellAppWindowManager.focus(entry.token, raisesWindow: raisesWindow)
+            return
+        }
         if raisesWindow {
             windowFocusOperations.activateApp(entry.pid)
         }
         guard windowFocusOperations.activateAndFocusSameAppWindow(
             entry.pid,
             UInt32(entry.windowId),
-            entry.axRef.element
+            axRef.element
         ) else {
             cancelManagedFocusRequestAndRestoreSource(
                 liveRequest,
@@ -127,31 +140,27 @@ extension WMController {
             return
         }
         if raisesWindow {
-            windowFocusOperations.raiseWindow(entry.axRef.element)
+            windowFocusOperations.raiseWindow(axRef.element)
         }
         confirmSameAppFocusHandoff(liveRequest, sourceToken: sourceToken, isRetry: isRetry)
     }
 
     private func validateMouseFocusRequest(_ liveRequest: ManagedFocusRequest, validatesPointer: Bool) -> Bool {
-        if liveRequest.origin == .focusFollowsMouse {
-            guard focusFollowsMouseEnabled else {
-                cancelManagedFocusRequestAndRestoreSource(liveRequest)
-                return false
-            }
-            if validatesPointer,
-               mouseEventHandler.hasLatestFocusFollowsMouseSample,
-               mouseEventHandler.latestFocusFollowsMouseToken() != liveRequest.token
-            {
-                cancelManagedFocusRequestAndRestoreSource(liveRequest)
-                return false
-            }
-            guard focusPolicyEngine.evaluate(.focusFollowsMouse).allowsFocusChange else {
-                cancelManagedFocusRequestAndRestoreSource(liveRequest)
-                return false
-            }
+        guard liveRequest.origin == .focusFollowsMouse else { return true }
+        guard focusFollowsMouseEnabled,
+              focusFollowsMouseAllowsFocus(on: liveRequest.token, validatesPointer: validatesPointer)
+        else {
+            cancelManagedFocusRequestAndRestoreSource(liveRequest)
+            return false
         }
-
         return true
+    }
+
+    private func focusFollowsMouseAllowsFocus(on token: WindowToken, validatesPointer: Bool) -> Bool {
+        guard validatesPointer, mouseEventHandler.hasLatestFocusFollowsMouseSample else {
+            return focusPolicyEngine.evaluate(.focusFollowsMouse).allowsFocusChange
+        }
+        return mouseEventHandler.latestFocusFollowsMouseToken() == token
     }
 
     private func frontManagedFocusRequest(
@@ -159,9 +168,10 @@ extension WMController {
         entry: WindowState,
         raisesWindow: Bool
     ) -> Bool {
+        guard let axRef = entry.axRef else { return shellAppWindowManager.focus(entry.token) }
         let applied = raisesWindow
-            ? performWindowFronting(pid: entry.pid, windowId: entry.windowId, axRef: entry.axRef)
-            : submitWindowFocus(pid: entry.pid, windowId: entry.windowId, axRef: entry.axRef)
+            ? performWindowFronting(pid: entry.pid, windowId: entry.windowId, axRef: axRef)
+            : submitWindowFocus(pid: entry.pid, windowId: entry.windowId, axRef: axRef)
         if applied, case .awaitingSameAppActivation = liveRequest.phase {
             _ = intentLedger.completeSameAppActivationHandoff(
                 requestId: liveRequest.requestId

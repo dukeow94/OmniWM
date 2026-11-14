@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 
@@ -8,6 +8,7 @@ final class TabRailManager {
     typealias SelectionHandler = (TabRailInfo, Int, WindowToken?) -> Void
 
     var onSelect: SelectionHandler?
+    var ringOrderedAbove: (@MainActor (UInt32) -> UInt32?)?
 
     private var railWindows: [TabRailKey: TabRailWindow] = [:]
     private var railInfos: [TabRailKey: TabRailInfo] = [:]
@@ -68,7 +69,9 @@ final class TabRailManager {
                 tabCount: info.tabCount,
                 activeVisualIndex: info.activeVisualIndex,
                 activeWindowId: info.activeWindowId,
-                tabs: info.tabs
+                tabs: info.tabs,
+                orderingWindowId: command.orderingWindowId,
+                displayFrame: command.displayFrame
             )
             railInfos[command.key] = presentedInfo
             updateRail(presentedInfo, forceOrdering: false)
@@ -88,6 +91,7 @@ final class TabRailManager {
             window.onSelect = { [weak self] info, visualIndex, token in
                 self?.onSelect?(info, visualIndex, token)
             }
+            window.ringOrderedAbove = { [weak self] in self?.ringOrderedAbove?($0) }
             railWindows[key] = window
             return window
         }()

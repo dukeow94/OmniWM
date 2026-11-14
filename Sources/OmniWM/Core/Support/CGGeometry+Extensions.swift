@@ -1,11 +1,22 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import Foundation
 import Synchronization
 
 enum FloatingFrameGeometry {
+    static func normalizedOrigin(for frame: CGRect, in visibleFrame: CGRect) -> CGPoint {
+        let availableWidth = max(1, visibleFrame.width - frame.width)
+        let availableHeight = max(1, visibleFrame.height - frame.height)
+        let normalizedX = (frame.origin.x - visibleFrame.minX) / availableWidth
+        let normalizedY = (frame.origin.y - visibleFrame.minY) / availableHeight
+        return CGPoint(
+            x: min(max(0, normalizedX), 1),
+            y: min(max(0, normalizedY), 1)
+        )
+    }
+
     static func origin(
         from normalizedOrigin: CGPoint,
         windowSize: CGSize,

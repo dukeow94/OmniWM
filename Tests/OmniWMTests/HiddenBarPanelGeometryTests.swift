@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 @testable import OmniWM
 import XCTest
 
+@MainActor
 final class HiddenBarPanelGeometryTests: XCTestCase {
     private let screen = CGRect(x: 0, y: 0, width: 1200, height: 800)
 
@@ -43,7 +44,10 @@ final class HiddenBarPanelGeometryTests: XCTestCase {
     func testContourStaysInsidePanelAndOwnsItsJoin() throws {
         for edge in [PopupAttachment.Edge.below, .above, .left, .right] {
             let vertical = edge == .left || edge == .right
-            for span in [CGFloat(116), 140, 141, 164, 300] {
+            let cases: [(span: CGFloat, ears: Bool, squaresBar: Bool)] = [
+                (116, false, true), (140, false, true), (141, true, false), (164, true, false), (300, true, false)
+            ]
+            for (span, expectedEars, expectedSquaresBar) in cases {
                 let bar = CGRect(x: 500, y: 350, width: vertical ? 24 : span, height: vertical ? span : 24)
                 let size = vertical ? CGSize(width: 24, height: 100) : CGSize(width: 100, height: 24)
                 let layout = attachedPlacement(bar: bar, edge: edge).layout(size: size)
@@ -53,7 +57,8 @@ final class HiddenBarPanelGeometryTests: XCTestCase {
                 XCTAssertTrue(bounds.contains(contour.boundingRect), "\(edge) \(span)")
                 XCTAssertTrue(contour.contains(CGPoint(x: layout.body.midX, y: layout.body.midY)), "\(edge) \(span)")
                 XCTAssertTrue(contour.contains(CGPoint(x: seam.midX, y: seam.midY)), "\(edge) \(span)")
-                XCTAssertNotEqual(layout.hasEars, layout.squaresBar, "\(edge) \(span)")
+                XCTAssertEqual(layout.hasEars, expectedEars, "\(edge) \(span)")
+                XCTAssertEqual(layout.squaresBar, expectedSquaresBar, "\(edge) \(span)")
             }
         }
     }
@@ -99,79 +104,61 @@ final class HiddenBarPanelGeometryTests: XCTestCase {
             let layout = attachedPlacement(bar: bar, edge: .below).layout(size: CGSize(width: width, height: 24))
             let body = screenRect(layout.body, in: layout)
             XCTAssertTrue(layout.squaresBar)
-            XCTAssertEqual(body.width, expected, accuracy: 0.001)
-            XCTAssertEqual(body.midX, bar.midX, accuracy: 0.001)
-            XCTAssertEqual(screenRect(try XCTUnwrap(layout.seam), in: layout).minX, bar.minX, accuracy: 0.001)
-            XCTAssertEqual(screenRect(try XCTUnwrap(layout.seam), in: layout).maxX, bar.maxX, accuracy: 0.001)
+            let origin = (bar.minX + bar.maxX - expected) / 2
+            XCTAssertEqual(body.width, origin + expected - origin)
+            XCTAssertEqual(body.midX, bar.midX)
+            XCTAssertEqual(screenRect(try XCTUnwrap(layout.seam), in: layout).minX, bar.minX)
+            XCTAssertEqual(screenRect(try XCTUnwrap(layout.seam), in: layout).maxX, bar.maxX)
         }
     }
 
-    func testDrawerThicknessFollowsTheBar() {
+    func testDrawerThicknessFollowsTheBar() throws {
         let top = attachedPlacement(bar: CGRect(x: 450, y: 760, width: 300, height: 28), edge: .below)
         let side = attachedPlacement(bar: CGRect(x: 16, y: 250, width: 30, height: 300), edge: .right)
         XCTAssertEqual(top.cellHeight, 24)
         XCTAssertEqual(side.cellHeight, 26)
-        XCTAssertEqual(HiddenBarPanelController.barSize(itemWidths: [31, 34], placement: top).height, 28)
-        XCTAssertEqual(HiddenBarPanelController.barSize(itemWidths: [31, 34], placement: side).height, 26 * 2 + 8)
+        XCTAssertEqual(try luauSize([31, 34], top).height, 28)
+        XCTAssertEqual(try luauSize([31, 34], side).height, 26 * 2 + 8)
     }
 
-    func testSideAttachmentWrapsLongStripIntoColumnsWithinScreen() {
+    func testSideAttachmentWrapsLongStripIntoColumnsWithinScreen() throws {
         let screen = CGRect(x: 0, y: 0, width: 800, height: 700)
         let bar = CGRect(x: 20, y: 200, width: 30, height: 300)
         let placement = attachedPlacement(bar: bar, edge: .right, screen: screen)
         let widths = Array(repeating: CGFloat(24), count: 40)
-        let size = HiddenBarPanelController.barSize(itemWidths: widths, placement: placement)
+        let size = try luauSize(widths, placement)
         let layout = placement.layout(size: size)
         let body = screenRect(layout.body, in: layout)
 
         XCTAssertEqual(size, CGSize(width: 54, height: 684))
-        XCTAssertEqual(
-            HiddenBarPanelController.itemRanges(itemWidths: widths, placement: placement), [0 ..< 26, 26 ..< 40]
-        )
         XCTAssertGreaterThanOrEqual(body.minY, screen.minY + 8)
         XCTAssertLessThanOrEqual(body.maxY, screen.maxY - 8)
         XCTAssertEqual(layout.frame.minX, bar.maxX)
         XCTAssertLessThanOrEqual(layout.frame.maxX, screen.maxX - 8)
     }
 
-    func testSideBarsUseUprightVerticalStrips() {
+    func testSideBarsUseUprightVerticalStrips() throws {
         for (edge, x) in [(PopupAttachment.Edge.right, CGFloat(16)), (.left, CGFloat(1160))] {
             let placement = attachedPlacement(bar: CGRect(x: x, y: 250, width: 24, height: 300), edge: edge)
             XCTAssertTrue(placement.isVertical)
-            XCTAssertEqual(
-                HiddenBarPanelController.barSize(itemWidths: [24, 40, 24], placement: placement),
-                CGSize(width: 44, height: 68)
-            )
-            XCTAssertEqual(
-                HiddenBarPanelController.itemRanges(itemWidths: [24, 40, 24], placement: placement), [0 ..< 3]
-            )
+            XCTAssertEqual(try luauSize([24, 40, 24], placement), CGSize(width: 44, height: 68))
         }
     }
 
-    func testTopAndBottomBarsKeepHorizontalRows() {
+    func testTopAndBottomBarsKeepHorizontalRows() throws {
         for (edge, y) in [(PopupAttachment.Edge.below, CGFloat(760)), (.above, CGFloat(16))] {
             let placement = attachedPlacement(bar: CGRect(x: 450, y: y, width: 300, height: 24), edge: edge)
             XCTAssertFalse(placement.isVertical)
-            XCTAssertEqual(
-                HiddenBarPanelController.barSize(itemWidths: [24, 40, 24], placement: placement),
-                CGSize(width: 96, height: 24)
-            )
+            XCTAssertEqual(try luauSize([24, 40, 24], placement), CGSize(width: 96, height: 24))
         }
     }
 
-    func testVerticalColumnsKeepWideItemsAndPartialColumn() {
+    func testVerticalColumnsKeepWideItemsAndPartialColumn() throws {
         let placement = attachedPlacement(
             bar: CGRect(x: 16, y: 16, width: 24, height: 40), edge: .right,
             screen: CGRect(x: 0, y: 0, width: 800, height: 72)
         )
-        XCTAssertEqual(
-            HiddenBarPanelController.itemRanges(itemWidths: [24, 40, 30], placement: placement),
-            [0 ..< 2, 2 ..< 3]
-        )
-        XCTAssertEqual(
-            HiddenBarPanelController.barSize(itemWidths: [24, 40, 30], placement: placement),
-            CGSize(width: 76, height: 48)
-        )
+        XCTAssertEqual(try luauSize([24, 40, 30], placement), CGSize(width: 76, height: 48))
     }
 
     func testDetachedPanelKeepsExistingPopupPlacement() {
@@ -191,46 +178,61 @@ final class HiddenBarPanelGeometryTests: XCTestCase {
         let narrow = CGRect(x: 100, y: 0, width: 150, height: 900)
         let frame = PopupAttachment(anchor: CGPoint(x: 175, y: 900))
             .frame(size: CGSize(width: 200, height: 60), visibleFrame: narrow)
-        XCTAssertEqual(frame.minX, narrow.minX + 8, accuracy: 0.5)
+        XCTAssertEqual(frame.minX, narrow.minX + 8)
     }
 
-    func testBarSizeEmptyIsCompact() {
-        let size = HiddenBarPanelController.barSize(itemWidths: [], placement: detachedPlacement(maxContentWidth: 600))
-        XCTAssertEqual(size, CGSize(width: 140, height: 24))
+    func testBarSizeEmptyIsCompact() throws {
+        XCTAssertEqual(try luauSize([], detachedPlacement(maxContentWidth: 600)), CGSize(width: 140, height: 24))
     }
 
-    func testBarSizeSingleRowWhenItemsFit() {
-        let size = HiddenBarPanelController.barSize(
-            itemWidths: [30, 30, 30], placement: detachedPlacement(maxContentWidth: 600)
-        )
+    func testBarSizeSingleRowWhenItemsFit() throws {
+        let size = try luauSize([30, 30, 30], detachedPlacement(maxContentWidth: 600))
         XCTAssertEqual(size, CGSize(width: 30 * 3 + 8, height: 20 + 4))
     }
 
-    func testBarSizeWrapsWhenExceedingMaxWidth() {
-        let size = HiddenBarPanelController.barSize(
-            itemWidths: [30, 30, 30], placement: detachedPlacement(maxContentWidth: 70)
-        )
-        XCTAssertEqual(size.height, 20 * 2 + 2 + 4)
-        XCTAssertEqual(size.width, 30 + 30 + 8)
+    func testRowRangesGreedyBoundaries() throws {
+        let width70 = try luauSize([30, 30, 30], detachedPlacement(maxContentWidth: 70))
+        XCTAssertEqual(width70.height, 2 * 20 + 2 + 4)
+        XCTAssertEqual(width70.width, 68)
+        XCTAssertEqual(try luauSize([30, 30, 30], detachedPlacement(maxContentWidth: 59)).height, 3 * 20 + 2 * 2 + 4)
     }
 
-    func testRowRangesGreedyBoundaries() {
-        let ranges = HiddenBarPanelController.rowRanges(itemWidths: [30, 30, 30], maxContentWidth: 70)
-        XCTAssertEqual(ranges, [0 ..< 2, 2 ..< 3])
+    func testRowRangesOversizeItemGetsOwnRow() throws {
+        XCTAssertEqual(try luauSize([200, 30], detachedPlacement(maxContentWidth: 100)).height, 2 * 20 + 2 + 4)
     }
 
-    func testRowRangesOversizeItemGetsOwnRow() {
-        let ranges = HiddenBarPanelController.rowRanges(itemWidths: [200, 30], maxContentWidth: 100)
-        XCTAssertEqual(ranges, [0 ..< 1, 1 ..< 2])
+    func testGlyphDisplayWidthKeepsNativeWidth() throws {
+        XCTAssertEqual(try luauSize([40], detachedPlacement(maxContentWidth: 600)).width, 40 + 8)
+        XCTAssertEqual(try luauSize([30.2], detachedPlacement(maxContentWidth: 600)).width, 31 + 8)
     }
 
-    func testGlyphDisplayWidthKeepsNativeWidth() {
-        XCTAssertEqual(HiddenBarPanelController.glyphDisplayWidth(for: CGSize(width: 40, height: 40)), 40)
-        XCTAssertEqual(HiddenBarPanelController.glyphDisplayWidth(for: CGSize(width: 30.2, height: 24)), 31)
+    func testGlyphDisplayWidthGuaranteesMinimumTarget() throws {
+        XCTAssertEqual(try luauSize([16], detachedPlacement(maxContentWidth: 600)).width, 20 + 8)
     }
 
-    func testGlyphDisplayWidthGuaranteesMinimumTarget() {
-        XCTAssertEqual(HiddenBarPanelController.glyphDisplayWidth(for: CGSize(width: 16, height: 16)), 20)
+    private func luauSize(_ widths: [CGFloat], _ placement: HiddenBarPanelPlacement) throws -> CGSize {
+        let widget = try ShellRenderedWidget("hidden-bar")
+        widget.set("hiddenBar") {
+            ShellHiddenBarData(
+                enabled: true,
+                available: true,
+                items: widths.enumerated().map {
+                    ShellHiddenBarItem(
+                        id: "app#\($0.offset)",
+                        name: "",
+                        image: nil,
+                        width: Double($0.element),
+                        height: 16
+                    )
+                },
+                maxWidth: Double(placement.maxContentWidth),
+                maxHeight: Double(placement.maxContentHeight),
+                cell: Double(placement.cellHeight),
+                vertical: placement.isVertical
+            ).write(into: &$0)
+        }
+        widget.layoutPopout()
+        return widget.surface.size
     }
 
     private func detachedPlacement(maxContentWidth: CGFloat) -> HiddenBarPanelPlacement {

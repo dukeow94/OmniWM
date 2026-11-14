@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import CoreGraphics
 import Foundation
@@ -48,6 +48,7 @@ final class WorldStore {
         _ event: WMEvent,
         monitors: [Monitor],
         snapshot: () -> ReconcileSnapshot,
+        completeSnapshot: (inout ReconcileSnapshot) -> Void = { _ in },
         preMutate: () -> Void = {},
         resolvePlan: (ActionPlan, WindowToken?, ReconcileSnapshot) -> ActionPlan
     ) -> ReconcileTxn {
@@ -68,6 +69,7 @@ final class WorldStore {
             false
         }
         preMutate()
+        let familyEvents = hostedFamilyEvents(for: event, monitors: monitors)
         applyWindowMutationBeforePlan(event, monitors: monitors)
         let existingEntry = event.token.flatMap { model.entry(for: $0) }
         let normalizedEvent = EventNormalizer.normalize(
@@ -83,12 +85,15 @@ final class WorldStore {
             monitors: monitors,
             windowExistedBeforeMutation: windowExistedBeforeMutation
         )
-        let resolvedPlan = resolvePlan(plan, normalizedEvent.token, reducerSnapshot)
+        var resolvedPlan = resolvePlan(plan, normalizedEvent.token, reducerSnapshot)
+        applyHostedFamilyEvents(familyEvents, monitors: monitors, snapshot: snapshot, plan: &resolvedPlan)
         applyWindowRemovalAfterPlan(event, monitors: monitors)
 
-        let committedSnapshot = resolvedPlan.mutatesRuntimeState || event.mutatesSnapshotAfterPlan
+        var committedSnapshot = resolvedPlan.mutatesRuntimeState || event.mutatesSnapshotAfterPlan || !familyEvents
+            .isEmpty
             ? snapshot()
             : reducerSnapshot
+        completeSnapshot(&committedSnapshot)
         return trace.recordTransaction(
             event: event,
             normalizedEvent: normalizedEvent,
@@ -150,7 +155,7 @@ final class WorldStore {
         }
     }
 
-    private func applyWindowMutationBeforePlan(_ event: WMEvent, monitors: [Monitor]) {
+    func applyWindowMutationBeforePlan(_ event: WMEvent, monitors: [Monitor]) {
         switch event.reconcileDomain {
         case .window:
             applyWindowEventBeforePlan(event, monitors: monitors)
@@ -172,6 +177,7 @@ final class WorldStore {
 
         case .topLevelInventoryObserved,
              .floatingGeometryUpdated,
+             .hostedWindowGeometryObserved,
              .floatingStateChanged,
              .manualLayoutOverrideChanged,
              .niriPlacementsResolved,
@@ -254,19 +260,20 @@ final class WorldStore {
             workspaceId,
             _,
             mode,
-            axRef,
+            target,
             ruleEffects,
             admissionHints,
             lifetimeAuthority,
             _,
             metadata,
+            _,
             _
         ) = event else { preconditionFailure("Unexpected event for applyWindowAdmission") }
         let resolvedAdmissionHints = canUpdateAdmissionHints(for: token)
             ? admissionHints
             : model.admissionHints(for: token) ?? admissionHints
         model.upsert(
-            window: axRef,
+            target: target,
             pid: token.pid,
             windowId: token.windowId,
             workspace: workspaceId,

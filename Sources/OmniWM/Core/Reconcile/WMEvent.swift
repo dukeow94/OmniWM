@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import ApplicationServices
 import CoreGraphics
@@ -30,13 +30,14 @@ enum WMEvent: Equatable {
         workspaceId: WorkspaceDescriptor.ID,
         monitorId: Monitor.ID?,
         mode: TrackedWindowMode,
-        axRef: AXWindowRef,
+        target: WindowTarget,
         ruleEffects: ManagedWindowRuleEffects,
         admissionHints: ManagedWindowAdmissionHints,
         lifetimeAuthority: ManagedWindowLifetimeAuthority,
         adoptNativeFocus: Bool,
         managedReplacementMetadata: ManagedReplacementMetadata?,
-        source: WMEventSource
+        source: WMEventSource,
+        initialFrame: CGRect? = nil
     )
     case topLevelInventoryObserved(
         tokens: Set<WindowToken>,
@@ -69,6 +70,13 @@ enum WMEvent: Equatable {
         workspaceId: WorkspaceDescriptor.ID,
         monitorId: Monitor.ID?,
         mode: TrackedWindowMode,
+        source: WMEventSource
+    )
+    case hostedWindowGeometryObserved(
+        token: WindowToken,
+        workspaceId: WorkspaceDescriptor.ID,
+        monitorId: Monitor.ID?,
+        frame: CGRect,
         source: WMEventSource
     )
     case floatingGeometryUpdated(
@@ -283,26 +291,30 @@ extension WMEvent {
             workspaceId,
             monitorId,
             mode,
-            axRef,
+            target,
             ruleEffects,
             admissionHints,
             lifetimeAuthority,
             adoptNativeFocus,
             metadata,
-            source
+            source,
+            initialFrame
         ):
             .windowAdmitted(
                 token: token,
                 workspaceId: workspaceId,
                 monitorId: monitorId,
                 mode: mode,
-                axRef: AXWindowRef(element: Self.placeholderAXElement, windowId: axRef.windowId),
+                target: target.axRef.map {
+                    .external(AXWindowRef(element: Self.placeholderAXElement, windowId: $0.windowId))
+                } ?? target,
                 ruleEffects: ruleEffects,
                 admissionHints: admissionHints,
                 lifetimeAuthority: lifetimeAuthority,
                 adoptNativeFocus: adoptNativeFocus,
                 managedReplacementMetadata: metadata,
-                source: source
+                source: source,
+                initialFrame: initialFrame
             )
         case let .windowRekeyed(from, to, workspaceId, monitorId, reason, newAXRef, metadata, source):
             .windowRekeyed(
@@ -322,11 +334,12 @@ extension WMEvent {
 
     var token: WindowToken? {
         switch self {
-        case let .windowAdmitted(token, _, _, _, _, _, _, _, _, _, _),
+        case let .windowAdmitted(token, _, _, _, _, _, _, _, _, _, _, _),
              let .windowRemoved(token, _, _),
              let .workspaceAssigned(token, _, _, _, _),
              let .windowModeChanged(token, _, _, _, _),
              let .floatingGeometryUpdated(token, _, _, _, _, _, _),
+             let .hostedWindowGeometryObserved(token, _, _, _, _),
              let .floatingStateChanged(token, _, _, _),
              let .manualLayoutOverrideChanged(token, _, _, _),
              let .windowAdmissionHintsChanged(token, _, _, _),
@@ -377,7 +390,7 @@ extension WMEvent {
 
     var summary: String {
         switch self {
-        case let .windowAdmitted(token, workspaceId, _, mode, _, _, _, _, _, _, _):
+        case let .windowAdmitted(token, workspaceId, _, mode, _, _, _, _, _, _, _, _):
             "window_admitted token=\(token) workspace=\(workspaceId.uuidString) mode=\(mode)"
         case let .topLevelInventoryObserved(tokens, _):
             "top_level_inventory_observed count=\(tokens.count)"
@@ -389,6 +402,8 @@ extension WMEvent {
             "workspace_assigned token=\(token) from=\(from?.uuidString ?? "nil") to=\(to.uuidString)"
         case let .windowModeChanged(token, workspaceId, _, mode, _):
             "window_mode_changed token=\(token) workspace=\(workspaceId.uuidString) mode=\(mode)"
+        case let .hostedWindowGeometryObserved(token, workspaceId, _, frame, _):
+            "hosted_window_geometry_observed token=\(token) workspace=\(workspaceId.uuidString) frame=\(frame.debugDescription)"
         case let .floatingGeometryUpdated(token, workspaceId, _, frame, _, restoreToFloating, _):
             "floating_geometry_updated token=\(token) workspace=\(workspaceId.uuidString) frame=\(frame.debugDescription) restore=\(restoreToFloating)"
         case let .floatingStateChanged(token, workspaceId, state, _):

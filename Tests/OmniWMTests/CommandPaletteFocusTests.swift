@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import Combine
@@ -23,9 +23,9 @@ final class CommandPaletteFocusTests: XCTestCase {
         let revealObservation = panel.publisher(for: \.alphaValue, options: [.initial, .new])
             .first { $0 >= 0.99 }
             .sink { _ in revealed.fulfill() }
-        await fulfillment(of: [revealed], timeout: 1)
+        await fulfillment(of: [revealed], timeout: failureBound)
         revealObservation.cancel()
-        XCTAssertEqual(panel.frame.height, compactFrame.height, accuracy: 0.5)
+        XCTAssertEqual(panel.frame.height, compactFrame.height)
 
         let expanded = expectation(description: "Animated panel reaches expanded height")
         let resizeEvents = NotificationCenter.default.publisher(for: NSWindow.didResizeNotification, object: panel)
@@ -37,12 +37,12 @@ final class CommandPaletteFocusTests: XCTestCase {
 
         try fixture.insertText("first")
         XCTAssertTrue(fixture.palette.isExpanded)
-        XCTAssertEqual(panel.frame.height, compactFrame.height, accuracy: 0.5)
-        await fulfillment(of: [expanded], timeout: 2)
+        XCTAssertEqual(panel.frame.height, compactFrame.height)
+        await fulfillment(of: [expanded], timeout: failureBound)
         expandedObservation.cancel()
         fixture.layout()
         XCTAssertTrue(fixture.palette.isExpanded)
-        XCTAssertEqual(panel.frame.height, CommandPalettePanel.expandedHeight, accuracy: 0.5)
+        XCTAssertEqual(panel.frame.height, CommandPalettePanel.expandedHeight)
         XCTAssertTrue(panel.firstResponder is NSTextView)
         try fixture.insertText(" second")
         XCTAssertEqual(fixture.palette.searchText, "first second")
@@ -53,9 +53,9 @@ final class CommandPaletteFocusTests: XCTestCase {
             .sink { _ in closing.fulfill() }
         fixture.palette.toggle(wmController: fixture.controller)
         XCTAssertFalse(fixture.palette.isVisible)
-        XCTAssertEqual(panel.frame.height, CommandPalettePanel.expandedHeight, accuracy: 0.5)
+        XCTAssertEqual(panel.frame.height, CommandPalettePanel.expandedHeight)
         XCTAssertEqual(fixture.palette.searchText, "first second")
-        await fulfillment(of: [closing], timeout: 2)
+        await fulfillment(of: [closing], timeout: failureBound)
         closingObservation.cancel()
         XCTAssertEqual(fixture.palette.searchText, "first second")
 
@@ -66,7 +66,7 @@ final class CommandPaletteFocusTests: XCTestCase {
             .first { $0 >= CommandPalettePanel.expandedHeight - 0.5 }
             .sink { _ in reopenedExpansion.fulfill() }
         try fixture.insertText("reopened")
-        await fulfillment(of: [reopenedExpansion], timeout: 2)
+        await fulfillment(of: [reopenedExpansion], timeout: failureBound)
         reopenedObservation.cancel()
         XCTAssertTrue(panel.isVisible)
         XCTAssertTrue(fixture.palette.isVisible)
@@ -122,7 +122,7 @@ final class CommandPaletteFocusTests: XCTestCase {
 
         XCTAssertTrue(fixture.palette.isExpanded)
         XCTAssertGreaterThan(panel.frame.height, compactFrame.height + 200)
-        XCTAssertEqual(panel.frame.maxY, compactFrame.maxY, accuracy: 0.5)
+        XCTAssertEqual(panel.frame.maxY, compactFrame.maxY)
         try fixture.insertText(" second")
         XCTAssertEqual(fixture.palette.searchText, "first second")
     }
@@ -139,7 +139,7 @@ final class CommandPaletteFocusTests: XCTestCase {
         XCTAssertEqual(fixture.palette.selectedMode, .clipboard)
         XCTAssertTrue(fixture.palette.isExpanded)
         XCTAssertGreaterThan(panel.frame.height, compactFrame.height + 200)
-        XCTAssertEqual(panel.frame.maxY, compactFrame.maxY, accuracy: 0.5)
+        XCTAssertEqual(panel.frame.maxY, compactFrame.maxY)
         try fixture.insertText("clipboard")
         XCTAssertEqual(fixture.palette.searchText, "clipboard")
     }
@@ -167,8 +167,8 @@ final class CommandPaletteFocusTests: XCTestCase {
 
         XCTAssertGreaterThan(resizedFrame.width, initialFrame.width + 20)
         XCTAssertGreaterThan(resizedFrame.height, initialFrame.height + 16)
-        XCTAssertEqual(resizedFrame.minX, requestedFrame.minX, accuracy: 0.5)
-        XCTAssertEqual(resizedFrame.minY, requestedFrame.minY, accuracy: 0.5)
+        XCTAssertEqual(resizedFrame.minX, requestedFrame.minX)
+        XCTAssertEqual(resizedFrame.minY, requestedFrame.minY)
 
         fixture.palette.toggle(wmController: fixture.controller)
         XCTAssertFalse(panel.isVisible)
@@ -176,17 +176,17 @@ final class CommandPaletteFocusTests: XCTestCase {
         let reopenedPanel = try await showAndWaitForEditing(fixture)
         XCTAssertTrue(reopenedPanel === panel)
         XCTAssertFalse(fixture.palette.isExpanded)
-        XCTAssertEqual(reopenedPanel.frame.minX, resizedFrame.minX, accuracy: 0.5)
-        XCTAssertEqual(reopenedPanel.frame.width, resizedFrame.width, accuracy: 0.5)
-        XCTAssertEqual(reopenedPanel.frame.maxY, resizedFrame.maxY, accuracy: 0.5)
+        XCTAssertEqual(reopenedPanel.frame.minX, resizedFrame.minX)
+        XCTAssertEqual(reopenedPanel.frame.width, resizedFrame.width)
+        XCTAssertEqual(reopenedPanel.frame.maxY, resizedFrame.maxY)
 
         fixture.palette.selectMode(.clipboard)
         fixture.layout()
         XCTAssertTrue(fixture.palette.isExpanded)
-        XCTAssertEqual(reopenedPanel.frame.minX, resizedFrame.minX, accuracy: 0.5)
-        XCTAssertEqual(reopenedPanel.frame.width, resizedFrame.width, accuracy: 0.5)
-        XCTAssertEqual(reopenedPanel.frame.height, resizedFrame.height, accuracy: 0.5)
-        XCTAssertEqual(reopenedPanel.frame.maxY, resizedFrame.maxY, accuracy: 0.5)
+        XCTAssertEqual(reopenedPanel.frame.minX, resizedFrame.minX)
+        XCTAssertEqual(reopenedPanel.frame.width, resizedFrame.width)
+        XCTAssertEqual(reopenedPanel.frame.height, resizedFrame.height)
+        XCTAssertEqual(reopenedPanel.frame.maxY, resizedFrame.maxY)
     }
 
     func testOpeningAndReopeningFocusSearchWithoutClicking() async throws {
@@ -210,6 +210,10 @@ final class CommandPaletteFocusTests: XCTestCase {
     }
 
     func testPalettePanelIsNonactivatingAndSearchRemainsFocused() async throws {
+        let session = CGSessionCopyCurrentDictionary() as? [String: Any]
+        guard session?["CGSSessionScreenIsLocked"] as? Bool != true else {
+            throw MissingTestPrerequisite("A locked console cannot grant key-window status")
+        }
         _ = NSApplication.shared
         let originalPolicy = NSApp.activationPolicy()
         NSApp.setActivationPolicy(.accessory)
@@ -256,9 +260,11 @@ final class CommandPaletteFocusTests: XCTestCase {
         XCTAssertEqual(fixture.palette.selectedMode, .windows)
         XCTAssertEqual(fixture.controller.settings.commandPaletteLastMode, .windows)
 
+        fixture.palette.searchText = "query"
         fixture.palette.toggle(wmController: fixture.controller, mode: .commands)
         XCTAssertTrue(fixture.palette.isVisible)
         XCTAssertEqual(fixture.palette.selectedMode, .commands)
+        XCTAssertEqual(fixture.palette.searchText, "query")
 
         fixture.palette.toggle(wmController: fixture.controller, mode: .commands)
         XCTAssertFalse(fixture.palette.isVisible)
@@ -335,9 +341,11 @@ final class CommandPaletteFocusTests: XCTestCase {
     }
 
     func testClipboardReturnCopiesSelectedItem() async throws {
+        var copiedIDs: [UUID] = []
         let copied = expectation(description: "Selected clipboard item was copied")
         let fixture = CommandPaletteFocusFixture(initialMode: .clipboard) { environment in
-            environment.copyClipboardItem = { _, _ in
+            environment.copyClipboardItem = { _, id in
+                copiedIDs.append(id)
                 copied.fulfill()
                 return true
             }
@@ -345,9 +353,13 @@ final class CommandPaletteFocusTests: XCTestCase {
         defer { fixture.cleanup() }
         let panel = try await showAndWaitForEditing(fixture)
         fixture.palette.selectMode(.clipboard)
+        let selected = try XCTUnwrap(fixture.palette.filteredClipboardItems.dropFirst().first)
+        XCTAssertEqual(selected.title, "Beta")
+        fixture.palette.selectedItemID = .clipboard(selected.id)
 
         try sendKey(keyCode: 36, characters: "\r", to: panel)
-        await fulfillment(of: [copied], timeout: 1)
+        await fulfillment(of: [copied], timeout: failureBound)
+        XCTAssertEqual(copiedIDs, [selected.id])
         XCTAssertFalse(fixture.palette.isVisible)
     }
 
@@ -377,11 +389,11 @@ final class CommandPaletteFocusTests: XCTestCase {
         }
         defer { fixture.cleanup() }
         _ = try fixture.show()
-        await fulfillment(of: [firstPreview], timeout: 1)
+        await fulfillment(of: [firstPreview], timeout: failureBound)
         XCTAssertEqual(fixture.palette.clipboardPreview, .text("First full text"))
 
         observer?([second])
-        await fulfillment(of: [secondPreview], timeout: 1)
+        await fulfillment(of: [secondPreview], timeout: failureBound)
         XCTAssertEqual(fixture.palette.selectedItemID, .clipboard(second.id))
         XCTAssertEqual(fixture.palette.clipboardPreview, .text("Second full text"))
 
@@ -452,7 +464,7 @@ final class CommandPaletteFocusTests: XCTestCase {
         resignKey = { fixture.palette.windowDidResignKey(Notification(name: NSWindow.didResignKeyNotification)) }
 
         fixture.palette.clearClipboardHistory()
-        await fulfillment(of: [failed], timeout: 1)
+        await fulfillment(of: [failed], timeout: failureBound)
         XCTAssertTrue(fixture.palette.isVisible)
         XCTAssertTrue(fixture.palette.isExpanded)
         XCTAssertEqual(fixture.palette.clipboardItems.count, itemCount)
@@ -517,6 +529,64 @@ final class CommandPaletteFocusTests: XCTestCase {
 
         XCTAssertFalse(fixture.palette.isVisible)
         XCTAssertTrue(dispatched.isEmpty)
+    }
+
+    func testSelectingPaletteModeCommandClearsQueryAndSwitchesModeInPlace() throws {
+        var dispatched: [HotkeyCommand] = []
+        let fixture = CommandPaletteFocusFixture { environment in
+            environment.performCommand = { _, command in
+                dispatched.append(command)
+                return .executed
+            }
+        }
+        defer { fixture.cleanup() }
+        _ = try fixture.show()
+
+        fixture.palette.selectMode(.commands)
+        fixture.palette.searchText = "clipboard"
+        fixture.palette.selectedItemID = .command("openCommandPalette.clipboard")
+        fixture.palette.selectCurrent()
+
+        XCTAssertTrue(fixture.palette.isVisible)
+        XCTAssertEqual(fixture.palette.selectedMode, .clipboard)
+        XCTAssertEqual(fixture.palette.searchText, "")
+        XCTAssertEqual(fixture.palette.filteredClipboardItems.map(\.title), ["Alpha", "Beta"])
+        XCTAssertTrue(dispatched.isEmpty)
+    }
+
+    func testSelectingLauncherModeCommandStartsWithEmptyQuery() throws {
+        for mode in [CommandPaletteMode.applications, .files] {
+            var submittedQueries: [String] = []
+            let fixture = CommandPaletteFocusFixture { environment in
+                environment.submitApplicationSearch = { _, query, _, _, _ in submittedQueries.append(query) }
+                environment.submitFileSearch = { _, query, _, _, _ in submittedQueries.append(query) }
+            }
+            defer { fixture.cleanup() }
+            _ = try fixture.show(mode: .commands)
+
+            fixture.palette.searchText = mode.rawValue
+            fixture.palette.selectedItemID = .command("openCommandPalette.\(mode.rawValue)")
+            fixture.palette.selectCurrent()
+
+            XCTAssertTrue(fixture.palette.isVisible)
+            XCTAssertEqual(fixture.palette.selectedMode, mode)
+            XCTAssertEqual(submittedQueries, [""])
+        }
+    }
+
+    func testSelectingCurrentPaletteModeCommandKeepsQueryAndStaysOpen() throws {
+        let fixture = CommandPaletteFocusFixture()
+        defer { fixture.cleanup() }
+        _ = try fixture.show(mode: .commands)
+
+        fixture.palette.searchText = "commands"
+        fixture.palette.selectedItemID = .command("openCommandPalette.commands")
+        fixture.palette.selectCurrent()
+
+        XCTAssertTrue(fixture.palette.isVisible)
+        XCTAssertEqual(fixture.palette.selectedMode, .commands)
+        XCTAssertEqual(fixture.palette.searchText, "commands")
+        XCTAssertEqual(fixture.palette.selectedItemID, .command("openCommandPalette.commands"))
     }
 
     func testCommandWaitsForCapturedAppAndWindowFocus() {
@@ -706,7 +776,7 @@ final class CommandPaletteFocusTests: XCTestCase {
         let firstReady = expectation(description: "First paste is waiting for focus")
         readyExpectation = firstReady
         executor.perform(.pasteClipboard(fixture.controller, itemID, pasteTarget, false))
-        await fulfillment(of: [firstReady], timeout: 1)
+        await fulfillment(of: [firstReady], timeout: failureBound)
         XCTAssertEqual(copyCount, 1)
         XCTAssertEqual(pasteCount, 0)
 
@@ -730,7 +800,7 @@ final class CommandPaletteFocusTests: XCTestCase {
         let secondReady = expectation(description: "Second paste is waiting for focus")
         readyExpectation = secondReady
         executor.perform(.pasteClipboard(fixture.controller, itemID, pasteTarget, false))
-        await fulfillment(of: [secondReady], timeout: 1)
+        await fulfillment(of: [secondReady], timeout: failureBound)
         XCTAssertEqual(copyCount, 2)
         executor.cancelPendingCommand()
         frontmostApp = app
@@ -763,7 +833,7 @@ final class CommandPaletteFocusTests: XCTestCase {
         let focusSession = CommandPaletteFocusSession(environment: environment)
         let executor = CommandPaletteActionExecutor(environment: environment, focusSession: focusSession)
         executor.perform(.pasteClipboard(fixture.controller, UUID(), nil, false))
-        await fulfillment(of: [copied], timeout: 1)
+        await fulfillment(of: [copied], timeout: failureBound)
         XCTAssertEqual(pasteCount, 0)
         executor.focusedWindowChanged(pid: app.processIdentifier)
         XCTAssertEqual(pasteCount, 0)
@@ -809,7 +879,7 @@ final class CommandPaletteFocusTests: XCTestCase {
         let pasteTarget = CommandPaletteClipboardPasteTarget(focusTarget: focusTarget, expectedWindowId: 42)
 
         executor.perform(.pasteClipboard(fixture.controller, UUID(), pasteTarget, false))
-        await fulfillment(of: [copied, awaitingFocus], timeout: 1)
+        await fulfillment(of: [copied, awaitingFocus], timeout: failureBound)
         XCTAssertEqual(secureInputChecks, 1)
         XCTAssertEqual(pasteCount, 0)
         frontmostApp = app
@@ -835,7 +905,7 @@ final class CommandPaletteFocusTests: XCTestCase {
         let executor = CommandPaletteActionExecutor(environment: environment, focusSession: focusSession)
 
         executor.perform(.pasteClipboard(fixture.controller, UUID(), nil, true))
-        await fulfillment(of: [plainCopied], timeout: 1)
+        await fulfillment(of: [plainCopied], timeout: failureBound)
     }
 
     private func showAndWaitForEditing(_ fixture: CommandPaletteFocusFixture) async throws -> NSPanel {
@@ -844,7 +914,7 @@ final class CommandPaletteFocusTests: XCTestCase {
         let observation = panel.publisher(for: \.firstResponder, options: [.initial, .new])
             .first { $0 is NSTextView }
             .sink { _ in editing.fulfill() }
-        await fulfillment(of: [editing], timeout: 1)
+        await fulfillment(of: [editing], timeout: failureBound)
         observation.cancel()
         return panel
     }

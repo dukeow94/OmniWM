@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import Dispatch
 import Foundation
@@ -84,6 +84,10 @@ final class AppAXFrameMailbox {
 
     var inFlightCount: Int {
         activeDrain?.items.count ?? 0
+    }
+
+    func hasInFlightFrameWrite(for windowId: Int) -> Bool {
+        activeDrain?.items.contains { $0.request.windowId == windowId } == true
     }
 
     var runtimeDepths: AppAXMailboxDepths {
