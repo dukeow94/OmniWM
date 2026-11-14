@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import Foundation
@@ -17,11 +17,15 @@ extension DwindleLayoutHandler {
             fullscreenScreen: snapshot.monitor.fullscreenLayoutFrame,
             calculationSettings: calculationSettings(snapshot.settings, from: engine)
         )
-        let diff = layoutDiff(
+        var diff = layoutDiff(
             windows: snapshot.windows,
             frames: frames,
             context: layoutDiffContext(snapshot: snapshot, engine: engine, reassertHidden: true, animationTime: nil)
         )
+        let isInteractiveResize = engine.interactiveResize?.workspaceId == snapshot.workspaceId
+        if isInteractiveResize, let axManager = controller?.axManager {
+            diff.frameChanges = diff.frameChanges.map(axManager.animationFrameChange)
+        }
 
         return WorkspaceLayoutPlan(
             workspaceId: snapshot.workspaceId,
@@ -31,6 +35,7 @@ extension DwindleLayoutHandler {
                 plannedSeq: snapshot.plannedSeq
             ),
             diff: diff,
+            isInteractiveResize: isInteractiveResize,
             isActiveWorkspace: snapshot.isActiveWorkspace
         )
     }

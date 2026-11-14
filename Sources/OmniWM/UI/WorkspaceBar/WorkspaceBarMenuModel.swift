@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import Foundation
 
@@ -20,6 +20,16 @@ enum WorkspaceBarMenuAction: Equatable {
     case toggleScratchpad(ScratchpadIndex)
     case focusScratchpadWindow(WindowToken, ScratchpadIndex)
     case unassignScratchpadWindows([WindowToken])
+    case editShellWidget(String, ShellWidgetEdit)
+    case openBarWidgetSettings
+    case openNetworkPermissions(String)
+}
+
+enum ShellWidgetEdit: Equatable {
+    case earlier
+    case later
+    case lane(ShellLane)
+    case remove
 }
 
 indirect enum WorkspaceBarMenuItem: Equatable {

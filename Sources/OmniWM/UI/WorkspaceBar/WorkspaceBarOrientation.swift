@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import SwiftUI
 
@@ -23,8 +23,4 @@ enum WorkspaceBarOrientation: Equatable {
         let layout = isVertical ? AnyLayout(VStackLayout(spacing: spacing)) : AnyLayout(HStackLayout(spacing: spacing))
         return layout { content() }
     }
-}
-
-extension EnvironmentValues {
-    @Entry var workspaceBarOrientation = WorkspaceBarOrientation.horizontal
 }

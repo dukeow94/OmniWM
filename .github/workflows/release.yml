@@ -137,10 +137,13 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
+      - uses: ./.github/actions/setup-lix
       - name: Install translation build tools
+        env:
+          NIX_CONFIG: access-tokens = github.com=${{ github.token }}
         run: |
-          brew install gettext
-          echo "$(brew --prefix gettext)/bin" >> "$GITHUB_PATH"
+          gettext_out="$(nix build --no-link --print-out-paths .#gettext)"
+          echo "${gettext_out}/bin" >> "$GITHUB_PATH"
       - name: Install Metal Toolchain
         run: xcodebuild -downloadComponent metalToolchain
       - name: Build the current upstream main revision
@@ -194,14 +197,10 @@ jobs:
             echo '::error::main moved since dispatch; re-run prepare.'
             exit 1
           fi
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+      - uses: ./.github/actions/setup-swift
+      - uses: ./.github/actions/setup-lix
         with:
-          path: |
-            .cache/dev-tools/bin
-            .cache/dev-tools/downloads
-          key: dev-deps-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Scripts/dev-tools.env', 'Scripts/build-metadata.env') }}
-      - name: Set up dependencies
-        run: ./Scripts/dev-tools.sh setup-tools
+          make-target: setup-tools
       - name: Download the source-built GhosttyKit
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
         with:
@@ -373,19 +372,15 @@ jobs:
           if manager.git(manager.main, 'rev-parse', 'HEAD') != manifest['release_commit']:
               raise SystemExit('Restored main HEAD differs from the manifest release commit')
           PY
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
-        with:
-          path: |
-            .cache/dev-tools/bin
-            .cache/dev-tools/downloads
-          key: dev-deps-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Scripts/dev-tools.env', 'Scripts/build-metadata.env') }}
       - name: Restore the frozen GhosttyKit dependency
         run: |
           mkdir -p Frameworks
           ditto -x -k "dist/GhosttyKit.xcframework-v$VERSION.zip" Frameworks
           ./Scripts/ghostty-preflight.sh verify
-      - name: Set up dependencies
-        run: ./Scripts/dev-tools.sh setup
+      - uses: ./.github/actions/setup-swift
+      - uses: ./.github/actions/setup-lix
+        with:
+          make-target: setup
       - name: Check frozen worktree is clean
         shell: bash
         run: |

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import ApplicationServices
 import Synchronization
@@ -29,6 +29,10 @@ final class AXCallbackGenerationRegistry: Sendable {
 
     var currentGeneration: UInt64 {
         state.withLock { $0.serviceGeneration }
+    }
+
+    var isLocked: Bool {
+        state.withLockIfAvailable { _ in } == nil
     }
 
     func isCurrent(_ generation: UInt64) -> Bool {

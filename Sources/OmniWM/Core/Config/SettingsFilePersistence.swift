@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import Foundation
 
@@ -27,7 +27,7 @@ final class SettingsFilePersistence {
 
     private let deferSaves: Bool
     private let monitorProvider: () -> [Monitor]
-    private let observation: SettingsFileObservation
+    let observation: SettingsFileObservation
     private var pendingExport: SettingsExport?
     private var saveScheduled = false
     private var lastWrittenFingerprint: SettingsFileAccess.Fingerprint?

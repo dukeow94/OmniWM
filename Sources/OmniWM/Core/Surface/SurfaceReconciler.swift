@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
+import AppKit
 import CoreGraphics
 import Foundation
 
@@ -13,16 +14,17 @@ final class SurfaceReconciler {
         Bool
     ) -> Void
 
-    enum ReconcileScope: Equatable {
+    enum ReconcileScope: Int {
         case borderOnly
+        case bordersAndBars
         case fullScene
     }
 
-    private weak var controller: WMController?
+    weak var controller: WMController?
     private(set) var reconcileScheduled = false
     private(set) var forceOrderingOnNextReconcile = false
     private(set) var pendingReconcileScope: ReconcileScope?
-    private let borderApplier: BorderSurfaceApplier
+    fileprivate let borderApplier: BorderSurfaceApplier
     private let parkingEdgeMaskManager = ParkingEdgeMaskManager()
     private let applyTabRails: TabRailApply
     private let applyNativeFullscreenPlaceholders: NativeFullscreenPlaceholderApply
@@ -64,6 +66,7 @@ final class SurfaceReconciler {
         borderApplier.onCornerSampleResolved = { [weak self] in
             self?.noteBorderChanged()
         }
+        configureParkingEdgeCallbacks(parkingEdgeMaskManager)
     }
 
     func noteWorldChanged() {
@@ -74,15 +77,8 @@ final class SurfaceReconciler {
         scheduleReconcile(.borderOnly)
     }
 
-    private func scheduleReconcile(_ scope: ReconcileScope) {
-        switch (pendingReconcileScope, scope) {
-        case (.fullScene, _),
-             (_, .fullScene):
-            pendingReconcileScope = .fullScene
-        case (.borderOnly, .borderOnly),
-             (nil, .borderOnly):
-            pendingReconcileScope = .borderOnly
-        }
+    fileprivate func scheduleReconcile(_ scope: ReconcileScope) {
+        pendingReconcileScope = max(pendingReconcileScope ?? scope, scope)
         guard !reconcileScheduled else { return }
         reconcileScheduled = true
         let mainRunLoop = CFRunLoopGetMain()
@@ -108,6 +104,9 @@ final class SurfaceReconciler {
         switch scope {
         case .borderOnly:
             runBorderReconcile(forceOrdering: forceOrdering)
+        case .bordersAndBars:
+            runBorderReconcile(forceOrdering: forceOrdering)
+            runBarsReconcile()
         case .fullScene:
             runFullReconcile(forceOrdering: forceOrdering)
         }
@@ -307,6 +306,7 @@ final class SurfaceReconciler {
         refreshCornerRadii: Bool
     ) -> BorderSurfaceApplyResult {
         controller.workspaceBarManager.apply(desired.bars)
+        controller.workspaceBarManager.applyIslands(desired.islands)
         controller.publishWorkspaceDataChanges(from: appliedScene, to: desired)
         let borderOutcome = borderApplier.apply(
             desired.border,
@@ -323,9 +323,55 @@ final class SurfaceReconciler {
         }
         parkingEdgeMaskManager.apply(desired.parkingEdgeMasks)
         appliedScene = desired
+        controller.publishPointerEdgeTopology()
         if !borderOutcome.didApply {
             appliedScene.border = nil
         }
         return borderOutcome
+    }
+}
+
+extension SurfaceReconciler.ReconcileScope: Comparable {
+    static func < (lhs: Self, rhs: Self) -> Bool {
+        lhs.rawValue < rhs.rawValue
+    }
+}
+
+extension SurfaceReconciler {
+    func noteBordersAndBarsChanged() {
+        scheduleReconcile(.bordersAndBars)
+    }
+
+    fileprivate func runBarsReconcile() {
+        guard let controller else { return }
+        let world = WorldView(controller: controller)
+        var desired = appliedScene
+        desired.bars = world.hasStartedServices ? world.barSurfaces() : []
+        controller.workspaceBarManager.apply(desired.bars)
+        controller.publishWorkspaceDataChanges(from: appliedScene, to: desired)
+        appliedScene.bars = desired.bars
+    }
+}
+
+extension SurfaceReconciler {
+    func ringWindowId(orderedAbove target: UInt32) -> UInt32? {
+        borderApplier.ringWindowId(orderedAbove: target)
+    }
+
+    func noteInvalidation(_ scope: SessionSurfaceInvalidationScope) {
+        switch scope {
+        case .full:
+            noteWorldChanged()
+        case .border:
+            noteBorderChanged()
+        case .layoutEdge:
+            let needsFullScene = !appliedScene.tabRails.isEmpty
+                || controller?.hasWindowOrLayoutEventSubscribers == true
+            scheduleReconcile(needsFullScene ? .fullScene : .borderOnly)
+        }
+    }
+
+    func reapplyParkingEdgeMasks() {
+        parkingEdgeMaskManager.apply(appliedScene.parkingEdgeMasks)
     }
 }

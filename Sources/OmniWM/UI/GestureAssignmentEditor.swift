@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import Foundation
 import Observation
@@ -16,6 +16,16 @@ extension WorkspaceSwipeAxis {
         switch self {
         case .horizontal: String(localized: "horizontal swipes")
         case .vertical: String(localized: "vertical swipes")
+        }
+    }
+}
+
+extension WorkspaceSwipeEdgeBehavior {
+    var localizedDisplayName: String {
+        switch self {
+        case .cycle: String(localized: "Wrap Around")
+        case .none: String(localized: "Stop")
+        case .onePast: String(localized: "Open One Empty Workspace")
         }
     }
 }

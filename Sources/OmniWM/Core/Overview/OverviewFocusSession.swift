@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import Carbon
@@ -62,7 +62,7 @@ final class OverviewFocusSession {
         let handoff: PostCloseHandoff?
         if dismissReason.shouldRestorePreviousApplication
             || dismissReason == .selection && resolvedTargetWindow == nil,
-            let previousFrontmostApplicationPID
+           let previousFrontmostApplicationPID
         {
             handoff = .activateApplication(previousFrontmostApplicationPID)
         } else if dismissReason == .selection,

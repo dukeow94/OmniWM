@@ -1,23 +1,35 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import Foundation
 
+enum CommandPaletteFilteredItems {
+    case windows([CommandPaletteWindowItem])
+    case menu([MenuItemModel])
+    case clipboard([ClipboardPaletteItem])
+    case commands([CommandPaletteCommandItem])
+    case launcher
+}
+
 extension CommandPaletteController {
     var filteredWindowItems: [CommandPaletteWindowItem] {
-        CommandPaletteSearch.filterWindowItems(windows, query: searchText)
+        guard case let .windows(items) = filteredItems else { return [] }
+        return items
     }
 
     var filteredMenuItems: [MenuItemModel] {
-        CommandPaletteSearch.filterMenuItems(menuItems, query: searchText)
+        guard case let .menu(items) = filteredItems else { return [] }
+        return items
     }
 
     var filteredClipboardItems: [ClipboardPaletteItem] {
-        CommandPaletteSearch.filterClipboardItems(clipboardItems, query: searchText)
+        guard case let .clipboard(items) = filteredItems else { return [] }
+        return items
     }
 
     var filteredCommandItems: [CommandPaletteCommandItem] {
-        CommandPaletteSearch.filterCommandItems(commandItems, query: searchText)
+        guard case let .commands(items) = filteredItems else { return [] }
+        return items
     }
 
     var isMenuModeAvailable: Bool {
@@ -159,6 +171,13 @@ extension CommandPaletteController {
     ) -> CommandPaletteActionExecutor.Action? {
         guard launcherPublishedGeneration == launcherRequestGeneration, let wmController else { return nil }
         switch selectedItemID {
+        case let .launcherEntry(id)? where selectedMode == .applications:
+            guard let entry = launcherSavedEntries.first(where: { $0.id == id }) else { return nil }
+            if trigger == .reveal {
+                guard !entry.path.isEmpty else { return nil }
+                return .revealFile(URL(fileURLWithPath: LauncherPaths.expanded(entry.path)))
+            }
+            return .launchEntry(wmController, entry, searchText)
         case let .application(sectionID, id)? where selectedMode == .applications:
             guard let item = applicationSections.first(where: { $0.id == sectionID })?
                 .items.first(where: { $0.id == id }) else { return nil }
@@ -188,9 +207,11 @@ extension CommandPaletteController {
         case .commands:
             return filteredCommandItems.filter(\.isLayoutCompatible).map { CommandPaletteSelectionID.command($0.id) }
         case .applications:
-            return applicationSections.flatMap { section in
-                section.items.map { .application(section.id, $0.id) }
-            }
+            if launcherFilter == .cli { return launcherExecutables.map { .executable($0.path) } }
+            return launcherSavedEntries.map { .launcherEntry($0.id) } + displayedApplicationSections
+                .flatMap { section in
+                    section.items.map { .application(section.id, $0.id) }
+                }
         case .files:
             return fileSections.flatMap { section in
                 section.items.map { .file(section.id, $0.id) }

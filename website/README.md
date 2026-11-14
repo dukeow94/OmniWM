@@ -10,18 +10,20 @@ npm run dev       # local dev server at localhost:4321
 npm run build     # static build into dist/
 npm run preview   # serve the built site
 npm run check     # type-check content and components
+npm test          # run demo and interaction tests
 ```
 
 Node 24 LTS required.
 
 ## Adding or editing a knowledge-base page
 
-Every docs page is a Markdown file under `src/content/docs/`, grouped by directory:
+Every docs page is a Markdown (`.md`) or MDX (`.mdx`) file under `src/content/docs/`, grouped by directory:
 
 | Directory | Sidebar group |
 |---|---|
 | `guides/` | Getting Started |
 | `features/` | Features |
+| `omnishell/` | OmniShell (Guides, Configuration, Luau API Reference) |
 | `config/` | Configuration |
 | `reference/cli/` | CLI & IPC |
 | `help/` | Help |
@@ -42,11 +44,19 @@ Content starts here — no `# H1`, Starlight renders the title.
 
 The sidebar is generated automatically; `sidebar.order` controls position within the group. Use `:::note`, `:::tip`, and `:::caution` asides where helpful. Internal links are root-relative with a trailing slash (`/guides/install/`); links to repository files use absolute GitHub URLs. Every published page has an "Edit page" link that opens the file on GitHub, so small fixes can be PRed straight from the site.
 
+### OmniShell documentation
+
+OmniShell's overview keeps its published `/features/luau-shell/` URL and is linked explicitly from the OmniShell sidebar section. Its `sidebar.hidden` setting excludes it from Features. Focused guides, configuration pages and the Luau reference live under `src/content/docs/omnishell/`.
+
+The API signatures and types come from `Sources/OmniWM/Resources/omniwm.d.luau`. After changing that file, run `npm run reference:generate` from `website/`, review the generated data and update the affected reference prose. `npm run reference:check` checks freshness and topic coverage without writing files; website CI runs it before the normal check and build. Generated data is checked in so deployments can build the website on its own. Defaults, capabilities, lifecycle rules and error behavior remain authored documentation verified against the implementation.
+
+Complete tutorial packages live under `public/examples/omnishell/`. MDX guides use `ExampleFile.astro` to show those same files with download links. Update the package files rather than copying final listings into Markdown, and verify them with the headless shell documentation example tests. The examples must never be installed into a developer's active shell during automated checks.
+
 The full contributor guide is published at `/developers/contributing/`, and this website-development guide at `/developers/website/`. Keep their Markdown pages in sync with the repository copies in `CONTRIBUTING.md` and `website/README.md`; adapt navigation links to stay within the website.
 
 The documentation follows `main`, which can include features newer than the latest release. Place an **Unreleased** note beside each unreleased feature or setting, stating that it is available when building from `main`. Check the feature against the latest release tag before removing the note. Keep download links and the displayed release version tied to the published release.
 
-Keep facts in sync with the app: defaults belong to `Sources/OmniWM/Core/Config/SettingsExport.swift` and its `SettingsExport+*.swift` extensions; the domain settings types consume those defaults and map live values to/from the export. The TOML schema lives in `CanonicalTOMLConfig.swift`, and default hotkeys are assembled by `Core/Input/ActionCatalog.swift` from its `ActionCatalog+*.swift` extensions. The command palette uses substring matching with tiered ranking for its original four modes and Spotlight-style token matching for Applications and Files. The quake terminal's default position is Center, which fades rather than slides.
+Keep facts in sync with the app: defaults belong to `Sources/OmniWM/Core/Config/SettingsExport.swift` and its `SettingsExport+*.swift` extensions; the domain settings types consume those defaults and map live values to/from the export. The TOML schema lives in `CanonicalTOMLConfig.swift`, and default hotkeys are assembled by `Core/Input/ActionCatalog.swift` from its `ActionCatalog+*.swift` extensions. The command palette uses substring matching with tiered ranking for its original four modes and Spotlight-style token matching for Launcher apps and Files. The quake terminal's default position is Center, which fades rather than slides.
 
 ## Landing page
 
@@ -56,7 +66,8 @@ At the release that includes the new gestures and border effects, update the exi
 
 ## Data files
 
-- `src/data/employers.ts`, `education.ts`, `contributors.ts` mirror the machine-generated credits block in the repository README (`<!-- contributors:start -->` … `<!-- contributors:end -->`). When crediting someone new, update both.
+- `src/data/maintainers.ts`, `employers.ts`, `education.ts`, `contributors.ts` mirror the machine-generated credits block in the repository README (`<!-- contributors:start -->` … `<!-- contributors:end -->`). When crediting someone new, update both.
+- `src/data/reporters.ts` mirrors the README's Bug Reporters block (`<!-- bug-reporters:start -->` … `<!-- bug-reporters:end -->`): people whose bug reports led to fixes.
 - `src/data/sponsors.ts` mirrors the rank-ordered list in `Sources/OmniWM/UI/SponsorsView.swift`; sponsor avatars in `public/credits/sponsors/` are copies of the app-bundled images in `Sources/OmniWM/Resources/`.
 - Employer and education logos in `public/credits/` are self-hosted copies downloaded once from the README's logo URLs.
 

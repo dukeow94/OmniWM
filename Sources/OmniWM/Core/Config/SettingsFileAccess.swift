@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import Darwin
 import Foundation
@@ -116,7 +116,7 @@ enum SettingsFileAccess {
         return resolvedURL
     }
 
-    private static func canonicalURL(for url: URL) throws -> URL {
+    static func canonicalURL(for url: URL) throws -> URL {
         try url.withUnsafeFileSystemRepresentation { path in
             guard let path else { throw CocoaError(.fileReadInvalidFileName) }
             errno = 0

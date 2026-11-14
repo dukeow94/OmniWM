@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import IOSurface
@@ -54,6 +54,10 @@ final class WorkspaceSwipePreview {
     private let capture: OverviewThumbnailCapture
     private let hasCaptureAccess: @MainActor () -> Bool
     private let backdrop: WorkspaceSwipeBackdrop
+    private let captureDisplay: @MainActor (Monitor, CGRect) async -> CGImage?
+    private var sourceSnapshot: CGImage?
+    private var sourceSnapshotLayer: CALayer?
+    private(set) var sourceSnapshotTask: Task<Void, Never>?
     private var tokens: [WindowHandle: WindowToken] = [:]
     private var panel: WorkspaceSwipePreviewPanel?
     private var sourceLayer: CALayer?
@@ -65,15 +69,23 @@ final class WorkspaceSwipePreview {
         panel?.isVisible == true
     }
 
+    var presentedSourceSnapshot: Any? {
+        sourceSnapshotLayer?.contents
+    }
+
     init(
         ownedWindowRegistry: OwnedWindowRegistry,
         previewCapture: OverviewThumbnailCapture? = nil,
         backdrop: WorkspaceSwipeBackdrop = WorkspaceSwipeBackdrop(),
-        hasCaptureAccess: @escaping @MainActor () -> Bool = { ScreenCapturePermissionMonitor.shared.isGranted }
+        hasCaptureAccess: @escaping @MainActor () -> Bool = { ScreenCapturePermissionMonitor.shared.isGranted },
+        captureDisplay: (@MainActor (Monitor, CGRect) async -> CGImage?)? = nil
     ) {
         self.ownedWindowRegistry = ownedWindowRegistry
         self.hasCaptureAccess = hasCaptureAccess
         self.backdrop = backdrop
+        self.captureDisplay = captureDisplay ?? { [ownedWindowRegistry] monitor, frame in
+            await WorkspaceSwipeDisplaySnapshot.capture(monitor: monitor, frame: frame, registry: ownedWindowRegistry)
+        }
         capture = previewCapture ?? OverviewThumbnailCapture(
             consumer: .workspaceSwipe,
             hasCaptureAccess: hasCaptureAccess,
@@ -110,8 +122,46 @@ final class WorkspaceSwipePreview {
         reconcile(source: source, destination: destination, monitor: monitor, workingFrame: workingFrame, warming: true)
     }
 
+    func captureSource(monitor: Monitor, workingFrame: CGRect? = nil) {
+        dropSourceSnapshot()
+        guard panel == nil, hasCaptureAccess() else { return }
+        let frame = workingFrame ?? monitor.visibleFrame
+        sourceSnapshotTask = Task { [weak self, captureDisplay] in
+            let image = await captureDisplay(monitor, frame)
+            guard let self, !Task.isCancelled else { return }
+            sourceSnapshotTask = nil
+            sourceSnapshot = image
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            sourceSnapshotLayer?.contents = image
+            CATransaction.commit()
+        }
+    }
+
+    func freezeSource() {
+        sourceSnapshotTask?.cancel()
+        sourceSnapshotTask = nil
+    }
+
+    private func dropSourceSnapshot() {
+        freezeSource()
+        sourceSnapshot = nil
+        sourceSnapshotLayer = nil
+    }
+
+    func prefetch(shown: [Item], upcoming: [Item], monitor: Monitor, workingFrame: CGRect? = nil) {
+        let frame = workingFrame ?? monitor.visibleFrame
+        let missing = upcoming.filter { $0.frame.intersects(frame) && capture.preview(for: $0.handle) == nil }
+        guard panel != nil, !missing.isEmpty else { return }
+        reconcile(
+            source: shown, destination: missing, monitor: monitor, workingFrame: frame, warming: false,
+            firstFrameHandles: Set(missing.map(\.handle))
+        )
+    }
+
     private func reconcile(
-        source: [Item], destination: [Item], monitor: Monitor, workingFrame: CGRect?, warming: Bool
+        source: [Item], destination: [Item], monitor: Monitor, workingFrame: CGRect?, warming: Bool,
+        firstFrameHandles: Set<WindowHandle> = []
     ) {
         isWarming = false
         let frame = workingFrame ?? monitor.visibleFrame
@@ -129,7 +179,8 @@ final class WorkspaceSwipePreview {
             represented: represented,
             visible: requested.map { $0.captureRequest(backingScale: scale) },
             retainingUnrepresentedPreviews: true,
-            firstFrameOnly: warming
+            firstFrameOnly: warming,
+            firstFrameHandles: firstFrameHandles
         )
     }
 
@@ -172,6 +223,7 @@ final class WorkspaceSwipePreview {
             destination, monitor: monitor, frame: frame, scale: scale, image: wallpaperImage
         )
         destinationLayer.isHidden = true
+        sourceSnapshotLayer = makeSourceSnapshotLayer(in: sourceLayer)
         root.addSublayer(sourceLayer)
         root.addSublayer(destinationLayer)
         self.sourceLayer = sourceLayer
@@ -193,6 +245,43 @@ final class WorkspaceSwipePreview {
         return true
     }
 
+    func replace(source: [Item], destination: [Item], monitor: Monitor, workingFrame: CGRect? = nil) -> Bool {
+        guard let root = panel?.contentView?.layer, hasCaptureAccess(),
+              let wallpaperImage = backdrop.image(for: monitor)
+        else { return false }
+        let frame = workingFrame ?? monitor.visibleFrame
+        let source = source.filter { $0.frame.intersects(frame) }
+        let destination = destination.filter { $0.frame.intersects(frame) }
+        guard (source + destination).allSatisfy({ capture.preview(for: $0.handle) != nil }) else { return false }
+        reconcile(source: source, destination: destination, monitor: monitor, workingFrame: frame, warming: false)
+        guard (source + destination).allSatisfy({
+            tokens[$0.handle] == $0.handle.token && capture.preview(for: $0.handle) != nil
+        }) else { return false }
+
+        let previous = contents.values.flatMap { $0.map(\.preview) }
+        dropSourceSnapshot()
+        contents.removeAll()
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        CATransaction.setCompletionBlock { withExtendedLifetime(previous) {} }
+        let scale = Self.scale(for: monitor)
+        let sourceLayer = makeWorkspaceLayer(
+            source, monitor: monitor, frame: frame, scale: scale, image: wallpaperImage
+        )
+        let destinationLayer = makeWorkspaceLayer(
+            destination, monitor: monitor, frame: frame, scale: scale, image: wallpaperImage
+        )
+        destinationLayer.isHidden = true
+        self.sourceLayer?.removeFromSuperlayer()
+        self.destinationLayer?.removeFromSuperlayer()
+        root.addSublayer(sourceLayer)
+        root.addSublayer(destinationLayer)
+        self.sourceLayer = sourceLayer
+        self.destinationLayer = destinationLayer
+        CATransaction.commit()
+        return true
+    }
+
     func update(sourceOffset: CGVector, destinationOffset: CGVector) {
         guard panel != nil else { return }
         CATransaction.begin()
@@ -208,6 +297,7 @@ final class WorkspaceSwipePreview {
 
     func stop() {
         isWarming = false
+        dropSourceSnapshot()
         let previous = contents.values.flatMap { $0.map(\.preview) }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -231,7 +321,9 @@ final class WorkspaceSwipePreview {
         backdrop.clear()
         capture.releaseCache(reason: .shutdown)
     }
+}
 
+extension WorkspaceSwipePreview {
     private func makeWorkspaceLayer(
         _ items: [Item], monitor: Monitor, frame: CGRect, scale: CGFloat, image: CGImage
     ) -> CALayer {
@@ -249,6 +341,15 @@ final class WorkspaceSwipePreview {
             contents[item.handle, default: []].append(content)
             layer.addSublayer(content.layer)
         }
+        return layer
+    }
+
+    private func makeSourceSnapshotLayer(in sourceLayer: CALayer) -> CALayer {
+        let layer = CALayer()
+        layer.frame = sourceLayer.bounds
+        layer.contentsGravity = .resize
+        layer.contents = sourceSnapshot
+        sourceLayer.addSublayer(layer)
         return layer
     }
 

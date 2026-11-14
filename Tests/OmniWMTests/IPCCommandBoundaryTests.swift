@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import Foundation
 import OmniWMIPC
@@ -56,7 +56,8 @@ final class IPCCommandBoundaryTests: XCTestCase {
             ("scratchpad-assign", "scratchpadIndex"), ("focus-window-in-column", "windowIndex"),
             ("move-to-workspace-on-monitor", "workspaceNumber"), ("set-workspace-layout", "layout"),
             ("open-command-palette-mode", "mode"),
-            ("resize", "axis"), ("resize-focused", "operation"), ("set-container-primary-span", "change")
+            ("resize", "axis"), ("resize-focused", "operation"), ("set-container-primary-span", "change"),
+            ("app-open", "appId"), ("app-new-window", "appId")
         ]
         for payload in payloads {
             try assertFailure(#"{"name":"\#(payload.name)"}"#, kind: "keyNotFound", subject: "arguments", path: [])
@@ -150,6 +151,8 @@ final class IPCCommandBoundaryTests: XCTestCase {
 
     private func argument(_ kind: IPCCommandArgumentKind) -> IPCCommandArgumentValue {
         switch kind {
+        case .appID:
+            .appID("example")
         case .direction:
             .direction(.left)
         case .workspaceNumber,

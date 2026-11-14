@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import Darwin
@@ -170,7 +170,7 @@ final class LaunchConflictAutoRecheck {
     private let interval: TimeInterval
     private let scan: @MainActor () -> LaunchConflictCheckResult
     private let onClear: @MainActor () -> Void
-    private var timer: Timer?
+    private(set) var timer: Timer?
 
     init(
         interval: TimeInterval = 1,

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import Foundation
@@ -7,7 +7,9 @@ import OmniWMIPC
 
 extension WMController {
     func handleSessionStateChanged(surfaceScope: SessionSurfaceInvalidationScope) {
+        pruneEdgePictures()
         intentLedger.cancelConfirmedWorkerRaise(unlessFocused: workspaceManager.nativeManagedFocusToken)
+        axEventHandler.recheckVisibilityAfterFocusLoss()
         if let source = columnModeToast.source,
            workspaceManager.visibleWorkspaceId(on: source.monitorId) != source.workspaceId
         {
@@ -16,7 +18,9 @@ extension WMController {
         switch surfaceScope {
         case .full:
             surfaceReconciler.noteWorldChanged()
-        case .border:
+            windowSwitcherControllerStorage?.refreshWindows()
+        case .border,
+             .layoutEdge:
             surfaceReconciler.noteBorderChanged()
         }
         let changeSet = focusNotificationDispatcher.notifyFocusChangesIfNeeded()

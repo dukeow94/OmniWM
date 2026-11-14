@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import Foundation
 @testable import OmniWM
@@ -148,17 +148,6 @@ final class StatusMenuControlHelpTests: XCTestCase {
         XCTAssertTrue(explanation.contains("Settings"))
     }
 
-    func testHoveredControlIsPresentedOnlyAfterDwellCompletes() {
-        var selection = StatusMenuHelpSelection()
-
-        selection.hoverEntered(.focusFollowsMouse)
-
-        XCTAssertEqual(selection.hoveredControl, .focusFollowsMouse)
-        XCTAssertNil(selection.presentedControl)
-        XCTAssertTrue(selection.presentHovered(.focusFollowsMouse))
-        XCTAssertEqual(selection.presentedControl, .focusFollowsMouse)
-    }
-
     func testStaleHoverExitCannotClearANewerHover() {
         var selection = StatusMenuHelpSelection()
         selection.hoverEntered(.focusFollowsMouse)
@@ -195,19 +184,6 @@ final class StatusMenuControlHelpTests: XCTestCase {
 
         XCTAssertEqual(selection.focusedControl, .moveCrossesMonitorAtEdge)
         XCTAssertEqual(selection.presentedControl, .moveCrossesMonitorAtEdge)
-    }
-
-    func testResetClearsHoverFocusAndPresentation() {
-        var selection = StatusMenuHelpSelection()
-        selection.focusChanged(.bordersEnabled, isFocused: true)
-        selection.hoverEntered(.mouseWarpEnabled)
-        XCTAssertTrue(selection.presentHovered(.mouseWarpEnabled))
-
-        selection.reset()
-
-        XCTAssertNil(selection.hoveredControl)
-        XCTAssertNil(selection.focusedControl)
-        XCTAssertNil(selection.presentedControl)
     }
 
     func testPresentationSchedulesExactHoverDwellBeforePresenting() async throws {
@@ -284,20 +260,26 @@ final class StatusMenuControlHelpTests: XCTestCase {
     }
 
     func testPresentationResetCancelsPendingTransition() async throws {
-        let sleeper = ManualSleeper()
-        let presentation = StatusMenuHelpPresentation { try await sleeper.sleep(for: $0) }
-        presentation.hoverChanged(.moveCrossesMonitorAtEdge, isHovered: true)
-        let dwell = try XCTUnwrap(presentation.transitionTask)
-        await sleeper.waitForPendingSleeps(1)
+        for control in [StatusMenuControl.mouseWarpEnabled, .moveCrossesMonitorAtEdge] {
+            let sleeper = ManualSleeper()
+            let presentation = StatusMenuHelpPresentation { try await sleeper.sleep(for: $0) }
+            presentation.focusChanged(.bordersEnabled, isFocused: true)
+            presentation.hoverChanged(control, isHovered: true)
+            XCTAssertEqual(presentation.selection.hoveredControl, control)
+            XCTAssertEqual(presentation.selection.focusedControl, .bordersEnabled)
+            XCTAssertEqual(presentation.selection.presentedControl, .bordersEnabled)
+            let dwell = try XCTUnwrap(presentation.transitionTask)
+            await sleeper.waitForPendingSleeps(1)
 
-        presentation.reset()
-        await dwell.value
+            presentation.reset()
+            await dwell.value
 
-        XCTAssertEqual(sleeper.requestedDurations, [.milliseconds(300)])
-        XCTAssertEqual(sleeper.pendingCount, 0)
-        XCTAssertNil(presentation.selection.hoveredControl)
-        XCTAssertNil(presentation.selection.focusedControl)
-        XCTAssertNil(presentation.selection.presentedControl)
+            XCTAssertEqual(sleeper.requestedDurations, [.milliseconds(300)])
+            XCTAssertEqual(sleeper.pendingCount, 0)
+            XCTAssertNil(presentation.selection.hoveredControl)
+            XCTAssertNil(presentation.selection.focusedControl)
+            XCTAssertNil(presentation.selection.presentedControl)
+        }
     }
 
     func testMenuPresentationGenerationAdvancesOnOpenAndClose() {
@@ -316,12 +298,93 @@ final class StatusMenuControlHelpTests: XCTestCase {
     }
 
     func testHiddenBarTileInclusionMatchesControllerAvailability() {
-        let fixture = makeStatusMenuModelFixture()
+        let unavailable = makeStatusMenuModelFixture()
+        defer { try? FileManager.default.removeItem(at: unavailable.root) }
+        let available = makeStatusMenuModelFixture(hiddenBarAvailable: true)
+        defer { try? FileManager.default.removeItem(at: available.root) }
+
+        XCTAssertFalse(unavailable.controller.isHiddenBarHidingAvailable)
+        XCTAssertEqual(unavailable.model.toggleTiles.filter { $0.control == .hiddenBarEnabled }.count, 0)
+        XCTAssertTrue(available.controller.isHiddenBarHidingAvailable)
+        XCTAssertEqual(available.model.toggleTiles.filter { $0.control == .hiddenBarEnabled }.count, 1)
+    }
+
+    func testHiddenBarTileReadsAndWritesTheActiveProfileEnabledValue() async throws {
+        let fixture = makeStatusMenuModelFixture(hiddenBarAvailable: true)
         defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let settings = fixture.model.settings
+        let directory = ShellWidgetHost.shellDirectory(in: settings.settingsFileURL.deletingLastPathComponent())
+        try FileManager.default.createDirectory(
+            at: directory.appendingPathComponent("look"),
+            withIntermediateDirectories: true
+        )
+        try Data("profile = 'look'\n[profiles.look.hiddenBar]\nenabled = false\n".utf8)
+            .write(to: directory.appendingPathComponent("shell.toml"))
+        settings.hiddenBar.enabled = true
+        let activeProfile = ShellConfig.resolve(shellDirectory: directory)
+        settings.workspaceBar.profileOverride = activeProfile.barOverride
+        settings.hiddenBar.profileOverride = activeProfile.hiddenBarOverride
+        fixture.model.infoAlertPresenter = { _, message in XCTFail(message) }
+        let tile = try XCTUnwrap(fixture.model.toggleTiles.first { $0.control == .hiddenBarEnabled })
+        let configuration = fixture.controller.workspaceBarManager.shellConfiguration
+        let applySavedConfiguration = configuration.onSave
+        defer { configuration.onSave = applySavedConfiguration }
+        let enabledSaved = expectation(description: "HiddenBar enabled value persisted")
+        configuration.onSave = { config in
+            applySavedConfiguration?(config)
+            enabledSaved.fulfill()
+        }
 
-        let hiddenBarTiles = fixture.model.toggleTiles.filter { $0.control == .hiddenBarEnabled }
+        XCTAssertFalse(tile.isOn.wrappedValue)
+        tile.isOn.wrappedValue = true
+        await fulfillment(of: [enabledSaved], timeout: failureBound)
+        await configuration.flush()
 
-        XCTAssertEqual(hiddenBarTiles.count, fixture.controller.isHiddenBarHidingAvailable ? 1 : 0)
+        XCTAssertTrue(tile.isOn.wrappedValue)
+        XCTAssertEqual(ShellConfig.load(shellDirectory: directory)?.hiddenBarOverride?.enabled, true)
+
+        let disabledSaved = expectation(description: "HiddenBar disabled value persisted")
+        configuration.onSave = { config in
+            applySavedConfiguration?(config)
+            disabledSaved.fulfill()
+        }
+        tile.isOn.wrappedValue = false
+        await fulfillment(of: [disabledSaved], timeout: failureBound)
+        await configuration.flush()
+
+        XCTAssertFalse(tile.isOn.wrappedValue)
+        XCTAssertTrue(settings.hiddenBar.enabled)
+        XCTAssertEqual(ShellConfig.load(shellDirectory: directory)?.hiddenBarOverride?.enabled, false)
+    }
+
+    func testHiddenBarTileSurfacesUnreadableProfileWithoutChangingEnabledValue() async throws {
+        let fixture = makeStatusMenuModelFixture(hiddenBarAvailable: true)
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let settings = fixture.model.settings
+        let directory = ShellWidgetHost.shellDirectory(in: settings.settingsFileURL.deletingLastPathComponent())
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let invalid = Data("trailing = [".utf8)
+        let url = directory.appendingPathComponent("shell.toml")
+        try invalid.write(to: url)
+        settings.hiddenBar.enabled = false
+        var messages: [(String, String)] = []
+        let errorPresented = expectation(description: "Unreadable HiddenBar profile error presented")
+        fixture.model.infoAlertPresenter = { title, message in
+            messages.append((title, message))
+            errorPresented.fulfill()
+        }
+        let tile = try XCTUnwrap(fixture.model.toggleTiles.first { $0.control == .hiddenBarEnabled })
+
+        tile.isOn.wrappedValue = true
+        await fulfillment(of: [errorPresented], timeout: failureBound)
+        await fixture.controller.workspaceBarManager.shellConfiguration.flush()
+
+        XCTAssertFalse(tile.isOn.wrappedValue)
+        XCTAssertFalse(settings.hiddenBar.enabled)
+        XCTAssertEqual(try Data(contentsOf: url), invalid)
+        XCTAssertEqual(messages.count, 1)
+        XCTAssertEqual(messages.first?.0, String(localized: "Unable to Save Shell Settings"))
+        XCTAssertFalse(try XCTUnwrap(messages.first?.1).isEmpty)
     }
 
     func testFocusFollowsMouseTileDoesNotChangeRaisePreference() throws {
@@ -342,7 +405,7 @@ final class StatusMenuControlHelpTests: XCTestCase {
         let model: StatusMenuModel
     }
 
-    private func makeStatusMenuModelFixture() -> StatusMenuModelFixture {
+    private func makeStatusMenuModelFixture(hiddenBarAvailable: Bool = false) -> StatusMenuModelFixture {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("OmniWMStatusMenuHelpTests-\(UUID().uuidString)", isDirectory: true)
         let settings = SettingsStore(
@@ -359,9 +422,15 @@ final class StatusMenuControlHelpTests: XCTestCase {
         )
         let controller = WMController(
             settings: settings,
+            hiddenBarController: HiddenBarController(settings: settings, hider: NativeMenuBarHider(
+                preferences: hiddenBarAvailable ? NativeMenuBarPreferences(read: {
+                    try PropertyListSerialization.data(fromPropertyList: [[String: Any]](), format: .binary, options: 0)
+                }, write: { _ in XCTFail("The status-menu settings must not change native preferences") }) : nil
+            )),
             clipboardHistoryDirectory: root.appendingPathComponent("clipboard", isDirectory: true),
             diagnosticsDirectory: root.appendingPathComponent("diagnostics", isDirectory: true)
         )
+        controller.workspaceBarManager.setup(controller: controller, settings: settings)
         return StatusMenuModelFixture(
             root: root,
             controller: controller,

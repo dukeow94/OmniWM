@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import Foundation
@@ -7,14 +7,14 @@ import OmniWMIPC
 
 extension WMController {
     func isManagedWindowDisplayable(_ token: WindowToken) -> Bool {
-        guard workspaceManager.entry(for: token) != nil else { return false }
-        if isManagedWindowSuppressedByMacOS(token) {
-            return false
-        }
-        if workspaceManager.layoutReason(for: token) != .standard {
-            return false
-        }
-        return !workspaceManager.isHiddenInCorner(token)
+        guard let entry = workspaceManager.entry(for: token) else { return false }
+        return isManagedWindowDisplayable(entry)
+    }
+
+    func isManagedWindowDisplayable(_ entry: WindowState) -> Bool {
+        !workspaceManager.isWindowSuppressedByMacOS(entry)
+            && entry.layoutReason == .standard
+            && entry.hiddenState == nil
     }
 
     func isManagedWindowSuppressedByMacOS(_ token: WindowToken) -> Bool {
@@ -43,6 +43,19 @@ extension WMController {
         preferFrontmostWhenExternalOrOwnedFocusActive: Bool = false
     ) -> WindowToken? {
         let selectedManagedToken = workspaceManager.selectedManagedToken
+        if let selectedManagedToken,
+           workspaceManager.entry(for: selectedManagedToken)?.target.hostedMetadata != nil
+        {
+            if !preferFrontmostWhenExternalOrOwnedFocusActive { return selectedManagedToken }
+            switch workspaceManager.nativeFocusOwner {
+            case .managed,
+                 .none:
+                return selectedManagedToken
+            case .external,
+                 .ownedSurface:
+                break
+            }
+        }
         let frontmostPid = commandHandler.frontmostAppPidProvider?()
             ?? NSWorkspace.shared.frontmostApplication?.processIdentifier
         let frontmostToken = commandHandler.frontmostFocusedWindowTokenProvider?()
@@ -88,9 +101,9 @@ extension WMController {
 
     func focusedManagedWindowScreenForQuakeTerminal() -> NSScreen? {
         guard let token = focusedOrFrontmostWindowTokenForAutomation(
-            preferFrontmostWhenExternalOrOwnedFocusActive: true
-        ),
-            let entry = workspaceManager.entry(for: token)
+                  preferFrontmostWhenExternalOrOwnedFocusActive: true
+              ),
+              let entry = workspaceManager.entry(for: token)
         else {
             return nil
         }
@@ -98,7 +111,7 @@ extension WMController {
         if let monitorId = entry.observedState.monitorId
             ?? entry.desiredState.monitorId
             ?? workspaceManager.monitorId(for: entry.workspaceId),
-            let screen = screen(for: monitorId)
+           let screen = screen(for: monitorId)
         {
             return screen
         }
@@ -106,7 +119,7 @@ extension WMController {
         if let frame = entry.observedState.frame
             ?? entry.desiredState.floatingFrame
             ?? entry.floatingState?.lastFrame,
-            let monitor = frame.center.monitorApproximation(in: workspaceManager.monitors)
+           let monitor = frame.center.monitorApproximation(in: workspaceManager.monitors)
         {
             return screen(for: monitor.id)
         }

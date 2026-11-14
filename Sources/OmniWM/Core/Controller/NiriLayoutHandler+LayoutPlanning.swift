@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import Foundation
@@ -64,12 +64,12 @@ extension NiriLayoutHandler {
         let removalSeed = options.removalSeed
         let isActiveWorkspace = options.isActiveWorkspace
 
-        let shouldResolveConstraints = viewportState == nil
+        let isRelayoutSnapshot = viewportState == nil
         let orientation = controller.settings.monitors.effectiveOrientation(for: monitor)
         guard let refreshInput = controller.layoutRefreshController.buildRefreshInput(
             workspaceId: wsId,
             monitor: monitor,
-            resolveConstraints: shouldResolveConstraints,
+            resolveConstraints: isRelayoutSnapshot,
             orientation: orientation,
             isActiveWorkspace: isActiveWorkspace
         ) else {
@@ -78,23 +78,38 @@ extension NiriLayoutHandler {
 
         let effectiveViewportState = viewportState ?? controller.workspaceManager.niriViewportState(for: wsId)
         let gap = controller.innerGap(for: monitor, scale: refreshInput.monitor.scale)
+        let pictures = edgePictureState(for: refreshInput)
 
         return NiriWorkspaceSnapshot(
-            workspaceId: wsId,
-            monitor: refreshInput.monitor,
+            workspaceId: wsId, monitor: refreshInput.monitor,
             windows: refreshInput.windows,
             excludedTokens: refreshInput.excludedTokens,
             plannedSeq: refreshInput.plannedSeq,
             viewportState: effectiveViewportState,
-            preferredFocusToken: controller.workspaceManager.preferredFocusToken(in: wsId),
+            preferredFocusToken: picturePreferredFocus(
+                in: wsId, state: effectiveViewportState, pictures: pictures, isRelayout: isRelayoutSnapshot
+            ),
             hasCompletedInitialRefresh: controller.layoutRefreshController.layoutState.hasCompletedInitialRefresh,
             useScrollAnimationPath: useScrollAnimationPath,
             removalSeed: removalSeed,
             gap: gap,
-            niriWorkingFrame: controller.niriWorkingFrame(refreshInput.monitor.workingFrame, gap: gap),
+            niriWorkingFrame: controller.niriWorkingFrame(
+                refreshInput.monitor.workingFrame, roomGapLimits: refreshInput.monitor.roomGapLimits, gap: gap
+            ),
+            fullscreenLayoutFrame: controller.niriFullscreenLayoutFrame(
+                refreshInput.monitor.fullscreenLayoutFrame,
+                workingFrame: refreshInput.monitor.workingFrame,
+                roomGapLimits: refreshInput.monitor.roomGapLimits,
+                monitor: monitor,
+                gap: gap
+            ),
             displayRefreshRate: controller.layoutRefreshController.layoutState
                 .refreshRateByDisplay[monitor.displayId] ?? 60.0,
-            isActiveWorkspace: refreshInput.isActiveWorkspace
+            isActiveWorkspace: refreshInput.isActiveWorkspace,
+            quietArrivalTokens: isRelayoutSnapshot
+                ? controller.workspaceManager.quietArrivalTokens.intersection(refreshInput.windows.map(\.token))
+                : [],
+            edgePictures: pictures
         )
     }
 
@@ -108,21 +123,17 @@ extension NiriLayoutHandler {
         let sampledAnimationTime = settlesAnimation ? nil : animationTime
         let isSettled = settlesAnimation || (animationTime == nil && controller.map {
             !hasPendingNiriAnimationWork(
-                state: snapshot.viewportState,
-                driver: $0.workspaceManager.animationDriver,
-                engine: engine,
-                workspaceId: snapshot.workspaceId
+                state: snapshot.viewportState, driver: $0.workspaceManager.animationDriver,
+                engine: engine, workspaceId: snapshot.workspaceId
             )
         } == true)
         let (frames, hiddenHandles) = calculateOnDemandFrames(
             snapshot: snapshot, engine: engine, monitor: monitor,
-            sampledAnimationTime: sampledAnimationTime, isSettled: isSettled
+            sampledAnimationTime: sampledAnimationTime, isSettled: isSettled, recordsPresentationGeometry: true
         )
 
         var diff = layoutDiff(
-            windows: snapshot.windows,
-            frames: frames,
-            hiddenHandles: hiddenHandles,
+            windows: snapshot.windows, frames: frames, hiddenHandles: hiddenHandles,
             context: NiriLayoutDiffContext(
                 engine: engine,
                 workspaceId: snapshot.workspaceId,
@@ -133,7 +144,15 @@ extension NiriLayoutHandler {
                 settledContext: isSettled ? (snapshot.monitor, snapshot.viewportState) : nil
             )
         )
-        enforceOnDemandFrameSizes(&diff, animated: sampledAnimationTime != nil)
+        diff.edgeHiddenFrames = edgeHiddenFrames(engine: engine, snapshot: snapshot)
+        if shouldPreparePictures(snapshot: snapshot, animationTime: sampledAnimationTime) {
+            diff.picturePreparation = picturePreparation(
+                engine: engine, snapshot: snapshot, state: snapshot.viewportState,
+                isSettled: isSettled, time: sampledAnimationTime ?? CACurrentMediaTime()
+            )
+        }
+        let isInteractiveResize = animationTime == nil && engine.interactiveResize?.workspaceId == snapshot.workspaceId
+        enforceOnDemandFrameSizes(&diff, animated: sampledAnimationTime != nil || isInteractiveResize)
         if animationTime != nil {
             diff.tabRailGeometryCommands = niriTabRailGeometryCommands(
                 engine: engine,
@@ -146,12 +165,11 @@ extension NiriLayoutHandler {
             workspaceId: snapshot.workspaceId,
             monitor: snapshot.monitor,
             sessionPatch: WorkspaceSessionPatch(
-                workspaceId: snapshot.workspaceId,
-                viewportState: nil,
-                plannedSeq: snapshot.plannedSeq
+                workspaceId: snapshot.workspaceId, viewportState: nil, plannedSeq: snapshot.plannedSeq
             ),
             diff: diff,
             isAnimationTick: sampledAnimationTime != nil,
+            isInteractiveResize: isInteractiveResize,
             isActiveWorkspace: snapshot.isActiveWorkspace
         )
     }
@@ -176,13 +194,13 @@ extension NiriLayoutHandler {
 
         let viewOriginBeforeInsertion = currentViewOrigin(pass: pass, state: state)
 
-        restoreInitialNiriPlacementsIfNeeded(pass: pass)
+        restoreInitialNiriPlacementsIfNeeded(pass: pass, ignoring: snapshot.quietArrivalTokens)
 
         let insertion = syncAndInsert(
             pass: pass,
             state: &state,
             removal: removal,
-            preferredFocusToken: snapshot.preferredFocusToken,
+            snapshot: snapshot,
             viewOriginBeforeInsertion: viewOriginBeforeInsertion
         )
 
@@ -209,19 +227,21 @@ extension NiriLayoutHandler {
             snapshot: snapshot
         )
         plan.niriRestorePlacements = pass.engine.persistedPlacements(in: pass.wsId)
+        plan.quietArrivalTokens = snapshot.quietArrivalTokens
 
         return plan
     }
 
     private func restoreInitialNiriPlacementsIfNeeded(
-        pass: NiriLayoutPass
+        pass: NiriLayoutPass,
+        ignoring quietArrivalTokens: Set<WindowToken>
     ) {
         guard let controller else { return }
 
         var placements: [WindowToken: PersistedNiriPlacement] = [:]
         placements.reserveCapacity(pass.windowTokens.count)
 
-        for token in pass.windowTokens {
+        for token in pass.windowTokens where !quietArrivalTokens.contains(token) {
             if let placement = controller.workspaceManager.restoreIntent(for: token)?.niriPlacement {
                 placements[token] = placement
             }
@@ -262,14 +282,14 @@ extension NiriLayoutHandler {
         pass: NiriLayoutPass,
         state: inout ViewportState,
         removal: RemovalContext,
-        preferredFocusToken: WindowToken?,
+        snapshot: NiriWorkspaceSnapshot,
         viewOriginBeforeInsertion: CGFloat?
     ) -> InsertionContext {
         let currentSelection = state.selectedNodeId
         syncWindowsAndInstallConstraints(
             pass: pass,
             selectedNodeId: currentSelection,
-            preferredFocusToken: preferredFocusToken
+            preferredFocusToken: snapshot.preferredFocusToken
         )
         let newTokens = pass.windowTokens.filter { !removal.existingHandleIds.contains($0) }
         let visibleNewTokens = newTokens.filter {
@@ -292,7 +312,8 @@ extension NiriLayoutHandler {
             let insertedBeforeActive = newColumnData.filter { $0.colIdx <= originalActiveIdx }
             if !insertedBeforeActive.isEmpty, !removal.removedColumn {
                 let totalInsertedSpan = insertedBeforeActive.reduce(CGFloat(0)) { total, data in
-                    total + data.col[keyPath: pass.primarySpanKeyPath] + pass.gap
+                    let isQuiet = data.col.windowNodes.allSatisfy { snapshot.quietArrivalTokens.contains($0.token) }
+                    return isQuiet ? total : total + data.col[keyPath: pass.primarySpanKeyPath] + pass.gap
                 }
                 state.rebaseOffset(by: -totalInsertedSpan)
                 state.activeColumnIndex = originalActiveIdx + insertedBeforeActive.count
@@ -367,7 +388,8 @@ extension NiriLayoutHandler {
         engine: NiriLayoutEngine,
         monitor: Monitor,
         sampledAnimationTime: TimeInterval?,
-        isSettled: Bool
+        isSettled: Bool,
+        recordsPresentationGeometry: Bool = false
     ) -> (frames: [WindowToken: CGRect], hiddenHandles: [WindowToken: HideSide]) {
         let gaps = LayoutGaps(
             horizontal: snapshot.gap,
@@ -378,9 +400,15 @@ extension NiriLayoutHandler {
             workingFrame: snapshot.niriWorkingFrame,
             singleWindowFrame: snapshot.monitor.workingFrame,
             borderSafeFillFrame: snapshot.monitor.borderSafeFillFrame,
-            fullscreenLayoutFrame: snapshot.monitor.fullscreenLayoutFrame,
+            fullscreenLayoutFrame: snapshot.fullscreenLayoutFrame,
             viewFrame: snapshot.monitor.frame,
             scale: snapshot.monitor.scale
+        )
+
+        let offsets = controller?.workspaceManager.animationDriver.renderOffsets(
+            in: snapshot.workspaceId,
+            semanticOffset: snapshot.viewportState.viewOffset,
+            at: sampledAnimationTime ?? CACurrentMediaTime()
         )
 
         return engine.calculateCombinedLayoutUsingPools(
@@ -390,17 +418,11 @@ extension NiriLayoutHandler {
             state: snapshot.viewportState,
             workingArea: area,
             animationTime: sampledAnimationTime,
-            viewOffsetOverride: controller?.workspaceManager.animationDriver.liveViewOffset(
-                in: snapshot.workspaceId,
-                semanticOffset: snapshot.viewportState.viewOffset,
-                at: sampledAnimationTime ?? CACurrentMediaTime()
-            ),
-            settledVisibilityOffset: controller?.workspaceManager.animationDriver.settledVisibilityOffset(
-                in: snapshot.workspaceId,
-                semanticOffset: snapshot.viewportState.viewOffset
-            ),
+            viewOffsetOverride: offsets?.liveOffset,
+            settledVisibilityOffset: offsets?.settledVisibilityOffset,
             isSettled: isSettled,
-            excludedTokens: snapshot.excludedTokens
+            excludedTokens: snapshot.excludedTokens, edgePictures: snapshot.edgePictures,
+            recordsPresentationGeometry: recordsPresentationGeometry
         )
     }
 

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import CoreGraphics
 import Foundation
@@ -10,6 +10,8 @@ struct NiriCalculationContext {
     let primaryGap: CGFloat
     let secondaryGap: CGFloat
     let time: TimeInterval
+    let edgePictures: NiriEdgePictureState
+    let recordsPresentationGeometry: Bool
     let frames: NiriLayoutFrames
     let hiddenPlacementMonitor: HiddenPlacementMonitorContext?
     let hiddenPlacementMonitors: [HiddenPlacementMonitorContext]
@@ -22,8 +24,12 @@ struct NiriCalculationContext {
         geometry: NiriLayoutGeometry,
         time: TimeInterval,
         hiddenPlacementMonitor: HiddenPlacementMonitorContext?,
-        hiddenPlacementMonitors: [HiddenPlacementMonitorContext]
+        hiddenPlacementMonitors: [HiddenPlacementMonitorContext],
+        edgePictures: NiriEdgePictureState = .none,
+        recordsPresentationGeometry: Bool = false
     ) {
+        self.edgePictures = edgePictures
+        self.recordsPresentationGeometry = recordsPresentationGeometry
         self.geometry = geometry
         area = geometry.resolveWorkingArea()
         (primaryGap, secondaryGap) = geometry.axisGaps()

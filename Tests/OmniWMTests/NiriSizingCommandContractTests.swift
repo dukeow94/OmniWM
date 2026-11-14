@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import Foundation
 @testable import OmniWM
@@ -17,7 +17,7 @@ final class NiriSizingCommandContractTests: XCTestCase {
         let primary = try XCTUnwrap(
             ActionCatalog.spec(for: .sizing(.resizeContainerPrimarySpan(grow: true)))
         )
-        XCTAssertEqual(primary.id, "setContainerPrimarySpan.increase10Percent")
+        XCTAssertEqual(primary.id, "resizeContainerPrimarySpan.grow")
         XCTAssertEqual(primary.layoutCompatibility, .niri)
         XCTAssertNil(primary.ipcCommandName)
 
@@ -134,9 +134,5 @@ final class NiriSizingCommandContractTests: XCTestCase {
         XCTAssertEqual(decoded.niri.visibleContainerCount, 4)
         XCTAssertEqual(decoded.niri.containerPrimarySpanPresets, [0.25, 0.5, 0.75])
         XCTAssertEqual(decoded.niri.defaultContainerPrimarySpan, 0.5)
-    }
-
-    func testCurrentProtocolVersion() {
-        XCTAssertEqual(OmniWMIPCProtocol.version, 19)
     }
 }

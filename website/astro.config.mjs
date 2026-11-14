@@ -37,8 +37,17 @@ export default defineConfig({
         },
       ],
       sidebar: [
-        { label: 'Getting Started', items: [{ autogenerate: { directory: 'guides' } }] },
+        { label: 'Getting Started', items: [{ autogenerate: { directory: 'guides' } }, { label: 'Learn the Keys', link: '/playground/' }] },
         { label: 'Features', items: [{ autogenerate: { directory: 'features' } }] },
+        {
+          label: 'OmniShell',
+          items: [
+            { label: 'Overview', link: '/features/luau-shell/' },
+            { label: 'Guides', items: [{ autogenerate: { directory: 'omnishell/guides' } }] },
+            { label: 'Configuration', items: [{ autogenerate: { directory: 'omnishell/configuration' } }] },
+            { label: 'Luau API Reference', collapsed: true, items: [{ autogenerate: { directory: 'omnishell/reference' } }] },
+          ],
+        },
         { label: 'Configuration', items: [{ autogenerate: { directory: 'config' } }] },
         { label: 'CLI & IPC', items: [{ autogenerate: { directory: 'reference/cli' } }] },
         { label: 'Help', items: [{ autogenerate: { directory: 'help' } }] },

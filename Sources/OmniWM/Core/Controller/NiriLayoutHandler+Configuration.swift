@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import Foundation
@@ -16,6 +16,7 @@ extension NiriLayoutHandler {
         engine.alwaysCenterSingleColumn = alwaysCenterSingleColumn
         engine.renderStyle.tabIndicatorWidth = controller.tabRailStyle.reservedWidth
         engine.animationClock = controller.animationClock
+        engine.edgePicturesAvailable = ScreenCapturePermissionMonitor.shared.isGranted
         controller.niriEngine = engine
 
         syncMonitorsToNiriEngine()
@@ -46,18 +47,29 @@ extension NiriLayoutHandler {
         }
     }
 
-    func refreshResolvedMonitorSettings() {
+    func refreshResolvedMonitorSettings(rebalanceChangedSpans: Bool = false) {
         guard let controller, let engine = controller.niriEngine else { return }
 
+        var changedSpanMonitors: [Monitor.ID] = []
         controller.workspaceManager.withEngineMutationScope {
             for monitor in controller.workspaceManager.monitors {
+                let resolved = controller.settings.niri.resolved(for: monitor)
+                if rebalanceChangedSpans,
+                   engine.effectiveSettings(for: monitor.id).defaultContainerPrimarySpan
+                   != resolved.defaultContainerPrimarySpan
+                {
+                    changedSpanMonitors.append(monitor.id)
+                }
                 _ = engine.ensureMonitor(
                     for: monitor.id,
                     monitor: monitor,
                     orientation: controller.settings.monitors.effectiveOrientation(for: monitor)
                 )
-                engine.updateMonitorSettings(controller.settings.niri.resolved(for: monitor), for: monitor.id)
+                engine.updateMonitorSettings(resolved, for: monitor.id)
             }
+        }
+        for monitorId in changedSpanMonitors {
+            balanceSizesAllWorkspaces(on: monitorId)
         }
     }
 
@@ -67,6 +79,7 @@ extension NiriLayoutHandler {
         centerFocusedColumn: CenterFocusedColumn? = nil,
         alwaysCenterSingleColumn: Bool? = nil,
         singleWindowFit: SingleWindowFit? = nil,
+        edgeOverscroll: NiriEdgeOverscroll? = nil,
         containerPrimarySpanPresets: [Double]? = nil,
         defaultContainerPrimarySpan: Double?? = nil
     ) {
@@ -78,11 +91,12 @@ extension NiriLayoutHandler {
                 centerFocusedColumn: centerFocusedColumn,
                 alwaysCenterSingleColumn: alwaysCenterSingleColumn,
                 singleWindowFit: singleWindowFit,
+                edgeOverscroll: edgeOverscroll,
                 presetContainerPrimarySpans: containerPrimarySpanPresets?.map { .proportion($0) },
                 defaultContainerPrimarySpan: defaultContainerPrimarySpan.map { $0.map { CGFloat($0) } }
             )
         }
-        refreshResolvedMonitorSettings()
+        refreshResolvedMonitorSettings(rebalanceChangedSpans: defaultContainerPrimarySpan != nil)
         controller.layoutRefreshController.requestRelayout(reason: .layoutConfigChanged)
     }
 }

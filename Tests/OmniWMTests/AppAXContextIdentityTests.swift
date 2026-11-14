@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import ApplicationServices
@@ -62,7 +62,7 @@ final class AppAXContextIdentityTests: XCTestCase {
             XCTAssertEqual(applicationPID, pid)
             workerObserved.fulfill()
         }
-        await fulfillment(of: [workerObserved], timeout: 2)
+        await fulfillment(of: [workerObserved], timeout: failureBound)
         XCTAssertEqual(workerPID.withLock { $0 }, pid)
 
         let window = AXWindowRef(element: AXUIElementCreateApplication(pid), windowId: 999_701)
@@ -80,7 +80,7 @@ final class AppAXContextIdentityTests: XCTestCase {
                 frame: CGRect(x: 10, y: 20, width: 640, height: 480)
             )
         ])
-        await fulfillment(of: [completed], timeout: 2)
+        await fulfillment(of: [completed], timeout: failureBound)
     }
 
     func testInvalidDiscoveryPIDCannotCreateContext() async throws {

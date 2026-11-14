@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import Foundation
@@ -58,10 +58,12 @@ extension NiriLayoutEngine {
     func globalResolvedSettings() -> ResolvedNiriSettings {
         ResolvedNiriSettings(
             visibleContainerCount: visibleContainerCount,
+            defaultContainerPrimarySpan: defaultContainerPrimarySpan.map(Double.init),
             centerFocusedColumn: centerFocusedColumn,
             alwaysCenterSingleColumn: alwaysCenterSingleColumn,
             singleWindowFit: singleWindowFit,
-            infiniteLoop: infiniteLoop
+            infiniteLoop: infiniteLoop,
+            edgeOverscroll: edgeOverscroll
         )
     }
 
@@ -184,7 +186,7 @@ extension NiriLayoutEngine {
     }
 
     private func rederiveAutomaticContainerSpans(in root: NiriRoot, for monitor: NiriMonitor) {
-        guard defaultContainerPrimarySpan == nil else { return }
+        guard effectiveSettings(for: monitor.id).defaultContainerPrimarySpan == nil else { return }
         let reset = resolvedContainerResetPrimarySpan(for: monitor.id)
         switch monitor.orientation {
         case .horizontal:
@@ -203,6 +205,8 @@ extension NiriLayoutEngine {
             {
                 column.height = .proportion(reset.proportion)
                 column.savedHeight = nil
+                column.heightAnimation = nil
+                column.targetHeight = nil
             }
         }
     }

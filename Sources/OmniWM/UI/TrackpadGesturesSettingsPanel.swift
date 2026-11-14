@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import SwiftUI
 
@@ -172,6 +172,14 @@ struct TrackpadGesturesSettingsPanel: View {
             SettingsCaption(
                 localized: "When sharing fingers with column scrolling in Niri, workspace swipes use the perpendicular direction on each display. The selected axis applies without column scrolling."
             )
+            Picker("At the ends", selection: Bindable(settings.gestures).workspaceSwipeEdgeBehavior) {
+                ForEach(WorkspaceSwipeEdgeBehavior.allCases) { behavior in
+                    Text(behavior.localizedDisplayName).tag(behavior)
+                }
+            }
+            SettingsCaption(
+                localized: "Wrap Around moves between the last and first workspace. Stop ignores swipes past either end. Open One Empty Workspace moves from the last occupied workspace to an empty one, creating it if needed, and ignores swipes past an empty last workspace or before the first."
+            )
         case .overview:
             SettingsCaption(
                 localized: "Swipe up to open and down to close. Thumbnails follow your fingers; move past halfway or flick to commit. Lift all fingers between gestures."
@@ -213,6 +221,19 @@ struct TrackpadGesturesSettingsPanel: View {
             }
             SettingsCaption(
                 localized: "Hold this modifier and scroll the mouse wheel to scroll columns. Turning off Scroll columns disables both trackpad and modified mouse-wheel column scrolling."
+            )
+            SettingsSliderRow(
+                label: String(localized: "Mouse wheel sensitivity"),
+                value: Bindable(settings.gestures).mouseWheelSensitivity,
+                range: GestureSettings.mouseWheelSensitivityRange,
+                step: 0.1,
+                valueText: String(
+                    localized: "\(settings.gestures.mouseWheelSensitivity.formatted(.number.precision(.fractionLength(1))))x"
+                )
+            )
+            .id("Mouse wheel sensitivity")
+            SettingsCaption(
+                localized: "Increase to switch columns with less wheel movement. Affects smooth mouse-wheel navigation only. Trackpad gestures and normal app scrolling are unchanged."
             )
         }
     }

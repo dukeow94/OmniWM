@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 @testable import OmniWM
 import XCTest
@@ -14,7 +14,7 @@ final class SwipeTrackerTests: XCTestCase {
         tracker.push(delta: 10, timestamp: 1.075)
         tracker.push(delta: 10, timestamp: 1.100)
 
-        XCTAssertEqual(tracker.velocity(), 40.0 / 0.075, accuracy: 0.001)
+        XCTAssertEqual(tracker.velocity(), 40.0 / (1.100 - 1.025))
     }
 
     func testVelocityDropsToZeroAfterStillTail() {
@@ -24,7 +24,7 @@ final class SwipeTrackerTests: XCTestCase {
         tracker.push(delta: 0, timestamp: 1.04)
         tracker.push(delta: 0, timestamp: 1.08)
 
-        XCTAssertEqual(tracker.velocity(), 0, accuracy: 0.001)
+        XCTAssertEqual(tracker.velocity(), 0)
     }
 
     func testPartialStillTailDilutesVelocity() {
@@ -55,7 +55,7 @@ final class SwipeTrackerTests: XCTestCase {
         tracker.push(delta: 400, timestamp: 1.03)
 
         XCTAssertEqual(tracker.position, 80)
-        XCTAssertEqual(tracker.velocity(), 2000, accuracy: 0.001)
+        XCTAssertEqual(tracker.velocity(), 80.0 / (1.04 - 1.00))
     }
 
     func testHistoryLimitIsConfigurable() {
@@ -67,8 +67,8 @@ final class SwipeTrackerTests: XCTestCase {
             tracker.push(delta: 0, timestamp: 1.14)
         }
 
-        XCTAssertEqual(wide.velocity(), 60 / 0.14, accuracy: 0.000001)
-        XCTAssertEqual(narrow.velocity(), 30 / 0.04, accuracy: 0.000001)
+        XCTAssertEqual(wide.velocity(), 60 / (1.14 - 1.00))
+        XCTAssertEqual(narrow.velocity(), 30 / (1.14 - 1.10))
     }
 
     func testNonfiniteSamplesAreRejectedWithoutPoisoningState() {

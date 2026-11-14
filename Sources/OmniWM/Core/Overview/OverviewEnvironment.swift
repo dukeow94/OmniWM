@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import Carbon
@@ -47,11 +47,13 @@ struct OverviewEnvironment {
     }
 
     var windowTitle: (WindowState) -> String? = { entry in
-        AXWindowService.titlePreferFast(windowId: UInt32(entry.windowId))
+        entry.target.hostedMetadata?.title
+            ?? AXWindowService.titlePreferFast(windowId: UInt32(entry.windowId))
     }
 
     var windowFrame: (WindowState) -> CGRect? = { entry in
-        AXWindowService.framePreferFast(entry.axRef)
+        guard let axRef = entry.axRef else { return nil }
+        return AXWindowService.framePreferFast(axRef)
     }
 
     var onThumbnailCaptureStarted: () -> Void = {}

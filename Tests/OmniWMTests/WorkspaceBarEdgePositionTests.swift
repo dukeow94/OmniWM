@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 @testable import OmniWM
@@ -134,9 +134,133 @@ final class WorkspaceBarEdgePositionTests: XCTestCase {
         }
     }
 
+    func testBelowMenuBarKeepsMenuClearanceWhenTheSystemMenuBarIsHidden() {
+        let barHeight: CGFloat = 24, length: CGFloat = 200
+        for fullWidth in [false, true] {
+            for notchHeight: CGFloat in [0, 37] {
+                let monitor = Monitor(
+                    id: .init(displayId: 7), displayId: 7,
+                    frame: CGRect(x: -1920, y: -1080, width: 1920, height: 1080),
+                    visibleFrame: CGRect(x: -1920, y: -1080, width: 1920, height: 1080),
+                    hasNotch: notchHeight > 0, notchHeight: notchHeight, name: "Hidden menu bar"
+                )
+                let settings = WorkspaceBarSettings()
+                settings.fullWidth = fullWidth
+                settings.notchMode = .off
+                settings.fullWidthNotchMode = .off
+                settings.height = Double(barHeight)
+                settings.reserveLayoutSpace = true
+                settings.position = .overlappingMenuBar
+                let overlapping = settings.resolved(for: monitor)
+                let overlappingGeometry = WorkspaceBarGeometry.resolve(
+                    monitor: monitor, resolved: overlapping, isVisible: true
+                )
+                let overlappingFrame = overlappingGeometry.frame(
+                    fittingLength: length, monitor: monitor, resolved: overlapping
+                )
+
+                settings.position = .belowMenuBar
+                let resolved = settings.resolved(for: monitor)
+                let geometry = WorkspaceBarGeometry.resolve(monitor: monitor, resolved: resolved, isVisible: true)
+                let frame = geometry.frame(fittingLength: length, monitor: monitor, resolved: resolved)
+                let clearance = max(WorkspaceBarGeometry.hiddenMenuBarHeight, notchHeight)
+
+                XCTAssertEqual(frame.maxY, monitor.frame.maxY - clearance)
+                XCTAssertEqual(geometry.reservedInsets.top, clearance + barHeight)
+                XCTAssertLessThan(
+                    frame.minY,
+                    WorkspaceBarGeometry.constrainedOriginY(
+                        overlappingFrame.minY, height: overlappingFrame.height, screenFrame: monitor.frame
+                    )
+                )
+                settings.autoHide = true
+                XCTAssertEqual(
+                    WorkspaceBarGeometry.resolve(
+                        monitor: monitor, resolved: settings.resolved(for: monitor), isVisible: true
+                    ).reservedInsets,
+                    .zero
+                )
+            }
+        }
+    }
+
+    func testBelowMenuBarReservesOnlyTheMissingPartOfTheMenuStrip() {
+        let barHeight: CGFloat = 24, notchHeight: CGFloat = 37, length: CGFloat = 200
+        let settings = WorkspaceBarSettings()
+        settings.position = .belowMenuBar
+        settings.fullWidth = true
+        settings.height = Double(barHeight)
+        settings.reserveLayoutSpace = true
+        for visibleInset: CGFloat in [0, 1, 20, notchHeight] {
+            let monitor = Monitor(
+                id: .init(displayId: 7), displayId: 7,
+                frame: CGRect(x: 100, y: 200, width: 1512, height: 982),
+                visibleFrame: CGRect(x: 100, y: 200, width: 1512, height: 982 - visibleInset),
+                hasNotch: true, notchHeight: notchHeight, name: "Notched"
+            )
+            let resolved = settings.resolved(for: monitor)
+            let geometry = WorkspaceBarGeometry.resolve(monitor: monitor, resolved: resolved, isVisible: true)
+            let frame = geometry.frame(fittingLength: length, monitor: monitor, resolved: resolved)
+
+            XCTAssertEqual(frame.maxY, monitor.frame.maxY - notchHeight)
+            XCTAssertEqual(geometry.reservedInsets.top, notchHeight - visibleInset + barHeight)
+        }
+    }
+
+    func testBelowMenuBarKeepsClearanceWithASinglePixelMenuStrip() {
+        let monitor = Monitor(
+            id: .init(displayId: 7), displayId: 7,
+            frame: CGRect(x: 0, y: 0, width: 1920, height: 1080),
+            visibleFrame: CGRect(x: 0, y: 0, width: 1920, height: 1079),
+            hasNotch: false, name: "Hidden menu bar"
+        )
+        let barHeight: CGFloat = 24, length: CGFloat = 200
+        let settings = WorkspaceBarSettings()
+        settings.position = .belowMenuBar
+        settings.height = Double(barHeight)
+        settings.reserveLayoutSpace = true
+        for fullWidth in [false, true] {
+            settings.fullWidth = fullWidth
+            let resolved = settings.resolved(for: monitor)
+            let geometry = WorkspaceBarGeometry.resolve(monitor: monitor, resolved: resolved, isVisible: true)
+            let frame = geometry.frame(fittingLength: length, monitor: monitor, resolved: resolved)
+
+            let visibleInset = monitor.frame.maxY - monitor.visibleFrame.maxY
+            XCTAssertEqual(frame.maxY, monitor.frame.maxY - WorkspaceBarGeometry.hiddenMenuBarHeight)
+            XCTAssertEqual(
+                geometry.reservedInsets.top, WorkspaceBarGeometry.hiddenMenuBarHeight - visibleInset + barHeight
+            )
+        }
+    }
+
+    func testBelowMenuBarTakesPrecedenceOverFillLeftWithoutChangingThePreference() {
+        let barHeight: CGFloat = 24, length: CGFloat = 200
+        let settings = WorkspaceBarSettings()
+        settings.notchMode = .fillLeftOfNotch
+        settings.fullWidth = false
+        settings.height = Double(barHeight)
+        settings.position = .overlappingMenuBar
+        XCTAssertEqual(settings.resolved(for: monitor).notchMode, .fillLeftOfNotch)
+
+        settings.position = .belowMenuBar
+        let resolved = settings.resolved(for: monitor)
+        let geometry = WorkspaceBarGeometry.resolve(monitor: monitor, resolved: resolved, isVisible: true)
+        let frame = geometry.frame(fittingLength: length, monitor: monitor, resolved: resolved)
+
+        XCTAssertEqual(resolved.notchMode, .off)
+        XCTAssertEqual(geometry.effectivePosition, .belowMenuBar)
+        XCTAssertEqual(frame.maxY, monitor.visibleFrame.maxY)
+        XCTAssertEqual(frame.height, barHeight)
+        XCTAssertEqual(frame.width, length)
+        XCTAssertEqual(settings.notchMode, .fillLeftOfNotch)
+
+        settings.position = .overlappingMenuBar
+        XCTAssertEqual(settings.resolved(for: monitor).notchMode, .fillLeftOfNotch)
+    }
+
     func testOverlappingReservationMatchesPanelFrame() throws {
         guard let screen = NSScreen.screens.first else {
-            throw XCTSkip("Requires an NSScreen to check the panel's frame constraint")
+            throw MissingTestPrerequisite("Requires an NSScreen to check the panel's frame constraint")
         }
         let monitor = Monitor(
             id: .init(displayId: 7), displayId: 7,
@@ -158,47 +282,6 @@ final class WorkspaceBarEdgePositionTests: XCTestCase {
                 geometry.frame(fittingLength: 200, monitor: monitor, resolved: resolved), to: screen
             )
             XCTAssertEqual(geometry.reservedInsets.top, max(0, monitor.visibleFrame.maxY - frame.minY))
-        }
-    }
-
-    func testStatsAttachmentTracksDisplayedBarAfterMovement() async throws {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        defer { try? FileManager.default.removeItem(at: root) }
-        let settings = SettingsStore(
-            persistence: SettingsFilePersistence(directory: root, startWatching: false, deferSaves: false),
-            runtimeState: RuntimeStateStore(directory: root.appendingPathComponent("state"), deferSaves: false),
-            autosaveEnabled: false
-        )
-        settings.workspaceBar.height = 32
-        let controller = WMController(settings: settings)
-        let manager = controller.workspaceBarManager
-        let panel = WorkspaceBarPanel.defaultPanel()
-        manager.setup(controller: controller, settings: settings)
-        manager.screenProvider = { _ in nil }
-        manager.panelFactory = { panel }
-        defer { manager.cleanup() }
-
-        for position in [WorkspaceBarPosition.bottom, .left, .right] {
-            settings.workspaceBar.position = position
-            let snapshot = WorkspaceBarSnapshot(
-                projection: WorkspaceBarProjection(items: [], scratchpads: []),
-                showLabels: true, showSystemStatsButton: true, backgroundOpacity: 0.5,
-                barHeight: 32, accentColor: nil, textColor: nil,
-                orientation: position.isVertical ? .vertical : .horizontal
-            )
-            manager.apply([DesiredBarSurface(monitor: monitor, visible: true, snapshot: snapshot)])
-            for _ in 0 ..< 100 where manager.statsAnchor(on: monitor.id) == nil {
-                try await Task.sleep(for: .milliseconds(10))
-            }
-            let anchor = try XCTUnwrap(manager.statsAnchor(on: monitor.id))
-            let frame = panel.frame.offsetBy(dx: 10, dy: 10)
-            panel.setFrame(frame, display: true)
-            let moved = try XCTUnwrap(manager.statsAnchor(on: monitor.id))
-            XCTAssertEqual(moved.x - anchor.x, 10, accuracy: 0.5)
-            XCTAssertEqual(moved.y - anchor.y, 10, accuracy: 0.5)
-            XCTAssertEqual(manager.popupAttachment(on: monitor.id, forStats: true), PopupAttachment(
-                sourceFrame: frame, edge: position.popupEdge, alignment: moved
-            ))
         }
     }
 }

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import CoreGraphics
 @testable import OmniWM
@@ -69,7 +69,7 @@ final class NiriViewportPrecisionTests: XCTestCase {
 
             let viewStart = fixture.state.columnX(at: 1, columns: columns, gap: fixture.gap)
                 + fixture.state.viewOffset
-            XCTAssertEqual(viewStart, -fixture.gap, accuracy: 0.000001)
+            XCTAssertEqual(viewStart, -fixture.gap)
             XCTAssertEqual(columns.map(\.width), [.proportion(1.0 / 3), .proportion(1.0 / 3)])
         }
     }
@@ -128,7 +128,7 @@ final class NiriViewportPrecisionTests: XCTestCase {
                 scale: scale
             )
 
-            XCTAssertEqual(offset, -(1000 - targetWidth) / 2, accuracy: 0.000001)
+            XCTAssertEqual(offset, -(1000 - targetWidth) / 2)
         }
     }
 

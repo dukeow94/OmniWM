@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import CoreGraphics
 import Foundation
@@ -47,7 +47,7 @@ final class WindowInfoConnectionTests: XCTestCase {
             XCTAssertEqual(result?[77]?.level, 8)
         }
         connection = nil
-        await fulfillment(of: [released], timeout: 1)
+        await fulfillment(of: [released], timeout: failureBound)
         XCTAssertEqual(probe.recorded, ["create", "read 42", "read 42", "release 42"])
     }
 
@@ -115,7 +115,7 @@ final class WindowInfoConnectionTests: XCTestCase {
                 return [77: WindowServerInfo(id: 77, pid: 1234, level: 8, frame: .zero)]
             }
         }
-        await fulfillment(of: [entered], timeout: 1)
+        await fulfillment(of: [entered], timeout: failureBound)
         connection = nil
         task.cancel()
         XCTAssertEqual(probe.recorded, ["create", "read 42"])
@@ -125,7 +125,7 @@ final class WindowInfoConnectionTests: XCTestCase {
             XCTFail("Cancelled evidence must not be published")
         } catch is CancellationError {
         }
-        await fulfillment(of: [released], timeout: 1)
+        await fulfillment(of: [released], timeout: failureBound)
         XCTAssertEqual(probe.recorded, ["create", "read 42", "read finished", "release 42"])
     }
 
@@ -139,7 +139,7 @@ final class WindowInfoConnectionTests: XCTestCase {
                 return [UInt32: WindowServerInfo]()
             }
         }
-        await fulfillment(of: [entered], timeout: 1)
+        await fulfillment(of: [entered], timeout: failureBound)
         let probe = WindowInfoConnectionProbe()
         let connection = SkyLight.WindowInfoConnection(
             mainConnectionId: 1,
@@ -157,7 +157,7 @@ final class WindowInfoConnectionTests: XCTestCase {
                 return [UInt32: WindowServerInfo]()
             }
         }
-        await fulfillment(of: [scheduled], timeout: 1)
+        await fulfillment(of: [scheduled], timeout: failureBound)
         task.cancel()
         gate.signal()
         _ = try await blocker.value
@@ -169,26 +169,29 @@ final class WindowInfoConnectionTests: XCTestCase {
         XCTAssertTrue(probe.recorded.isEmpty)
     }
 
-    func testLiveDedicatedConnectionReadsForeignWindowMetadata() async throws {
-        guard ProcessInfo.processInfo.environment["OMNIWM_RUN_METADATA_READ_LIVE_TESTS"] == "1" else {
-            throw XCTSkip("Enable OMNIWM_RUN_METADATA_READ_LIVE_TESTS for read-only WindowServer checks")
+    #if OMNIWM_LIVE_CHECKS
+        func testLiveDedicatedConnectionReadsForeignWindowMetadata() async throws {
+            let sky = SkyLight.shared
+            defer { sky.stopWindowInfoQueries() }
+            let windows = sky.queryAllVisibleWindows().filter {
+                $0.pid != getpid() && $0.pid > 0 && $0.level == 0 && $0.frame.width > 0 && $0.frame.height > 0
+            }.prefix(8)
+            let ids = Set(windows.map(\.id))
+            guard !ids.isEmpty else { throw MissingTestPrerequisite("No visible foreign application windows") }
+            let expected = try XCTUnwrap(sky.queryWindowInfo(windowIds: ids))
+            let result = try await sky.queryWindowInfoDeferred(windowIds: ids)
+            let actual = try XCTUnwrap(result)
+            XCTAssertEqual(Set(actual.keys), ids)
+            for id in ids {
+                XCTAssertEqual(actual[id]?.pid, expected[id]?.pid)
+                XCTAssertEqual(actual[id]?.level, expected[id]?.level)
+                let immediate = sky.queryWindowInfoOffMainConnection(id)
+                XCTAssertEqual(immediate?.pid, expected[id]?.pid)
+                XCTAssertEqual(immediate?.level, expected[id]?.level)
+            }
+            XCTAssertNil(sky.queryWindowInfoOffMainConnection(UInt32.max))
         }
-        let sky = SkyLight.shared
-        defer { sky.stopWindowInfoQueries() }
-        let windows = sky.queryAllVisibleWindows().filter {
-            $0.pid != getpid() && $0.pid > 0 && $0.level == 0 && $0.frame.width > 0 && $0.frame.height > 0
-        }.prefix(8)
-        let ids = Set(windows.map(\.id))
-        guard !ids.isEmpty else { throw XCTSkip("No visible foreign application windows") }
-        let expected = try XCTUnwrap(sky.queryWindowInfo(windowIds: ids))
-        let result = try await sky.queryWindowInfoDeferred(windowIds: ids)
-        let actual = try XCTUnwrap(result)
-        XCTAssertEqual(Set(actual.keys), ids)
-        for id in ids {
-            XCTAssertEqual(actual[id]?.pid, expected[id]?.pid)
-            XCTAssertEqual(actual[id]?.level, expected[id]?.level)
-        }
-    }
+    #endif
 
     func testConnectionReturnsCornerValuesParsedOffMain() async throws {
         let connection = SkyLight.WindowInfoConnection(
@@ -205,27 +208,27 @@ final class WindowInfoConnectionTests: XCTestCase {
         ))
     }
 
-    func testLiveDedicatedConnectionReadsCornersAndRejectsWrongPID() async throws {
-        guard ProcessInfo.processInfo.environment["OMNIWM_RUN_METADATA_READ_LIVE_TESTS"] == "1" else {
-            throw XCTSkip("Enable OMNIWM_RUN_METADATA_READ_LIVE_TESTS for read-only WindowServer checks")
+    #if OMNIWM_LIVE_CHECKS
+        func testLiveDedicatedConnectionReadsCornersAcrossProcesses() async throws {
+            let sky = SkyLight.shared
+            defer { sky.stopWindowInfoQueries() }
+            let windows = sky.queryAllVisibleWindows().filter {
+                $0.pid != getpid() && $0.pid > 0 && $0.level == 0 && $0.frame.width > 0 && $0.frame.height > 0
+            }.prefix(8)
+            var comparisons = 0
+            for window in windows {
+                let token = WindowToken(pid: window.pid, windowId: Int(window.id))
+                guard let expected = sky.cornerSample(forWindowId: token.windowId) else { continue }
+                let actual = try await sky.cornerSampleDeferred(for: token)
+                XCTAssertEqual(actual, expected)
+                let mismatchedPidToken = WindowToken(pid: -1, windowId: token.windowId)
+                let mismatchedPidSample = try await sky.cornerSampleDeferred(for: mismatchedPidToken)
+                XCTAssertEqual(mismatchedPidSample, expected)
+                comparisons += 1
+            }
+            XCTAssertGreaterThan(comparisons, 0)
+            let missing = try await sky.cornerSampleDeferred(for: WindowToken(pid: -1, windowId: Int(UInt32.max)))
+            XCTAssertNil(missing)
         }
-        let sky = SkyLight.shared
-        defer { sky.stopWindowInfoQueries() }
-        let windows = sky.queryAllVisibleWindows().filter {
-            $0.pid != getpid() && $0.pid > 0 && $0.level == 0 && $0.frame.width > 0 && $0.frame.height > 0
-        }.prefix(8)
-        var comparisons = 0
-        for window in windows {
-            let token = WindowToken(pid: window.pid, windowId: Int(window.id))
-            guard let expected = sky.cornerSample(forWindowId: token.windowId) else { continue }
-            let actual = try await sky.cornerSampleDeferred(for: token)
-            XCTAssertEqual(actual, expected)
-            let wrongOwner = try await sky.cornerSampleDeferred(for: WindowToken(pid: -1, windowId: token.windowId))
-            XCTAssertNil(wrongOwner)
-            comparisons += 1
-        }
-        XCTAssertGreaterThan(comparisons, 0)
-        let missing = try await sky.cornerSampleDeferred(for: WindowToken(pid: -1, windowId: Int(UInt32.max)))
-        XCTAssertNil(missing)
-    }
+    #endif
 }

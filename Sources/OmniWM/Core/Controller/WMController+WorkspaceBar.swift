@@ -1,11 +1,91 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import Foundation
 import OmniWMIPC
 
 extension WMController {
+    @discardableResult
+    func toggleWorkspaceBarVisibility() -> Bool {
+        pruneHiddenWorkspaceBarMonitorIds()
+
+        guard let monitor = monitorForInteraction() else { return false }
+        let resolved = settings.workspaceBar.resolved(for: monitor)
+        guard resolved.enabled else { return false }
+
+        if hiddenWorkspaceBarMonitorIds.contains(monitor.id) {
+            hiddenWorkspaceBarMonitorIds.remove(monitor.id)
+        } else {
+            hiddenWorkspaceBarMonitorIds.insert(monitor.id)
+        }
+
+        cachedMonitorLayout = nil
+        workspaceManager.invalidateAllLayouts()
+        layoutRefreshController.requestRelayout(reason: .monitorSettingsChanged)
+        surfaceReconciler.noteWorldChanged()
+        hiddenBarController.dismissPanel()
+        return true
+    }
+
+    @discardableResult
+    func synchronizeWorkspaceBarIconOverrides(
+        forceReload: Bool = false,
+        forceReloadBundleId: String? = nil
+    ) -> Bool {
+        guard workspaceBarIconResolver.synchronize(
+            overrides: settings.workspaceBar.iconOverrides,
+            forceReload: forceReload,
+            forceReloadBundleId: forceReloadBundleId
+        ) else {
+            return false
+        }
+        workspaceBarIconResolutionRevision += 1
+        workspaceBarManager.refreshShellIcons()
+        return true
+    }
+
+    func syncWorkspaceBarRevealMonitor() {
+        guard hasStartedServices,
+              settings.workspaceBar.resolvedRevealModifier != .off,
+              workspaceBarRefreshIsEnabled
+        else {
+            workspaceBarRevealMonitor.stop()
+            return
+        }
+
+        workspaceBarRevealMonitor.start(
+            modifier: settings.workspaceBar.resolvedRevealModifier,
+            holdMilliseconds: settings.workspaceBar.resolvedRevealHoldMilliseconds
+        )
+    }
+
+    func setWorkspaceBarRevealHeld(_ revealed: Bool) {
+        guard isWorkspaceBarRevealHeld != revealed else { return }
+        workspaceBarManager.refreshAutoHide()
+        isWorkspaceBarRevealHeld = revealed
+        surfaceReconciler.noteWorldChanged()
+    }
+
+    func resetWorkspaceBarReveal() {
+        workspaceBarRevealMonitor.resetReveal()
+    }
+
+    func pruneHiddenWorkspaceBarMonitorIds() {
+        cachedMonitorLayout = nil
+        hiddenWorkspaceBarMonitorIds = hiddenWorkspaceBarMonitorIds.filter { monitorId in
+            guard let monitor = workspaceManager.monitor(byId: monitorId) else { return false }
+            return settings.workspaceBar.resolved(for: monitor).enabled
+        }
+    }
+
+    func cleanupUIOnStop() {
+        niriEdgePictures.reset()
+        windowSwitcherControllerStorage?.dismiss()
+        workspaceBarRevealMonitor.stop()
+        workspaceBarManager.cleanup()
+    }
+
     var workspaceBarRefreshIsEnabled: Bool {
         settings.workspaceBar.enabled
     }
@@ -33,7 +113,7 @@ extension WMController {
         pruneHiddenWorkspaceBarMonitorIds()
         workspaceBarManager.setup(controller: self, settings: settings)
         if !enabled {
-            workspaceBarManager.cleanup()
+            workspaceBarManager.cleanup(keepingShell: settings.island.enabled)
         }
         workspaceManager.invalidateAllLayouts()
         layoutRefreshController.requestRelayout(reason: .monitorSettingsChanged)
@@ -86,6 +166,7 @@ extension WMController {
             forceReload: forceIconReload
         )
         pruneHiddenWorkspaceBarMonitorIds()
+        workspaceManager.invalidateNiriCachedPrimarySpans()
         workspaceManager.invalidateAllLayouts()
         layoutRefreshController.requestRelayout(reason: .monitorSettingsChanged)
         surfaceReconciler.noteWorldChanged()
@@ -198,7 +279,9 @@ extension WMController {
         if desired.niriColumns.mapValues(\.columnIndexByToken) != previous.niriColumns.mapValues(\.columnIndexByToken) {
             channels.append(.windowsChanged)
         }
-        if desired.niriColumns.mapValues(\.viewport) != previous.niriColumns.mapValues(\.viewport) {
+        if desired.niriColumns.mapValues(\.viewport) != previous.niriColumns.mapValues(\.viewport)
+            || desired.niriColumns.mapValues(\.displayModes) != previous.niriColumns.mapValues(\.displayModes)
+        {
             channels.append(.layoutChanged)
         }
         return channels
@@ -210,8 +293,7 @@ extension WMController {
 
     func isWorkspaceBarConfiguredVisible(on monitor: Monitor, resolved: ResolvedBarSettings) -> Bool {
         guard isWorkspaceBarEnabled(on: monitor, resolved: resolved) else { return false }
-        return (!resolved.autoHide && settings.workspaceBar.revealModifier == .off)
-            || isWorkspaceBarRevealHeld || (resolved.autoHide && workspaceBarManager.isPointerRevealed(on: monitor.id))
+        return !resolved.autoHide || isWorkspaceBarRevealHeld || workspaceBarManager.isPointerRevealed(on: monitor.id)
     }
 
     func isWorkspaceBarVisible(on monitor: Monitor, resolved: ResolvedBarSettings? = nil) -> Bool {
@@ -229,7 +311,7 @@ extension WMController {
         on monitor: Monitor,
         resolved: ResolvedBarSettings
     ) -> Bool {
-        guard settings.workspaceBar.hideInNativeFullscreen || resolved.notchMode == .fillLeftOfNotch else {
+        guard settings.workspaceBar.resolvedHideInNativeFullscreen || resolved.notchMode == .fillLeftOfNotch else {
             return false
         }
         let topology = workspaceManager.spaceTopology

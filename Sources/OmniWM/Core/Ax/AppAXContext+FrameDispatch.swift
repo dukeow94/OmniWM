@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import ApplicationServices
@@ -139,10 +139,10 @@ extension AppAXContext {
             scheduleOnMainRunLoop { [weak self] in
                 guard let self else { return }
                 if let nextDrain = frameDelivery.finishClosingFrames(
-                    batchId: batchId, drainId: drain.id,
-                    cancelledCount: cancelledCount
-                ),
-                    let nextThread = self.axThread
+                       batchId: batchId, drainId: drain.id,
+                       cancelledCount: cancelledCount
+                   ),
+                   let nextThread = self.axThread
                 {
                     scheduleClosingFrameDrain(nextDrain, on: nextThread)
                 }

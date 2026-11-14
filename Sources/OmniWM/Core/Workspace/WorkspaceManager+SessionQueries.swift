@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import Foundation
@@ -32,6 +32,7 @@ extension WorkspaceManager {
 
     var windowFocusRecencyOrder: [WindowToken] {
         var candidates = [selectedManagedToken].compactMap { $0 }
+        candidates.append(contentsOf: focusSessionSnapshot.windowFocusHistory)
         candidates.append(contentsOf: focusSessionSnapshot.tiledFocusHistory)
         let workspaceOrder = focusSessionSnapshot.lastFocusedByWorkspace.keys.sorted {
             $0.uuidString < $1.uuidString
@@ -61,7 +62,7 @@ extension WorkspaceManager {
         }
 
         if let handle = handleIfEligible(selectedManagedToken) { return handle }
-        for token in focusSessionSnapshot.tiledFocusHistory {
+        for token in focusSessionSnapshot.windowFocusHistory {
             if let handle = handleIfEligible(token) { return handle }
         }
         if let interactionMonitorId,
@@ -125,7 +126,8 @@ extension WorkspaceManager {
 
     @discardableResult
     func setScratchpadMembership(_ token: WindowToken, to index: ScratchpadIndex?) -> Bool {
-        updateScratchpadMembership(token, to: index, notify: true)
+        guard index == nil || entry(for: token)?.target.hostedMetadata?.role.parent == nil else { return false }
+        return updateScratchpadMembership(token, to: index, notify: true)
     }
 
     @discardableResult

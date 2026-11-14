@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 @testable import OmniWM
@@ -28,7 +28,7 @@ final class HotkeyRecordingLifecycleTests: XCTestCase {
         })
         window.contentView = host
         host.layoutSubtreeIfNeeded()
-        await fulfillment(of: [focused], timeout: 3)
+        await fulfillment(of: [focused], timeout: failureBound)
 
         let recorder = try XCTUnwrap(window.firstResponder as? KeyRecorderNSView)
         let scroll = try XCTUnwrap(recorder.enclosingScrollView)
@@ -40,7 +40,7 @@ final class HotkeyRecordingLifecycleTests: XCTestCase {
         ))
         scroll.reflectScrolledClipView(scroll.contentView)
         host.layoutSubtreeIfNeeded()
-        await fulfillment(of: [cancelled], timeout: 3)
+        await fulfillment(of: [cancelled], timeout: failureBound)
 
         XCTAssertNil(state.target)
         XCTAssertFalse(window.firstResponder === recorder)
@@ -70,6 +70,8 @@ private struct RecordingFixture: View {
                         binding: binding,
                         recordingTarget: $state.target,
                         failureReason: nil,
+                        modeKeyFailure: nil,
+                        showsModeKey: false,
                         pausedDuringSecureInput: false,
                         isHyperActive: { false },
                         onStartChordRecording: { state.target = .chord($0) },
@@ -77,7 +79,9 @@ private struct RecordingFixture: View {
                         onCancelRecording: onCancel,
                         onClearBinding: { _ in },
                         onResetBindings: { _ in },
-                        onSetSide: { _, _ in }
+                        onSetSide: { _, _ in },
+                        onModeKeyCaptured: { _, _ in },
+                        onClearModeKey: { _ in }
                     )
                 }
             }

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 public enum IPCCommandName: RawRepresentable, Codable, CaseIterable, Hashable, Sendable {
     case focus(IPCFocusCommandName)
@@ -18,9 +18,13 @@ public enum IPCCommandName: RawRepresentable, Codable, CaseIterable, Hashable, S
     case workspaceLayout(IPCWorkspaceLayoutCommandName)
     case fullscreen(IPCFullscreenCommand)
     case presentation(IPCPresentationCommand)
+    case media(IPCMediaCommand)
+    case keyboardMode(IPCKeyboardModeCommand)
     case windowState(IPCWindowStateCommand)
     case scratchpad(IPCScratchpadCommandName)
     case openMenuAnywhere
+    case shellAppOpen
+    case shellAppNewWindow
 
     public var rawValue: String {
         switch self {
@@ -56,12 +60,20 @@ public enum IPCCommandName: RawRepresentable, Codable, CaseIterable, Hashable, S
             name.rawValue
         case let .presentation(name):
             name.rawValue
+        case let .media(name):
+            name.rawValue
+        case let .keyboardMode(name):
+            name.rawValue
         case let .windowState(name):
             name.rawValue
         case let .scratchpad(name):
             name.rawValue
         case .openMenuAnywhere:
             "open-menu-anywhere"
+        case .shellAppOpen:
+            "app-open"
+        case .shellAppNewWindow:
+            "app-new-window"
         }
     }
 
@@ -81,6 +93,10 @@ public enum IPCCommandName: RawRepresentable, Codable, CaseIterable, Hashable, S
             self = .rescueOffscreenWindows
         case "open-menu-anywhere":
             self = .openMenuAnywhere
+        case "app-open":
+            self = .shellAppOpen
+        case "app-new-window":
+            self = .shellAppNewWindow
         default:
             var name = IPCFocusCommandName(rawValue: rawValue).map(Self.focus)
             name = name ?? IPCWindowMovementCommandName(rawValue: rawValue).map(Self.windowMovement)
@@ -92,6 +108,8 @@ public enum IPCCommandName: RawRepresentable, Codable, CaseIterable, Hashable, S
             name = name ?? IPCWorkspaceLayoutCommandName(rawValue: rawValue).map(Self.workspaceLayout)
             name = name ?? IPCFullscreenCommand(rawValue: rawValue).map(Self.fullscreen)
             name = name ?? IPCPresentationCommand(rawValue: rawValue).map(Self.presentation)
+            name = name ?? IPCMediaCommand(rawValue: rawValue).map(Self.media)
+            name = name ?? IPCKeyboardModeCommand(rawValue: rawValue).map(Self.keyboardMode)
             name = name ?? IPCWindowStateCommand(rawValue: rawValue).map(Self.windowState)
             name = name ?? IPCScratchpadCommandName(rawValue: rawValue).map(Self.scratchpad)
             guard let name else { return nil }
@@ -117,9 +135,13 @@ public enum IPCCommandName: RawRepresentable, Codable, CaseIterable, Hashable, S
         names.append(contentsOf: IPCWorkspaceLayoutCommandName.allCases.map(Self.workspaceLayout))
         names.append(contentsOf: IPCFullscreenCommand.allCases.map(Self.fullscreen))
         names.append(contentsOf: IPCPresentationCommand.allCases.map(Self.presentation))
+        names.append(contentsOf: IPCMediaCommand.allCases.map(Self.media))
+        names.append(contentsOf: IPCKeyboardModeCommand.allCases.map(Self.keyboardMode))
         names.append(contentsOf: IPCWindowStateCommand.allCases.map(Self.windowState))
         names.append(contentsOf: IPCScratchpadCommandName.allCases.map(Self.scratchpad))
         names.append(.openMenuAnywhere)
+        names.append(.shellAppOpen)
+        names.append(.shellAppNewWindow)
         return names
     }
 

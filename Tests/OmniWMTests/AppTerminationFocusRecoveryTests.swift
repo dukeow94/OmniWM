@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import ApplicationServices
 import Foundation
@@ -77,7 +77,7 @@ final class AppTerminationFocusRecoveryTests: XCTestCase {
         )
         XCTAssertEqual(recoveredViewport.selectedNodeId, settledViewport.selectedNodeId)
         XCTAssertEqual(recoveredViewport.activeColumnIndex, settledViewport.activeColumnIndex)
-        XCTAssertEqual(recoveredViewport.viewOffset, settledViewport.viewOffset, accuracy: 0.5)
+        XCTAssertEqual(recoveredViewport.viewOffset, settledViewport.viewOffset)
 
         let retiring = try XCTUnwrap(
             fixture.controller.intentLedger.openAppTerminationFocusRecovery()

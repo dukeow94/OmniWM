@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import Foundation
@@ -42,7 +42,8 @@ extension NiriLayoutEngine {
 
     func clearExcludedColumnFrames(
         in workspaceId: WorkspaceDescriptor.ID,
-        excluding excludedTokens: Set<WindowToken>
+        excluding excludedTokens: Set<WindowToken>,
+        recordsPresentationGeometry: Bool = false
     ) {
         if !excludedTokens.isEmpty {
             for column in columns(in: workspaceId)
@@ -50,6 +51,7 @@ extension NiriLayoutEngine {
             {
                 column.frame = nil
                 column.renderedFrame = nil
+                if recordsPresentationGeometry { column.edgeHiddenFrame = nil }
             }
         }
     }
@@ -76,13 +78,10 @@ extension NiriLayoutEngine {
     }
 
     func projectedColumns(in workspaceId: WorkspaceDescriptor.ID) -> [NiriProjectedColumn] {
-        let columns = columns(in: workspaceId)
         guard let excludedTokens = excludedTokensByWorkspace[workspaceId], !excludedTokens.isEmpty else {
-            return columns.enumerated().map {
-                NiriProjectedColumn(column: $0.element, windows: $0.element.windowNodes, durableIndex: $0.offset)
-            }
+            return root(for: workspaceId)?.projectedColumns ?? []
         }
-
+        let columns = columns(in: workspaceId)
         var projected: [NiriProjectedColumn] = []
         projected.reserveCapacity(columns.count)
         for (durableIndex, column) in columns.enumerated() {
@@ -354,9 +353,11 @@ extension NiriLayoutEngine {
             case .horizontal: context.workingFrame.width
             case .vertical: context.workingFrame.height
             }
+            let singleOriginOffset = singleWindowGestureOrigin(context: context)
+            projectedState.rebaseOffset(by: singleOriginOffset)
             projectedState.endGesture(
-                currentOffset: currentOffset,
-                projectedOffset: projectedOffset,
+                currentOffset: currentOffset + Double(singleOriginOffset),
+                projectedOffset: projectedOffset + Double(singleOriginOffset),
                 columns: projectedColumns.map(\.column),
                 geometry: NiriViewportGeometry(
                     gap: context.gaps,
@@ -364,7 +365,8 @@ extension NiriLayoutEngine {
                     orientation: context.orientation,
                     workingArea: context.workingFrame,
                     viewFrame: viewFrame,
-                    scale: scale
+                    scale: scale,
+                    edgeOverscroll: effectiveSettings(in: context.workspaceId).edgeOverscroll
                 ),
                 motion: context.motion,
                 snapToColumn: snapToColumn,
@@ -372,6 +374,9 @@ extension NiriLayoutEngine {
                 alwaysCenterSingleColumn: alwaysCenterSingleColumn
             )
 
+            projectedState.rebaseOffset(by: -singleOriginOffset)
+            projectedState.preservesGestureOffset = effectiveSettings(in: context.workspaceId)
+                .edgeOverscroll != .disabled
             let projectedIndex = projectedState.activeColumnIndex
                 .clamped(to: 0 ... projectedColumns.count - 1)
             let activeColumn = projectedColumns[projectedIndex]
@@ -399,7 +404,12 @@ extension NiriLayoutEngine {
             context.orientation == .horizontal ? $0.column.cachedWidth : $0.column.cachedHeight
         }
         for projectedColumn in projectedColumns {
-            let span = projectedPrimarySpan(
+            let span = singleWindowScrollRect(
+                in: context.workspaceId, workingFrame: context.workingFrame,
+                gaps: LayoutGaps(horizontal: context.gaps, vertical: context.gaps)
+            )
+            .map { context.orientation == .horizontal ? $0.width : $0.height }
+            ?? projectedPrimarySpan(
                 for: projectedColumn,
                 workingFrame: context.workingFrame,
                 gap: context.gaps,

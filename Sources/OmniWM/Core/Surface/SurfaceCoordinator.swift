@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import Foundation
@@ -17,7 +17,10 @@ final class SurfaceCoordinator {
     func register(
         window: NSWindow,
         id: String,
-        policy: SurfacePolicy
+        policy: SurfacePolicy,
+        regionProvider: (@MainActor () -> [CGRect])? = nil,
+        frameProvider: (@MainActor () -> CGRect?)? = nil,
+        visibilityProvider: (@MainActor () -> Bool)? = nil
     ) {
         scene.register(
             window: window,
@@ -27,8 +30,9 @@ final class SurfaceCoordinator {
                 window: window,
                 windowObjectIdentifier: ObjectIdentifier(window),
                 windowNumber: window.windowNumber > 0 ? window.windowNumber : nil,
-                frameProvider: nil,
-                visibilityProvider: nil
+                frameProvider: frameProvider,
+                visibilityProvider: visibilityProvider,
+                regionProvider: regionProvider
             )
         )
     }
@@ -53,6 +57,11 @@ final class SurfaceCoordinator {
         )
     }
 
+    @discardableResult
+    func setManagedFocusRecoverySuppressed(_ suppressed: Bool, for window: NSWindow) -> Bool? {
+        scene.setManagedFocusRecoverySuppressed(suppressed, for: window)
+    }
+
     func unregister(window: NSWindow) {
         scene.unregister(window: window)
     }
@@ -69,8 +78,8 @@ final class SurfaceCoordinator {
         scene.contains(windowNumber: windowNumber)
     }
 
-    func containsInteractive(point: CGPoint) -> Bool {
-        scene.containsInteractive(point: point)
+    func containsInteractive(point: CGPoint, excluding kinds: [SurfaceKind] = []) -> Bool {
+        scene.containsInteractive(point: point, excluding: kinds)
     }
 
     func containsGeometric(point: CGPoint) -> Bool {

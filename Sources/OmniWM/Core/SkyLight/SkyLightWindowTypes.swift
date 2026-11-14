@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import CoreGraphics
 import Foundation
@@ -34,6 +34,14 @@ struct WindowCornerRadii: Equatable, Sendable {
     }
 
     static let zero = WindowCornerRadii(uniform: 0)
+
+    static let systemDefault: WindowCornerRadii = {
+        if ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 26 {
+            WindowCornerRadii(uniform: 16.0)
+        } else {
+            WindowCornerRadii(uniform: 9.0)
+        }
+    }()
 
     var isAllZero: Bool {
         topLeft == 0 && topRight == 0 && bottomLeft == 0 && bottomRight == 0
@@ -79,12 +87,14 @@ struct WindowCornerRadii: Equatable, Sendable {
 enum WindowCornerSource: Equatable, Sendable {
     case resolved
     case raw
+    case captured
 }
 
 struct WindowCornerSample: Equatable, Sendable {
     let radii: WindowCornerRadii
     let observedSize: CGSize
     let source: WindowCornerSource
+    var contour: WindowCornerContour?
 }
 
 struct ManagedDisplaySpaces: Sendable {
@@ -107,6 +117,8 @@ enum CGSEventType: UInt32 {
     case windowMoved = 806
     case windowResized = 807
     case windowOrderChanged = 808
+    case windowOrderedIn = 815
+    case windowOrderedOut = 816
     case windowTitleChanged = 1322
     case spaceWindowCreated = 1325
     case spaceWindowDestroyed = 1326

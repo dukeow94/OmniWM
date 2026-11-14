@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import Foundation
 @testable import OmniWM
@@ -25,32 +25,21 @@ final class WorkspaceMoveIPCIntegrationTests: XCTestCase {
         let outcome: WorkspaceMonitorMoveOutcome
     }
 
-    func testBridgeMapsWorkspaceAssignmentConflict() {
-        let response = IPCApplicationBridge.response(
-            for: .workspaceAssignmentConflict,
-            id: "workspace-move",
-            kind: .workspace
-        )
-
-        XCTAssertFalse(response.ok)
-        XCTAssertEqual(response.id, "workspace-move")
-        XCTAssertEqual(response.kind, .workspace)
-        XCTAssertEqual(response.status, .error)
-        XCTAssertEqual(response.code, .workspaceAssignmentConflict)
-    }
-
-    func testBridgeMapsWorkspaceStateConflict() {
-        let response = IPCApplicationBridge.response(
-            for: .workspaceStateConflict,
-            id: "workspace-move",
-            kind: .workspace
-        )
-
-        XCTAssertFalse(response.ok)
-        XCTAssertEqual(response.id, "workspace-move")
-        XCTAssertEqual(response.kind, .workspace)
-        XCTAssertEqual(response.status, .error)
-        XCTAssertEqual(response.code, .workspaceStateConflict)
+    func testBridgeMapsWorkspaceConflicts() {
+        let cases: [(result: ExternalCommandResult, expectedCode: IPCErrorCode)] = [
+            (.workspaceAssignmentConflict, .workspaceAssignmentConflict),
+            (.workspaceStateConflict, .workspaceStateConflict)
+        ]
+        for row in cases {
+            let response = IPCApplicationBridge.response(
+                for: row.result, id: "workspace-move", kind: .workspace
+            )
+            XCTAssertFalse(response.ok)
+            XCTAssertEqual(response.id, "workspace-move")
+            XCTAssertEqual(response.kind, .workspace)
+            XCTAssertEqual(response.status, .error)
+            XCTAssertEqual(response.code, row.expectedCode)
+        }
     }
 
     func testBridgeMapsNoChangeToIgnoredStatus() {
@@ -640,7 +629,7 @@ final class WorkspaceMoveIPCIntegrationTests: XCTestCase {
 
         try withBlockedRefreshes(controller, affectedWorkspaceId: fixture.interactionWorkspaceId) {
             handleTerminalRelocationResult(
-                frameApplyResult(
+                try frameApplyResult(
                     entry: entry,
                     targetFrame: movedWindow.relocation.frame,
                     observedFrame: movedWindow.sourceFrame,
@@ -681,21 +670,21 @@ final class WorkspaceMoveIPCIntegrationTests: XCTestCase {
         let entry = try XCTUnwrap(controller.workspaceManager.entry(for: movedWindow.token))
         controller.layoutRefreshController.resetState()
 
-        withBlockedRefreshes(controller, affectedWorkspaceId: fixture.interactionWorkspaceId) {
+        try withBlockedRefreshes(controller, affectedWorkspaceId: fixture.interactionWorkspaceId) {
             let results = [
-                frameApplyResult(
+                try frameApplyResult(
                     entry: entry,
                     targetFrame: movedWindow.relocation.frame,
                     observedFrame: movedWindow.relocation.frame,
                     failureReason: nil
                 ),
-                frameApplyResult(
+                try frameApplyResult(
                     entry: entry,
                     targetFrame: movedWindow.relocation.frame,
                     observedFrame: movedWindow.sourceFrame,
                     failureReason: .cancelled
                 ),
-                frameApplyResult(
+                try frameApplyResult(
                     entry: entry,
                     targetFrame: movedWindow.relocation.frame,
                     observedFrame: movedWindow.sourceFrame,
@@ -722,13 +711,13 @@ final class WorkspaceMoveIPCIntegrationTests: XCTestCase {
         let entry = try XCTUnwrap(manager.entry(for: movedWindow.token))
         controller.layoutRefreshController.resetState()
 
-        withBlockedRefreshes(controller, affectedWorkspaceId: fixture.interactionWorkspaceId) {
+        try withBlockedRefreshes(controller, affectedWorkspaceId: fixture.interactionWorkspaceId) {
             let replacementWindow = AXWindowRef(
                 element: AXUIElementCreateApplication(entry.pid + 1),
                 windowId: entry.windowId
             )
             handleTerminalRelocationResult(
-                frameApplyResult(
+                try frameApplyResult(
                     entry: entry,
                     expectedWindow: replacementWindow,
                     targetFrame: movedWindow.relocation.frame,
@@ -748,7 +737,7 @@ final class WorkspaceMoveIPCIntegrationTests: XCTestCase {
                 for: movedWindow.token
             )
             handleTerminalRelocationResult(
-                frameApplyResult(
+                try frameApplyResult(
                     entry: entry,
                     targetFrame: movedWindow.relocation.frame,
                     observedFrame: movedWindow.sourceFrame,
@@ -771,7 +760,7 @@ final class WorkspaceMoveIPCIntegrationTests: XCTestCase {
                 referenceMonitor: fixture.center
             )
             handleTerminalRelocationResult(
-                frameApplyResult(
+                try frameApplyResult(
                     entry: entry,
                     targetFrame: movedWindow.relocation.frame,
                     observedFrame: movedWindow.sourceFrame,
@@ -793,7 +782,7 @@ final class WorkspaceMoveIPCIntegrationTests: XCTestCase {
             windowId: 943_306
         )
         let originalEntry = try XCTUnwrap(manager.entry(for: movedWindow.token))
-        let failedResult = frameApplyResult(
+        let failedResult = try frameApplyResult(
             entry: originalEntry,
             targetFrame: movedWindow.relocation.frame,
             observedFrame: movedWindow.sourceFrame,
@@ -819,7 +808,7 @@ final class WorkspaceMoveIPCIntegrationTests: XCTestCase {
         XCTAssertEqual(currentEntry.floatingState?.referenceMonitorId, fixture.center.id)
         controller.layoutRefreshController.resetState()
 
-        withBlockedRefreshes(controller, affectedWorkspaceId: fixture.interactionWorkspaceId) {
+        try withBlockedRefreshes(controller, affectedWorkspaceId: fixture.interactionWorkspaceId) {
             handleTerminalRelocationResult(failedResult, fixture: fixture)
             XCTAssertNil(controller.layoutRefreshController.layoutState.pendingRefresh)
         }
@@ -839,7 +828,7 @@ final class WorkspaceMoveIPCIntegrationTests: XCTestCase {
 
         try withBlockedRefreshes(controller, affectedWorkspaceId: fixture.interactionWorkspaceId) {
             handleTerminalRelocationResult(
-                frameApplyResult(
+                try frameApplyResult(
                     entry: entry,
                     targetFrame: movedWindow.relocation.frame,
                     observedFrame: movedWindow.sourceFrame,
@@ -1312,11 +1301,12 @@ final class WorkspaceMoveIPCIntegrationTests: XCTestCase {
         targetFrame: CGRect,
         observedFrame: CGRect?,
         failureReason: AXFrameWriteFailureReason?
-    ) -> AXFrameApplyResult {
-        AXFrameApplyResult(
+    ) throws -> AXFrameApplyResult {
+        let reference = try XCTUnwrap(expectedWindow ?? entry.axRef)
+        return AXFrameApplyResult(
             pid: entry.pid,
             windowId: entry.windowId,
-            expectedWindow: expectedWindow ?? entry.axRef,
+            expectedWindow: reference,
             targetFrame: targetFrame,
             currentFrameHint: observedFrame,
             writeResult: AXFrameWriteResult(
@@ -1344,25 +1334,9 @@ final class WorkspaceMoveIPCIntegrationTests: XCTestCase {
         _ controller: WMController,
         affectedWorkspaceId: WorkspaceDescriptor.ID,
         _ body: () throws -> T
-    ) rethrows -> T {
-        let blocker = Task { @MainActor in
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(1))
-            }
-        }
-        let refreshController = controller.layoutRefreshController
-        refreshController.layoutState.activeRefreshTask = blocker
-        refreshController.layoutState.activeRefresh = .init(
-            kind: .immediateRelayout,
-            reason: .workspaceTransition,
-            affectedWorkspaceIds: [affectedWorkspaceId]
+    ) throws -> T {
+        try LayoutRefreshTestSupport.withBlocked(
+            controller, in: affectedWorkspaceId, reason: .workspaceTransition, body
         )
-        defer {
-            blocker.cancel()
-            refreshController.layoutState.activeRefreshTask = nil
-            refreshController.layoutState.activeRefresh = nil
-            refreshController.layoutState.pendingRefresh = nil
-        }
-        return try body()
     }
 }

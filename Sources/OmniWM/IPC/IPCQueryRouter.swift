@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import Foundation
@@ -26,7 +26,10 @@ final class IPCQueryRouter {
         IPCPingResult()
     }
 
-    func versionResult(executableSHA256: String?) -> IPCVersionResult {
+    nonisolated static func versionResult(
+        appVersion: String?,
+        executableSHA256: String?
+    ) -> IPCVersionResult {
         IPCVersionResult(
             protocolVersion: OmniWMIPCProtocol.version,
             appVersion: appVersion,
@@ -34,6 +37,11 @@ final class IPCQueryRouter {
             buildConfiguration: OmniWMBuildInfo.configuration,
             executableSHA256: executableSHA256
         )
+    }
+
+    func shellWidgetsResult() -> IPCShellWidgetsQueryResult {
+        controller.workspaceBarManager.shellHost?.widgetReport
+            ?? IPCShellWidgetsQueryResult(profile: ShellDefaults.profile, widgets: [])
     }
 
     func workspaceBarResult() -> IPCWorkspaceBarQueryResult {
@@ -78,7 +86,11 @@ final class IPCQueryRouter {
            let entry = controller.workspaceManager.entry(for: focusedToken),
            entry.workspaceId == workspace.id
         {
-            focusedApp = IPCAppRef(appInfo: controller.appInfoCache.info(for: entry.pid))
+            if let hosted = entry.target.hostedMetadata {
+                focusedApp = IPCAppRef(name: hosted.title, bundleId: hosted.appId)
+            } else {
+                focusedApp = IPCAppRef(appInfo: controller.appInfoCache.info(for: entry.pid))
+            }
         } else {
             focusedApp = nil
         }
@@ -134,14 +146,20 @@ final class IPCQueryRouter {
         let workspaceDescriptor = controller.workspaceManager.descriptor(for: entry.workspaceId)
         let monitor = controller.workspaceManager.monitor(for: entry.workspaceId)
         let appInfo = controller.appInfoCache.info(for: entry.pid)
-        let frame = AXWindowService.framePreferFast(entry.axRef)
+        let frame: CGRect?
+        if let axRef = entry.axRef {
+            frame = AXWindowService.framePreferFast(axRef)
+        } else {
+            frame = controller.shellAppWindowManager.frame(for: entry.token)
+        }
+        let hosted = entry.target.hostedMetadata
         let snapshot = IPCFocusedWindowSnapshot(
             id: IPCWindowOpaqueID.encode(token: focusedToken, sessionToken: sessionToken),
             pid: entry.pid,
             workspace: workspaceDescriptor.map { IPCWorkspaceRef(descriptor: $0, settings: controller.settings) },
             display: monitor.map(IPCDisplayRef.init(monitor:)),
-            app: IPCAppRef(appInfo: appInfo),
-            title: AXWindowService.titlePreferFast(windowId: UInt32(entry.windowId)),
+            app: hosted.map { IPCAppRef(name: $0.title, bundleId: $0.appId) } ?? IPCAppRef(appInfo: appInfo),
+            title: hosted?.title ?? AXWindowService.titlePreferFast(windowId: UInt32(entry.windowId)),
             frame: frame.map(IPCRect.init),
             isFullscreen: controller.workspaceManager.layoutTopology(for: entry.workspaceId).isFullscreen(focusedToken)
         )
@@ -201,7 +219,9 @@ final class IPCQueryRouter {
             commands: IPCAutomationManifest.commandDescriptors,
             workspaceActions: IPCAutomationManifest.workspaceActionDescriptors,
             windowActions: IPCAutomationManifest.windowActionDescriptors,
-            windowMarkActions: IPCAutomationManifest.windowMarkActionDescriptors
+            windowMarkActions: IPCAutomationManifest.windowMarkActionDescriptors,
+            windowGatherActions: IPCAutomationManifest.windowGatherActionDescriptors,
+            shellActions: IPCAutomationManifest.shellActionDescriptors
         )
     }
 
@@ -222,10 +242,14 @@ final class IPCQueryRouter {
             workspaceActions: IPCAutomationManifest.workspaceActionDescriptors,
             windowActions: IPCAutomationManifest.windowActionDescriptors,
             windowMarkActions: IPCAutomationManifest.windowMarkActionDescriptors,
+            windowGatherActions: IPCAutomationManifest.windowGatherActionDescriptors,
+            shellActions: IPCAutomationManifest.shellActionDescriptors,
             subscriptions: IPCAutomationManifest.subscriptionDescriptors
         )
     }
+}
 
+extension IPCQueryRouter {
     private func workspaceBarWorkspace(from item: WorkspaceBarItem) -> IPCWorkspaceBarWorkspace {
         IPCWorkspaceBarWorkspace(
             id: item.id.uuidString,
@@ -292,7 +316,16 @@ final class IPCQueryRouter {
                 .map { IPCWorkspaceRef(
                     descriptor: $0,
                     settings: controller.settings
-                ) } : nil
+                ) } : nil,
+            uuid: IPCQuerySelection.include("uuid", in: fields) ? monitor.displayUUID : nil,
+            notch: IPCQuerySelection.include("notch", in: fields)
+                ? monitor.notchRange.map { IPCSpan(start: Double($0.lowerBound), end: Double($0.upperBound)) } : nil,
+            menuBarHeight: IPCQuerySelection.include("menu-bar-height", in: fields)
+                ? Double(max(0, monitor.frame.maxY - monitor.visibleFrame.maxY)) : nil,
+            barFrames: IPCQuerySelection.include("bar-frames", in: fields)
+                ? controller.workspaceBarManager.visibleBarFrames(on: monitor.id).map(IPCRect.init) : nil,
+            reservedInsets: IPCQuerySelection.include("reserved-insets", in: fields)
+                ? controller.workspaceBarReservedInsets(for: monitor).ipcInsets : nil
         )
     }
 

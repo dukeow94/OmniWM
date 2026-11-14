@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 @testable import OmniWM
 import XCTest
@@ -40,34 +40,35 @@ final class SpotlightRankingTests: XCTestCase {
             XCTAssertEqual(
                 result?.score.text ?? 0,
                 fixture.expected,
-                accuracy: 0.000001,
+                accuracy: Float(0.00000005) + Float.floatRounding(operations: 13, at: Float(1).nextDown),
                 "\(fixture.query)/\(fixture.name)"
             )
         }
     }
 
     func testAvailabilityMatchesOracle() {
-        XCTAssertEqual(SpotlightRanking.availability(present: 61.5), 1, accuracy: 0.000001)
-        XCTAssertEqual(SpotlightRanking.availability(present: 9), 0.7644785, accuracy: 0.000001)
+        XCTAssertEqual(SpotlightRanking.availability(present: 61.5), 1)
+        XCTAssertEqual(SpotlightRanking.availability(present: 9), 0.7644785)
     }
 
     func testEngagementMatchesOracle() {
         let now = Date(timeIntervalSince1970: 1_700_000_000)
         let past = now.addingTimeInterval(-86400)
+        let oracleBound = Float(0.0000005) + Float.floatRounding(operations: 5, at: Float(1).nextDown)
         XCTAssertEqual(
             SpotlightRanking.timeDecayedEngagement(dates: [past], now: now),
             0.7581708,
-            accuracy: 0.000001
+            accuracy: oracleBound
         )
         XCTAssertEqual(
             SpotlightRanking.timeDecayedEngagement(dates: Array(repeating: past, count: 3), now: now),
             0.8186281,
-            accuracy: 0.000001
+            accuracy: oracleBound
         )
         XCTAssertEqual(
             SpotlightRanking.timeDecayedEngagement(dates: Array(repeating: past, count: 10), now: now),
             0.90326846,
-            accuracy: 0.000001
+            accuracy: oracleBound
         )
 
         for (useCount, expected): (Int, Float) in [(4, 0.04114081), (49, 0.1)] {
@@ -88,18 +89,19 @@ final class SpotlightRankingTests: XCTestCase {
                     adjacentInOrder: false
                 )
             }
-            XCTAssertEqual(result?.score.engagement ?? 0, expected, accuracy: 0.000001)
+            XCTAssertEqual(result?.score.engagement ?? 0, expected)
         }
     }
 
     func testFreshnessMatchesOracle() {
         let now = Date(timeIntervalSince1970: 1_700_000_000)
+        let halfStatedDigit = 0.0000001 / 2
         for (days, expected): (Int, Double) in [(10, 0.6429527), (120, 0.5), (3000, 0.3549744)] {
             let date = now.addingTimeInterval(-Double(days) * 86400)
             XCTAssertEqual(
                 SpotlightRanking.freshnessScore(date: date, now: now),
                 expected,
-                accuracy: 0.000001
+                accuracy: halfStatedDigit
             )
         }
         XCTAssertEqual(SpotlightRanking.freshnessScore(date: nil, now: now), 0.5)
@@ -108,8 +110,7 @@ final class SpotlightRankingTests: XCTestCase {
     func testCompositeMatchesOracle() {
         XCTAssertEqual(
             SpotlightRanking.composite(text: 0.8, engagement: 0.7, freshness: 0.6, context: 0.5, resultType: 1),
-            0.72,
-            accuracy: 0.000001
+            Float(Double(Float(0.8) + Float(0.7)) + 0.6 + 0.5 + 1) / 5
         )
     }
 
@@ -126,20 +127,17 @@ final class SpotlightRankingTests: XCTestCase {
         )
         XCTAssertEqual(
             SpotlightRanking.launchStringScore("calculator", query: "calc", termCount: 1, match: partial),
-            0.98,
-            accuracy: 0.000001
+            0.98
         )
         partial.fraction = 0.3
         XCTAssertEqual(
             SpotlightRanking.launchStringScore("calculator", query: "cal", termCount: 1, match: partial),
-            0.65,
-            accuracy: 0.000001
+            0.65
         )
         partial.fraction = 0.2
         XCTAssertEqual(
             SpotlightRanking.launchStringScore("calculator", query: "ca", termCount: 1, match: partial),
-            0.2,
-            accuracy: 0.000001
+            0.2
         )
     }
 
@@ -155,14 +153,12 @@ final class SpotlightRankingTests: XCTestCase {
         )
         XCTAssertEqual(
             SpotlightRanking.launchStringScore("Studio Code", query: "studio code", termCount: 2, match: partial),
-            1,
-            accuracy: 0.000001
+            1
         )
         partial.fraction = 1.4
         XCTAssertEqual(
             SpotlightRanking.launchStringScore("My Calculator", query: "my calc", termCount: 2, match: partial),
-            0.99,
-            accuracy: 0.000001
+            0.99
         )
         partial.firstTokenMatched = false
         partial.textTokenCount = 3
@@ -174,8 +170,7 @@ final class SpotlightRankingTests: XCTestCase {
                 termCount: 2,
                 match: partial
             ),
-            0,
-            accuracy: 0.000001
+            0
         )
     }
 

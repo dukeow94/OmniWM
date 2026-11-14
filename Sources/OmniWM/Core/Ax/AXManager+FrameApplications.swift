@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import ApplicationServices
@@ -50,13 +50,39 @@ extension AXManager {
         }
     }
 
-    func applyParkFramesParallel(_ frames: [AXFrameApplicationTarget]) {
+    func applyParkFramesParallel(_ frames: [AXFrameApplicationTarget], afterFrameWritesOf windowIds: Set<Int> = []) {
         let writable = framesAllowedToWrite(frames)
         guard !writable.isEmpty else { return }
-        dispatchParkFrameApplications(parkLedger.prepareParkFrameApplications(
+        let requests = parkLedger.prepareParkFrameApplications(
             writable,
             currentFrame: frameLedger.lastAppliedFrame
-        ))
+        )
+        let awaitedWindowIds = windowIds.filter(isAwaitingFrameWrite)
+        guard !awaitedWindowIds.isEmpty else {
+            dispatchParkFrameApplications(requests)
+            return
+        }
+        deferredParkRequests += requests
+        deferredParkAwaitedWindowIds.formUnion(awaitedWindowIds)
+        if deferredParkTimeout == nil {
+            deferredParkTimeout = Task { [weak self] in
+                do { try await Task.sleep(for: .milliseconds(250)) } catch { return }
+                self?.releaseDeferredParkFrames(force: true)
+            }
+        }
+    }
+
+    func releaseDeferredParkFrames(force: Bool = false) {
+        deferredParkAwaitedWindowIds = deferredParkAwaitedWindowIds.filter(isAwaitingFrameWrite)
+        guard force || deferredParkAwaitedWindowIds.isEmpty else { return }
+        let requests = deferredParkRequests.filter {
+            parkLedger.pendingParkFrameRequest(for: $0.windowId)?.requestId == $0.requestId
+        }
+        deferredParkRequests = []
+        deferredParkAwaitedWindowIds = []
+        deferredParkTimeout?.cancel()
+        deferredParkTimeout = nil
+        dispatchParkFrameApplications(requests)
     }
 
     private func framesAllowedToWrite(
@@ -66,7 +92,7 @@ extension AXManager {
         else { return frames }
         return frames.filter {
             let allowed = isFrameAllowedToWrite($0)
-            if !allowed { workspaceFrameSettlement?.reject($0) }
+            if !allowed { rejectInWorkspaceFrameSettlements($0) }
             return allowed
         }
     }
@@ -84,7 +110,9 @@ extension AXManager {
         for result in results {
             FrameApplyTrace.recordResult(result, lane: .park)
         }
-        dispatchParkFrameApplications(parkLedger.processParkFrameApplyResults(results))
+        dispatchParkFrameApplications(parkLedger.processParkFrameApplyResults(results) { [weak self] result in
+            self?.onParkFrameApplyFailed?(result)
+        })
     }
 
     private func dispatchParkFrameApplications(_ requests: [AXFrameApplicationRequest]) {

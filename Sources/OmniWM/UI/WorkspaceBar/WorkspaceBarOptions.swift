@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 
@@ -99,6 +99,28 @@ enum WorkspaceBarNotchMode: String, CaseIterable, Codable, Identifiable {
         case .splitActiveLeft: String(localized: "Split — Active Left")
         case .splitActiveRight: String(localized: "Split — Active Right")
         case .fillLeftOfNotch: String(localized: "Fill Left of Notch")
+        }
+    }
+}
+
+enum WorkspaceBarFullWidthNotchMode: String, CaseIterable, Codable, Identifiable {
+    case off
+    case moveBelowMenuBar
+    case rightOfNotch
+    case leftOfNotch
+    case splitAroundNotch
+
+    var id: String {
+        rawValue
+    }
+
+    var displayName: String {
+        switch self {
+        case .off: String(localized: "Off")
+        case .moveBelowMenuBar: String(localized: "Move Below Menu Bar")
+        case .rightOfNotch: String(localized: "Right of Notch")
+        case .leftOfNotch: String(localized: "Left of Notch")
+        case .splitAroundNotch: String(localized: "Split Around Notch")
         }
     }
 }

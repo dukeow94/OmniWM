@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import Foundation
@@ -41,6 +41,7 @@ struct LayoutMonitorSnapshot {
     let workingFrame: CGRect
     let borderSafeFillFrame: CGRect
     let fullscreenLayoutFrame: CGRect
+    let roomGapLimits: [WorkspaceBarRoom.Edge: CGFloat]
     let scale: CGFloat
     let orientation: Monitor.Orientation
 
@@ -52,6 +53,7 @@ struct LayoutMonitorSnapshot {
         workingFrame: CGRect,
         borderSafeFillFrame: CGRect? = nil,
         fullscreenLayoutFrame: CGRect,
+        roomGapLimits: [WorkspaceBarRoom.Edge: CGFloat] = [:],
         scale: CGFloat,
         orientation: Monitor.Orientation
     ) {
@@ -62,6 +64,7 @@ struct LayoutMonitorSnapshot {
         self.workingFrame = workingFrame
         self.borderSafeFillFrame = borderSafeFillFrame ?? fullscreenLayoutFrame
         self.fullscreenLayoutFrame = fullscreenLayoutFrame
+        self.roomGapLimits = roomGapLimits
         self.scale = scale
         self.orientation = orientation
     }
@@ -95,8 +98,11 @@ struct NiriWorkspaceSnapshot {
     let removalSeed: NiriWindowRemovalSeed?
     let gap: CGFloat
     let niriWorkingFrame: CGRect
+    let fullscreenLayoutFrame: CGRect
     let displayRefreshRate: Double
     let isActiveWorkspace: Bool
+    let quietArrivalTokens: Set<WindowToken>
+    var edgePictures: NiriEdgePictureState = .none
 }
 
 struct DwindleWorkspaceSnapshot {
@@ -220,6 +226,8 @@ struct TabRailGeometryCommand: Equatable {
     let key: TabRailKey
     let tileFrame: CGRect
     let visibleTileFrame: CGRect
+    var orderingWindowId: Int?
+    var displayFrame: CGRect?
 }
 
 // `frameChanges` imply active, restore-eligible windows for this pass.
@@ -229,6 +237,8 @@ struct WorkspaceLayoutDiff {
     var visibilityChanges: [LayoutVisibilityChange] = []
     var restoreChanges: [LayoutRestoreChange] = []
     var deferredHides: [LayoutDeferredHide] = []
+    var edgeHiddenFrames: [WindowToken: CGRect] = [:]
+    var picturePreparation: NiriPicturePreparation?
     var nativeFullscreenSlots: [WindowToken: NativeFullscreenSlotProjection] = [:]
     var tabRailGeometryCommands: [TabRailGeometryCommand] = []
 }
@@ -265,11 +275,14 @@ struct WorkspaceLayoutPlan {
     var sessionPatch: WorkspaceSessionPatch
     var diff: WorkspaceLayoutDiff
     var niriRestorePlacements: [WindowToken: PersistedNiriPlacement] = [:]
+    var quietArrivalTokens: Set<WindowToken> = []
     var dwindleRestorePlacements: [WindowToken: PersistedDwindlePlacement] = [:]
     var animationDirectives: [AnimationDirective] = []
     var dwindleAnimationTargetDisposition: DwindleAnimationTargetDisposition?
     var isAnimationTick = false
+    var isInteractiveResize = false
     var isActiveWorkspace = true
+    var isSlideInFlight = false
 }
 
 struct RefreshPostLayoutAction {

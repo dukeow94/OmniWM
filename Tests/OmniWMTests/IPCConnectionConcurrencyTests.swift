@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import Darwin
 import Foundation
@@ -12,9 +12,13 @@ final class IPCConnectionConcurrencyTests: XCTestCase {
     private enum HarnessError: Error {
         case socketPairFailed(Int32)
         case ioFailed(Int32)
+        case responseTimedOut
+        case unexpectedEOF
+        case unexpectedResponse(IPCResponse)
     }
 
     final class CloseSignal: @unchecked Sendable {
+        let closed = XCTestExpectation(description: "Connection closed")
         private let lock = NSLock()
         private var closedCount = 0
 
@@ -22,6 +26,7 @@ final class IPCConnectionConcurrencyTests: XCTestCase {
             lock.lock()
             closedCount += 1
             lock.unlock()
+            closed.fulfill()
         }
 
         var didClose: Bool {
@@ -49,11 +54,32 @@ final class IPCConnectionConcurrencyTests: XCTestCase {
         for index in [0, connectionCount / 2, connectionCount - 1] {
             let peer = peers[index]
             try await writeRequest(id: "probe-\(index)", to: peer.peerDescriptor)
-            let readable = try await pollReadable(peer.peerDescriptor, timeoutMilliseconds: 2_000)
-            XCTAssertTrue(
-                readable,
-                "connection \(index) of \(connectionCount) did not answer within 2s"
-            )
+            try await requirePong(id: "probe-\(index)", from: peer.peerDescriptor)
+        }
+    }
+
+    func testResponsivenessProbeRejectsWrongCorrelationAndEOF() async throws {
+        for response in [IPCResponse.success(id: "wrong", kind: .ping, result: IPCResult(pong: IPCPingResult())), nil] {
+            var descriptors = [Int32](repeating: -1, count: 2)
+            guard socketpair(AF_UNIX, SOCK_STREAM, 0, &descriptors) == 0 else {
+                throw HarnessError.socketPairFailed(errno)
+            }
+            defer {
+                close(descriptors[0])
+                close(descriptors[1])
+            }
+            if let response {
+                try Self.writeAll(IPCWire.encodeResponseLine(response), to: descriptors[0])
+            }
+            shutdown(descriptors[0], SHUT_WR)
+            do {
+                try await requirePong(id: "expected", from: descriptors[1])
+                XCTFail("The responsiveness probe accepted an unrelated response or EOF")
+            } catch HarnessError.unexpectedResponse {
+                XCTAssertNotNil(response)
+            } catch HarnessError.unexpectedEOF {
+                XCTAssertNil(response)
+            }
         }
     }
 
@@ -86,7 +112,7 @@ final class IPCConnectionConcurrencyTests: XCTestCase {
         )
         try peerHandle.close()
 
-        await connection.process(String(decoding: line, as: UTF8.self))
+        await connection.process(line)
 
         let isClosed = await connection.isClosed
         let hasEventTasks = await !connection.eventTasks.isEmpty
@@ -111,12 +137,11 @@ final class IPCConnectionConcurrencyTests: XCTestCase {
 
         try await floodRequests(count: 600, to: peer.peerDescriptor)
 
-        let evicted = await waitForClose(peer.signal, timeout: 5.0)
+        let evicted = await waitForClose(peer.signal)
         XCTAssertTrue(evicted, "a client that never reads should be evicted once its outbox passes the bound")
 
         try await writeRequest(id: "healthy", to: healthy.peerDescriptor)
-        let readable = try await pollReadable(healthy.peerDescriptor, timeoutMilliseconds: 2_000)
-        XCTAssertTrue(readable, "a stalled client must not block an unrelated connection")
+        try await requirePong(id: "healthy", from: healthy.peerDescriptor)
         XCTAssertFalse(healthy.signal.didClose)
     }
 
@@ -131,17 +156,12 @@ final class IPCConnectionConcurrencyTests: XCTestCase {
 
         try await floodRequests(count: 600, to: peer.peerDescriptor)
 
-        let evicted = await waitForClose(peer.signal, timeout: 5.0)
+        let evicted = await waitForClose(peer.signal)
         XCTAssertTrue(evicted, "a backlogged outbox should be evicted once the stall timeout elapses")
     }
 
-    private func waitForClose(_ signal: CloseSignal, timeout: Double) async -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            if signal.didClose { return true }
-            try? await Task.sleep(for: .milliseconds(25))
-        }
-        return signal.didClose
+    private func waitForClose(_ signal: CloseSignal) async -> Bool {
+        await XCTWaiter.fulfillment(of: [signal.closed], timeout: failureBound) == .completed
     }
 
     private func makePeer(
@@ -218,11 +238,13 @@ final class IPCConnectionConcurrencyTests: XCTestCase {
         return payload
     }
 
-    private func pollReadable(_ descriptor: Int32, timeoutMilliseconds: Int32) async throws -> Bool {
-        try await Self.performBlocking { try Self.pollReadableBlocking(
-            descriptor,
-            timeoutMilliseconds: timeoutMilliseconds
-        ) }
+    private func requirePong(id: String, from descriptor: Int32) async throws {
+        try await Self.performBlocking {
+            let response = try Self.readResponse(descriptor, timeoutMilliseconds: 2_000)
+            guard response == .success(id: id, kind: .ping, result: IPCResult(pong: IPCPingResult())) else {
+                throw HarnessError.unexpectedResponse(response)
+            }
+        }
     }
 
     private nonisolated static func performBlocking<T: Sendable>(
@@ -259,16 +281,32 @@ final class IPCConnectionConcurrencyTests: XCTestCase {
         }
     }
 
-    private nonisolated static func pollReadableBlocking(
+    private nonisolated static func readResponse(
         _ descriptor: Int32,
-        timeoutMilliseconds: Int32
-    ) throws -> Bool {
-        var pollDescriptor = pollfd(fd: descriptor, events: Int16(POLLIN), revents: 0)
+        timeoutMilliseconds: UInt64
+    ) throws -> IPCResponse {
+        let deadline = DispatchTime.now().uptimeNanoseconds + timeoutMilliseconds * 1_000_000
+        var line = Data()
         while true {
-            let result = Darwin.poll(&pollDescriptor, 1, timeoutMilliseconds)
-            if result > 0 { return true }
-            if result == 0 { return false }
-            if errno != EINTR { throw HarnessError.ioFailed(errno) }
+            let now = DispatchTime.now().uptimeNanoseconds
+            guard now < deadline else { throw HarnessError.responseTimedOut }
+            let remainingMilliseconds = Int32((deadline - now + 999_999) / 1_000_000)
+            var pollDescriptor = pollfd(fd: descriptor, events: Int16(POLLIN), revents: 0)
+            let result = Darwin.poll(&pollDescriptor, 1, remainingMilliseconds)
+            if result == 0 { throw HarnessError.responseTimedOut }
+            if result < 0 {
+                if errno == EINTR { continue }
+                throw HarnessError.ioFailed(errno)
+            }
+            var byte: UInt8 = 0
+            let count = recv(descriptor, &byte, 1, MSG_DONTWAIT)
+            if count == 0 { throw HarnessError.unexpectedEOF }
+            if count < 0 {
+                if errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK { continue }
+                throw HarnessError.ioFailed(errno)
+            }
+            if byte == 0x0A { return try IPCWire.decodeResponse(from: line) }
+            line.append(byte)
         }
     }
 

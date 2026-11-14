@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import QuartzCore
@@ -13,9 +13,14 @@ final class StatusBarController: NSObject {
     private let settings: SettingsStore
     private let cliManager: AppCLIManager?
     private let updateCoordinator: (any AppUpdateCoordinating)?
+    private let openWelcome: ((SettingsStore, WMController) -> Void)?
     private let statusItemDefaults: UserDefaults
     private let recordingPulseKey = "omniwm.recordingPulse"
     private weak var controller: WMController?
+
+    var settingsMenuModel: StatusMenuModel? {
+        menuHost?.model
+    }
 
     init(
         settings: SettingsStore,
@@ -23,12 +28,14 @@ final class StatusBarController: NSObject {
         hiddenBarController: HiddenBarController,
         cliManager: AppCLIManager? = nil,
         updateCoordinator: (any AppUpdateCoordinating)? = nil,
+        openWelcome: ((SettingsStore, WMController) -> Void)? = nil,
         statusItemDefaults: UserDefaults = .standard
     ) {
         self.hiddenBarController = hiddenBarController
         self.settings = settings
         self.cliManager = cliManager
         self.updateCoordinator = updateCoordinator
+        self.openWelcome = openWelcome
         self.statusItemDefaults = statusItemDefaults
         self.controller = controller
         super.init()
@@ -67,6 +74,7 @@ final class StatusBarController: NSObject {
         model.checkForUpdatesAction = { [weak self] in
             self?.updateCoordinator?.checkForUpdatesManually()
         }
+        model.openWelcomeAction = openWelcome
         let host = StatusMenuHost(model: model, controller: controller)
         host.isExemptWindow = { [weak hiddenBarController] in
             hiddenBarController?.statusItems.ownsStatusItemWindow($0) == true
@@ -102,15 +110,35 @@ final class StatusBarController: NSObject {
         edge: PopupAttachment.Edge = .below,
         monitorId: Monitor.ID? = nil
     ) {
-        switch Self.clickRoute(
-            isRightClick: event?.type == .rightMouseUp,
-            optionHeld: event?.modifierFlags.contains(.option) == true
-        ) {
+        guard let window = anchor.window else { return }
+        routeClick(
+            route: Self.clickRoute(
+                isRightClick: event?.type == .rightMouseUp,
+                optionHeld: event?.modifierFlags.contains(.option) == true
+            ),
+            anchorFrame: window.convertToScreen(anchor.convert(anchor.bounds, to: nil)),
+            screen: window.screen,
+            edge: edge,
+            monitorId: monitorId
+        )
+    }
+
+    func routeClick(
+        route: StatusItemClickRoute,
+        anchorFrame: CGRect,
+        screen: NSScreen?,
+        edge: PopupAttachment.Edge,
+        monitorId: Monitor.ID?
+    ) {
+        switch route {
         case .hiddenIconsBar:
-            controller?.toggleHiddenBarPanel(on: monitorId)
+            controller?.toggleHiddenBarPanel(
+                on: monitorId,
+                attachment: PopupAttachment(sourceFrame: anchorFrame, edge: edge)
+            )
         case .menu:
             hiddenBarController.dismissPanel()
-            menuHost?.toggle(from: anchor, edge: edge)
+            menuHost?.toggle(anchorFrame: anchorFrame, screen: screen, edge: edge)
         }
     }
 
@@ -118,13 +146,14 @@ final class StatusBarController: NSObject {
         menuHost?.dismiss()
     }
 
-    func openSettings(section: SettingsSection) {
+    func openSettings(section: SettingsSection, anchor: String? = nil) {
         guard let controller else { return }
         SettingsWindowController.shared.show(
             settings: settings,
             controller: controller,
             updateCoordinator: updateCoordinator,
-            section: section
+            section: section,
+            anchor: anchor
         )
     }
 
@@ -163,6 +192,12 @@ final class StatusBarController: NSObject {
             button.image?.accessibilityDescription = String(localized: "OmniWM, Secure Input is on")
             button.contentTintColor = nil
             button.toolTip = String(localized: "Secure Input is on: Option shortcuts are paused")
+        } else if let kind = controller?.keyboardModeKind, kind != .normal {
+            button.layer?.removeAnimation(forKey: recordingPulseKey)
+            button.layer?.opacity = 1
+            button.image = Self.keyboardModeStatusImage(kind)
+            button.contentTintColor = nil
+            button.toolTip = Self.keyboardModeToolTip(kind)
         } else {
             button.layer?.removeAnimation(forKey: recordingPulseKey)
             button.layer?.opacity = 1
@@ -195,8 +230,9 @@ final class StatusBarController: NSObject {
         return String(appName.prefix(maxStatusBarAppNameLength)) + "\u{2026}"
     }
 
-    static func statusButtonTitle(workspaceLabel: String, focusedAppName: String?) -> String {
-        var title = " \(workspaceLabel)"
+    static func statusButtonTitle(workspaceLabel: String, focusedAppName: String?, modeTitle: String? = nil) -> String {
+        var title = modeTitle.map { " \($0) \u{00B7}" } ?? ""
+        title += " \(workspaceLabel)"
         if let focusedAppName, !focusedAppName.isEmpty {
             title += " \u{2013} \(truncatedStatusBarAppName(focusedAppName))"
         }
@@ -250,19 +286,25 @@ final class StatusBarController: NSObject {
         guard let button = statusItem?.button else { return }
 
         updateButtonAppearance()
+        let modeTitle = Self.keyboardModeTitle(controller?.keyboardModeKind ?? .normal)
 
         guard settings.statusBar.showWorkspaceName,
               let summary = controller?.activeStatusBarWorkspaceSummary()
         else {
-            button.title = ""
-            button.imagePosition = .imageOnly
+            button.title = modeTitle.map { " \($0)" } ?? ""
+            button.imagePosition = modeTitle == nil ? .imageOnly : .imageLeft
             return
         }
 
         let workspaceLabel = settings.statusBar.useWorkspaceId ? summary.workspaceRawName : summary.workspaceLabel
         let focusedAppName = settings.statusBar.showAppNames ? summary.focusedAppName : nil
-        button.title = Self.statusButtonTitle(workspaceLabel: workspaceLabel, focusedAppName: focusedAppName)
+        button.title = Self.statusButtonTitle(
+            workspaceLabel: workspaceLabel,
+            focusedAppName: focusedAppName,
+            modeTitle: modeTitle
+        )
         let hasStateIcon = controller?.traceCaptureStatus.profile != nil || controller?.isSecureInputIndicated == true
+            || modeTitle != nil
         button.imagePosition = Self.labeledImagePosition(
             showIcon: settings.statusBar.showIcon,
             hasStateIcon: hasStateIcon

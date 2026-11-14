@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import Carbon
@@ -11,8 +11,32 @@ final class FocusSettings {
     private nonisolated static let defaults = SettingsExport.Focus.defaults()
     @ObservationIgnored var onChange: (() -> Void)?
 
+    nonisolated static let edgeNavigationIntervalRange = 0.25 ... 2.0
+    nonisolated static let edgeNavigationIntervalStep = 0.25
+
+    nonisolated static func normalizedEdgeNavigationInterval(_ value: Double) -> Double {
+        guard value.isFinite else { return defaults.edgeNavigationInterval }
+        let clamped = min(max(value, edgeNavigationIntervalRange.lowerBound), edgeNavigationIntervalRange.upperBound)
+        return (clamped / edgeNavigationIntervalStep).rounded() * edgeNavigationIntervalStep
+    }
+
     var followsMouse = FocusSettings.defaults.followsMouse {
         didSet { onChange?() }
+    }
+
+    var followsMouseOnlyFullyVisible = FocusSettings.defaults.followsMouseOnlyFullyVisible {
+        didSet { onChange?() }
+    }
+
+    var edgeNavigationInterval = FocusSettings.defaults.edgeNavigationInterval {
+        didSet {
+            let normalized = FocusSettings.normalizedEdgeNavigationInterval(edgeNavigationInterval)
+            guard normalized == edgeNavigationInterval else {
+                edgeNavigationInterval = normalized
+                return
+            }
+            onChange?()
+        }
     }
 
     var raiseOnMouseFocus = FocusSettings.defaults.raiseOnMouseFocus {
@@ -46,6 +70,8 @@ final class FocusSettings {
     func export() -> SettingsExport.Focus {
         SettingsExport.Focus(
             followsMouse: followsMouse,
+            followsMouseOnlyFullyVisible: followsMouseOnlyFullyVisible,
+            edgeNavigationInterval: edgeNavigationInterval,
             raiseOnMouseFocus: raiseOnMouseFocus,
             lockModifier: lockModifier,
             moveMouseToFocusedWindow: moveMouseToFocusedWindow,
@@ -58,6 +84,8 @@ final class FocusSettings {
 
     func apply(_ focus: SettingsExport.Focus) {
         followsMouse = focus.followsMouse
+        followsMouseOnlyFullyVisible = focus.followsMouseOnlyFullyVisible
+        edgeNavigationInterval = focus.edgeNavigationInterval
         raiseOnMouseFocus = focus.raiseOnMouseFocus
         lockModifier = focus.lockModifier
         moveMouseToFocusedWindow = focus.moveMouseToFocusedWindow

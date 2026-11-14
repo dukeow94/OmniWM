@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
+import AppKit
 import CoreGraphics
 import Foundation
 @testable import OmniWM
@@ -83,59 +84,45 @@ final class HiddenBarActivationResolveTests: XCTestCase {
         ))
     }
 
-    func testSemanticIdentitySurvivesInsertionBeforeItem() {
+    func testSemanticIdentitySurvivesInsertionDeletionAndReorder() {
         let a = identity("a")
-        let cached = [item(ordinal: 0, identity: a), item(ordinal: 1, identity: identity("b"))]
-        let fresh = [
-            item(ordinal: 0, identity: identity("inserted")),
-            item(ordinal: 1, identity: a),
-            item(ordinal: 2, identity: identity("b"))
-        ]
-
-        XCTAssertEqual(
-            HiddenBarActivationPolicy.activationTarget(
-                for: key(0),
-                cachedItems: cached,
-                cachedIcons: [:],
-                freshItems: fresh,
-                freshIcons: [:]
-            )?.key,
-            key(1)
-        )
-    }
-
-    func testSemanticIdentitySurvivesDeletionBeforeItem() {
         let b = identity("b")
-        let cached = [item(ordinal: 0, identity: identity("a")), item(ordinal: 1, identity: b)]
-        let fresh = [item(ordinal: 0, identity: b)]
-
-        XCTAssertEqual(
-            HiddenBarActivationPolicy.activationTarget(
-                for: key(1),
+        let cases: [(String, [ResolvedMenuBarItem], MenuBarItemKey, [ResolvedMenuBarItem], MenuBarItemKey)] = [
+            (
+                "reorder",
+                [item(ordinal: 0, identity: a), item(ordinal: 1, identity: b)],
+                key(0),
+                [item(ordinal: 0, identity: b), item(ordinal: 1, identity: a)],
+                key(1)
+            ),
+            (
+                "insertion",
+                [item(ordinal: 0, identity: a), item(ordinal: 1, identity: b)],
+                key(0),
+                [
+                    item(ordinal: 0, identity: identity("inserted")),
+                    item(ordinal: 1, identity: a),
+                    item(ordinal: 2, identity: b)
+                ],
+                key(1)
+            ),
+            (
+                "deletion",
+                [item(ordinal: 0, identity: a), item(ordinal: 1, identity: b)],
+                key(1),
+                [item(ordinal: 0, identity: b)],
+                key(0)
+            )
+        ]
+        for (label, cached, selected, fresh, expected) in cases {
+            XCTAssertEqual(HiddenBarActivationPolicy.activationTarget(
+                for: selected,
                 cachedItems: cached,
                 cachedIcons: [:],
                 freshItems: fresh,
                 freshIcons: [:]
-            )?.key,
-            key(0)
-        )
-    }
-
-    func testSemanticIdentitySurvivesReorder() {
-        let a = identity("a")
-        let cached = [item(ordinal: 0, identity: a), item(ordinal: 1, identity: identity("b"))]
-        let fresh = [item(ordinal: 0, identity: identity("b")), item(ordinal: 1, identity: a)]
-
-        XCTAssertEqual(
-            HiddenBarActivationPolicy.activationTarget(
-                for: key(0),
-                cachedItems: cached,
-                cachedIcons: [:],
-                freshItems: fresh,
-                freshIcons: [:]
-            )?.key,
-            key(1)
-        )
+            )?.key, expected, label)
+        }
     }
 
     func testDuplicateSemanticIdentityRejectsAmbiguousActivation() {
@@ -195,36 +182,29 @@ final class HiddenBarActivationResolveTests: XCTestCase {
         )
     }
 
-    func testSoleUnnamedItemSurvivesChangedPixelsAndUsesFreshBounds() {
+    func testSoleUnnamedItemUsesFreshBoundsAcrossChangedOrMissingPixels() {
+        let captured = [key(0): icon(red: 1)]
+        let changed = [key(0): icon(red: 0, green: 1)]
         let fresh = ResolvedMenuBarItem(
-            key: key(0), pid: 1234,
+            key: key(0),
+            pid: 1234,
             bounds: CGRect(x: 500, y: 3, width: 36, height: 24)
         )
-        let target = HiddenBarActivationPolicy.activationTarget(
-            for: key(0),
-            cachedItems: [item(ordinal: 0)],
-            cachedIcons: [key(0): icon(red: 1)],
-            freshItems: [fresh],
-            freshIcons: [key(0): icon(red: 0, green: 1)]
-        )
-
-        XCTAssertEqual(target?.bounds, fresh.bounds)
-        XCTAssertEqual(target?.pid, fresh.pid)
-    }
-
-    func testSoleUnnamedItemSurvivesMissingCapturedPixels() {
-        let captured = [key(0): icon(red: 1)]
-        let snapshots: [([MenuBarItemKey: CapturedIcon], [MenuBarItemKey: CapturedIcon])] = [
-            (captured, [:]), ([:], captured), ([:], [:])
+        let cases: [([MenuBarItemKey: CapturedIcon], [MenuBarItemKey: CapturedIcon], ResolvedMenuBarItem)] = [
+            (captured, changed, fresh), (captured, [:], item(ordinal: 0)),
+            ([:], captured, item(ordinal: 0)), ([:], [:], item(ordinal: 0))
         ]
-        for (cachedIcons, freshIcons) in snapshots {
-            XCTAssertEqual(HiddenBarActivationPolicy.activationTarget(
+        for (cachedIcons, freshIcons, freshItem) in cases {
+            let target = HiddenBarActivationPolicy.activationTarget(
                 for: key(0),
                 cachedItems: [item(ordinal: 0)],
                 cachedIcons: cachedIcons,
-                freshItems: [item(ordinal: 0)],
+                freshItems: [freshItem],
                 freshIcons: freshIcons
-            )?.key, key(0))
+            )
+            XCTAssertEqual(target?.key, key(0))
+            XCTAssertEqual(target?.bounds, freshItem.bounds)
+            XCTAssertEqual(target?.pid, freshItem.pid)
         }
     }
 
@@ -374,14 +354,18 @@ final class HiddenBarActivationResolveTests: XCTestCase {
         ))
     }
 
-    func testActivationResolveHealsCachedOrdinals() {
-        let cache = HiddenBarIconCache()
-        cache.replaceResolvedItems([bundleID: [item(ordinal: 0), item(ordinal: 1), item(ordinal: 2)]])
-        XCTAssertEqual(cache.resolvedItems(for: bundleID)?.count, 3)
+    func testAnItemUnderOneOfOurWindowsIsPressedInsteadOfClicked() {
+        let own = ProcessInfo.processInfo.processIdentifier
+        let bounds = CGRect(x: 200, y: 200, width: 120, height: 40)
+        let inside = CGPoint(x: bounds.midX, y: bounds.midY)
+        let outside = CGPoint(x: bounds.maxX + bounds.width, y: bounds.midY)
+        func window(ownedBy pid: pid_t) -> [String: Any] {
+            [kCGWindowOwnerPID as String: pid, kCGWindowBounds as String: bounds.dictionaryRepresentation]
+        }
 
-        cache.replaceResolvedItems([bundleID: [item(ordinal: 0), item(ordinal: 1)]])
-
-        let healed = cache.resolvedItems(for: bundleID)
-        XCTAssertEqual(healed?.map(\.key.ordinal), [0, 1])
+        XCTAssertTrue(HiddenBarClickForwarder.isCoveredByOwnWindow(inside, windows: [window(ownedBy: own)]))
+        XCTAssertFalse(HiddenBarClickForwarder.isCoveredByOwnWindow(outside, windows: [window(ownedBy: own)]))
+        XCTAssertFalse(HiddenBarClickForwarder.isCoveredByOwnWindow(inside, windows: [window(ownedBy: own + 1)]))
+        XCTAssertFalse(HiddenBarClickForwarder.isCoveredByOwnWindow(inside, windows: []))
     }
 }

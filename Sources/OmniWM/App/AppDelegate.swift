@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import Observation
@@ -61,14 +61,16 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         super.init()
     }
 
+    var welcomeWindowController = WelcomeWindowController.shared
     private var statusBarController: StatusBarController?
     private var ipcServer: IPCServerLifecycle?
     private var cliManager: AppCLIManager?
     private var updateCoordinator: (any AppUpdateCoordinating)?
     private var runtimeStateStore: RuntimeStateStore?
     private var launchOverlayController: LaunchOverlayController?
-    private var monitorSetupScreenObserver: NSObjectProtocol?
-    private var monitorSetupEvaluationTask: Task<Void, Never>?
+    private var settingsConfigNoticeController: SettingsConfigNoticeController?
+    private(set) var monitorSetupScreenObserver: NSObjectProtocol?
+    private(set) var monitorSetupEvaluationTask: Task<Void, Never>?
     private var launchOverlayFinished = false
     private var launchPermissionsWindowController: LaunchPermissionsWindowController?
     private var didFinishBootstrap = false
@@ -81,6 +83,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     public func applicationWillTerminate(_: Notification) {
+        settingsConfigNoticeController = nil
         statusBarController?.cleanup()
         if let controller = AppDelegate.sharedBootstrap?.controller {
             if !terminationPending { controller.serviceLifecycleManager.stop() }
@@ -107,9 +110,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     private func beginPermissionGate() {
         guard !didFinishBootstrap, launchPermissionsWindowController == nil else { return }
 
-        let windowController = LaunchPermissionsWindowController()
-        guard !windowController.snapshot.allGranted else {
-            finishBootstrap()
+        let runtimeState = RuntimeStateStore(directory: OmniWMStoragePaths.live.stateDirectory)
+        runtimeStateStore = runtimeState
+        let windowController = LaunchPermissionsWindowController(runtimeState: runtimeState)
+        guard windowController.needsPrompt else {
+            finishBootstrap(runtimeState: runtimeState)
             return
         }
 
@@ -118,7 +123,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         windowController.show(
             onStart: { [weak self] in
                 self?.endPermissionGate()
-                self?.finishBootstrap()
+                self?.finishBootstrap(runtimeState: runtimeState)
             },
             onQuit: { [weak self] in
                 self?.endPermissionGate()
@@ -132,26 +137,31 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApplication.shared.setActivationPolicy(.accessory)
     }
 
-    func finishBootstrap() {
+    func finishBootstrap(runtimeState: RuntimeStateStore) {
         guard !didFinishBootstrap else { return }
         didFinishBootstrap = true
 
         let storagePaths = OmniWMStoragePaths.live
-        let runtimeState = RuntimeStateStore(directory: storagePaths.stateDirectory)
-        self.runtimeStateStore = runtimeState
 
         let settings = SettingsStore(
             persistence: SettingsFilePersistence(directory: storagePaths.configDirectory),
             runtimeState: runtimeState
         )
-        let hiddenBarController = HiddenBarController(settings: settings, hider: .live(in: storagePaths.stateDirectory))
+        let menuBarHold = MenuBarAutohideHold(runtimeState: runtimeState)
+        let hiddenBarController = HiddenBarController.live(
+            settings: settings,
+            menuBarHold: menuBarHold,
+            stateDirectory: storagePaths.stateDirectory
+        )
         let controller = WMController(
             settings: settings,
             hiddenBarController: hiddenBarController,
             clipboardHistoryDirectory: storagePaths.stateDirectory
         )
+        controller.workspaceBarManager.menuBarHold = menuBarHold
         controller.applyPersistedSettings(settings)
-        startSystemMotionPreferenceObservation(controller)
+        controller.shellAppCatalog.startObserving()
+        startSystemPreferenceObservation(controller)
         let cliManager = AppCLIManager()
         let updateCoordinator = UpdateCoordinator(settings: settings, runtimeState: runtimeState)
         self.cliManager = cliManager
@@ -169,11 +179,23 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             controller: controller,
             hiddenBarController: hiddenBarController,
             cliManager: cliManager,
-            updateCoordinator: updateCoordinator
+            updateCoordinator: updateCoordinator,
+            openWelcome: { [weak self] in self?.presentWelcome(settings: $0, controller: $1, reason: .reopened) }
         )
         controller.statusBarController = statusBarController
+        settingsConfigNoticeController = SettingsConfigNoticeController(
+            settings: settings,
+            ownedWindowRegistry: controller.ownedWindowRegistry
+        )
         observeSettings(settings, controller: controller)
         statusBarController?.setup()
+        startIPC(settings: settings, controller: controller)
+        updateCoordinator.startAutomaticChecks()
+
+        beginLaunchPresentation(runtimeState: runtimeState, controller: controller)
+    }
+
+    private func startIPC(settings: SettingsStore, controller: WMController) {
         do {
             try setIPCEnabled(settings.ipcEnabled, controller: controller)
         } catch {
@@ -183,10 +205,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             )
             settings.ipcEnabled = false
         }
-        updateCoordinator.startAutomaticChecks()
-
-        startMonitorSetupPresentationObservation()
-        playLaunchOverlay(runtimeState: runtimeState, animationsEnabled: controller.motionPolicy.animationsEnabled)
     }
 
     private func observeSettings(_ settings: SettingsStore, controller: WMController) {
@@ -207,20 +225,12 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         settings.onExternalSettingsReloaded = { [weak controller] in
             guard let controller else { return }
             controller.applyPersistedSettings(settings)
+            controller.shellAppCatalog.requestRefresh()
         }
-        settings.onConfigNoticeChanged = { [weak controller] in
+        settings.onConfigNoticeChanged = { [weak self, weak controller] in
             controller?.refreshDiagnosticsIssues()
-        }
-    }
-
-    private func playLaunchOverlay(runtimeState: RuntimeStateStore, animationsEnabled: Bool) {
-        let overlay = LaunchOverlayController()
-        launchOverlayController = overlay
-        overlay.play(runtimeState: runtimeState, animationsEnabled: animationsEnabled) { [weak self] in
-            guard let self else { return }
-            launchOverlayController = nil
-            launchOverlayFinished = true
-            scheduleMonitorSetupEvaluation()
+            guard let self, launchOverlayFinished else { return }
+            settingsConfigNoticeController?.refresh()
         }
     }
 
@@ -246,18 +256,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         ipcServer = nil
     }
 
-    private func startSystemMotionPreferenceObservation(_ controller: WMController) {
-        controller.motionPolicy.systemReducesMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
-        _ = NSWorkspace.shared.notificationCenter.addObserver(
-            forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil, queue: .main
-        ) { [weak controller] _ in
-            Task { @MainActor [weak controller] in
-                controller?.motionPolicy.systemReducesMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
-            }
-        }
-    }
-
-    private func startMonitorSetupPresentationObservation() {
+    func startMonitorSetupPresentationObservation() {
         guard monitorSetupScreenObserver == nil else { return }
         monitorSetupScreenObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification,
@@ -270,8 +269,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func scheduleMonitorSetupEvaluation() {
-        guard launchOverlayFinished else { return }
+    func scheduleMonitorSetupEvaluation() {
+        guard launchOverlayFinished, monitorSetupScreenObserver != nil,
+              !welcomeWindowController.isVisible else { return }
         monitorSetupEvaluationTask?.cancel()
         monitorSetupEvaluationTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .milliseconds(500))
@@ -280,17 +280,17 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func evaluateMonitorSetupPresentation() {
+    func evaluateMonitorSetupPresentation(monitors: [Monitor] = Monitor.current()) {
         guard let bootstrap = AppDelegate.sharedBootstrap,
               let settings = bootstrap.settings,
               let controller = bootstrap.controller
         else { return }
         let shouldPresent = MonitorSetupPresentationPolicy.shouldAutomaticallyPresent(
             status: settings.monitorSetupStatus,
-            monitors: Monitor.current(),
+            monitors: monitors,
             launchOverlayFinished: launchOverlayFinished
         )
-        guard shouldPresent else {
+        guard shouldPresent, !welcomeWindowController.isVisible else {
             if settings.monitorSetupStatus != .notPresented {
                 stopMonitorSetupPresentationObservation()
             }
@@ -307,7 +307,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         )
     }
 
-    private func stopMonitorSetupPresentationObservation() {
+    func stopMonitorSetupPresentationObservation() {
         monitorSetupEvaluationTask?.cancel()
         monitorSetupEvaluationTask = nil
         if let monitorSetupScreenObserver {
@@ -363,16 +363,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         return action
     }
 
-    private func presentInfoAlert(title: String, message: String) {
-        let alert = NSAlert()
-        alert.alertStyle = .informational
-        alert.messageText = title
-        alert.informativeText = message
-        alert.addButton(withTitle: String(localized: "OK"))
-        NSApplication.shared.activate(ignoringOtherApps: true)
-        _ = alert.runModal()
-    }
-
     private func confirmQuitWithoutSavingClipboardHistory(_ error: Error) -> Bool {
         let alert = NSAlert()
         alert.alertStyle = .warning
@@ -388,20 +378,92 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
 }
 
 extension AppDelegate {
+    private func presentInfoAlert(title: String, message: String) {
+        let alert = NSAlert()
+        alert.alertStyle = .informational
+        alert.messageText = title
+        alert.informativeText = message
+        alert.addButton(withTitle: String(localized: "OK"))
+        NSApplication.shared.activate(ignoringOtherApps: true)
+        _ = alert.runModal()
+    }
+
+    private func beginLaunchPresentation(runtimeState: RuntimeStateStore, controller: WMController) {
+        startMonitorSetupPresentationObservation()
+        let overlay = LaunchOverlayController()
+        launchOverlayController = overlay
+        overlay.play(
+            runtimeState: runtimeState,
+            animationsEnabled: controller.motionPolicy.animationsEnabled
+        ) { [weak self] in
+            guard let self else { return }
+            launchOverlayController = nil
+            launchOverlayDidFinish(runtimeState: runtimeState, controller: controller)
+        }
+    }
+
+    func launchOverlayDidFinish(runtimeState: RuntimeStateStore, controller: WMController) {
+        launchOverlayFinished = true
+        settingsConfigNoticeController?.refresh()
+        presentWelcomeIfNeeded(runtimeState: runtimeState, controller: controller)
+    }
+
+    private func presentWelcomeIfNeeded(runtimeState: RuntimeStateStore, controller: WMController) {
+        guard !runtimeState.welcomePresented else {
+            scheduleMonitorSetupEvaluation()
+            return
+        }
+        presentWelcome(settings: controller.settings, controller: controller, reason: .firstRun)
+        runtimeState.welcomePresented = true
+    }
+
+    func presentWelcome(settings: SettingsStore, controller: WMController, reason: WelcomeReason) {
+        monitorSetupEvaluationTask?.cancel()
+        monitorSetupEvaluationTask = nil
+        welcomeWindowController.show(settings: settings, controller: controller, reason: reason) { [weak self] in
+            if reason == .firstRun {
+                self?.scheduleMonitorSetupEvaluation()
+            }
+        }
+    }
+
+    private func startSystemPreferenceObservation(_ controller: WMController) {
+        controller.motionPolicy.systemReducesMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        _ = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil, queue: .main
+        ) { [weak controller] _ in
+            Task { @MainActor [weak controller] in
+                controller?.motionPolicy.systemReducesMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+            }
+        }
+        for name in [
+            Notification.Name("NSWorkspaceIconAppearanceConfigurationDidChangeNotification"),
+            Notification.Name("NSWorkspaceMenuBarAppearanceDidChangeNotification")
+        ] {
+            _ = NSWorkspace.shared.notificationCenter.addObserver(
+                forName: name, object: nil, queue: .main
+            ) { [weak controller] _ in
+                Task { @MainActor [weak controller] in
+                    guard let controller else { return }
+                    LauncherIconStore.shared.clear()
+                    controller.workspaceBarManager.refreshShellIcons()
+                }
+            }
+        }
+    }
+
     public func applicationShouldTerminate(_ application: NSApplication) -> NSApplication.TerminateReply {
         guard let controller = AppDelegate.sharedBootstrap?.controller else { return .terminateNow }
         return deferTermination(
             stop: { completion in
                 Task { @MainActor in
-                    do {
-                        try await controller.clipboardHistoryService.flushForQuit()
-                    } catch {
-                        if !self.confirmQuitWithoutSavingClipboardHistory(error) {
-                            controller.clipboardHistoryService.resumeAfterCanceledQuit()
-                            self.terminationPending = false
-                            application.reply(toApplicationShouldTerminate: false)
-                            return
-                        }
+                    guard await self.prepareShellForQuit(
+                        controller: controller,
+                        confirmDiscard: self.confirmQuitWithoutSavingClipboardHistory
+                    ) else {
+                        self.terminationPending = false
+                        application.reply(toApplicationShouldTerminate: false)
+                        return
                     }
                     controller.serviceLifecycleManager.stopRestoringWindows(forQuit: true, completion: completion)
                 }

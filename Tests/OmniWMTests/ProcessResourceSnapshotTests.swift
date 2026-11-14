@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 @testable import OmniWM
 import XCTest
@@ -26,11 +26,10 @@ final class ProcessResourceSnapshotTests: XCTestCase {
 
         let delta = try XCTUnwrap(start.delta(to: end))
 
-        XCTAssertEqual(try XCTUnwrap(delta.energyJoules), 1, accuracy: 0.000_001)
+        XCTAssertEqual(try XCTUnwrap(delta.energyJoules), 1)
         XCTAssertEqual(
             try XCTUnwrap(delta.averageMilliwatts),
-            1_000 / delta.elapsedSeconds,
-            accuracy: 0.000_001
+            1_000 / delta.elapsedSeconds
         )
         XCTAssertEqual(delta.packageIdleWakeups, 10)
         XCTAssertEqual(delta.interruptWakeups, 10)

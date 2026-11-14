@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import ApplicationServices
 import CoreGraphics
@@ -170,7 +170,7 @@ final class MonitorCrossingFocusTests: XCTestCase {
         case .dwindle:
             fixture.controller.dwindleLayoutHandler.enableDwindleLayout()
         case .defaultLayout:
-            throw XCTSkip("The consecutive crossing fixture requires an explicit layout")
+            throw MissingTestPrerequisite("The consecutive crossing fixture requires an explicit layout")
         }
 
         let sourceWorkspaceId = fixture.workspaceIds[0]
@@ -451,7 +451,7 @@ final class MonitorCrossingFocusTests: XCTestCase {
             let node = engine.addWindow(token: token, to: workspaceId, activeWindowFrame: nil)
             node.cachedFrame = frame
         case .defaultLayout:
-            throw XCTSkip("The consecutive crossing fixture requires an explicit layout")
+            throw MissingTestPrerequisite("The consecutive crossing fixture requires an explicit layout")
         }
         return token
     }

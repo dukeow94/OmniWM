@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import Foundation
@@ -47,15 +47,46 @@ extension AXEventHandler {
         case let .orderChanged(windowId):
             handleWindowOrderChanged(windowId: windowId)
 
+        case let .visibilityChanged(windowId, orderedIn):
+            if orderedIn { noteHostedWindowRestack(windowId: windowId) }
+            let entry = controller.workspaceManager.entry(forWindowId: Int(windowId))
+            guard !orderedIn || entry?.observedState.isNativeWithdrawn == true || hasVisibilityQuery(windowId: windowId)
+            else { return }
+            enqueueLifecycleQuery(windowId: windowId, kind: .visibilityChanged)
+
         case let .titleChanged(windowId):
-            guard case let .exact(token, windowInfo) = resolveWindowServerIdentity(windowId),
-                  controller.workspaceManager.entry(for: token) != nil
+            handleWindowTitleChanged(windowId: windowId)
+        }
+    }
+
+    func handleWindowTitleChanged(windowId: UInt32, pid: pid_t? = nil) {
+        guard let controller else { return }
+        let token: WindowToken
+        let windowServerTitle: String?
+        if let axToken = pid.map({ WindowToken(pid: $0, windowId: Int(windowId)) }),
+           controller.workspaceManager.entry(for: axToken) != nil
+        {
+            token = axToken
+            windowServerTitle = nil
+        } else {
+            guard case let .exact(resolvedToken, windowInfo) = resolveWindowServerIdentity(windowId),
+                  controller.workspaceManager.entry(for: resolvedToken) != nil
             else {
                 return
             }
-            AXWindowService.invalidateCachedTitle(windowId: windowId)
-            controller.requestWorkspaceBarRefresh()
-            updateManagedReplacementTitle(windowInfo: windowInfo, token: token)
+            token = resolvedToken
+            windowServerTitle = windowInfo.title
+        }
+        AXWindowService.invalidateCachedTitle(windowId: windowId)
+        controller.requestWorkspaceBarRefresh()
+        if let title = windowServerTitle ?? windowTitleProvider(windowId) {
+            controller.workspaceManager.updateManagedReplacementTitle(title, for: token)
+        }
+        let appInfo = controller.appInfoCache.hasCachedInfo(for: token.pid)
+            ? controller.appInfoCache.info(for: token.pid) : nil
+        let bundleId = appInfo?.bundleId
+            ?? controller.workspaceManager.managedReplacementMetadata(for: token)?.bundleId
+        if controller.windowRuleEngine.needsTitleReevaluation(for: bundleId, appName: appInfo?.name) {
             scheduleWindowRuleReevaluationIfNeeded(targets: [.window(token)])
         }
     }
@@ -70,7 +101,15 @@ extension AXEventHandler {
     }
 
     private func handleWindowOrderChanged(windowId: UInt32) {
+        noteHostedWindowRestack(windowId: windowId)
         enqueueLifecycleQuery(windowId: windowId, kind: .orderChanged)
+    }
+
+    private func noteHostedWindowRestack(windowId: UInt32) {
+        guard let controller,
+              controller.workspaceManager.entry(forWindowId: Int(windowId))?.target.hostedMetadata != nil
+        else { return }
+        controller.surfaceReconciler.noteRestackOccurred()
     }
 
     func applyWindowOrderChanged(windowId: UInt32, windowInfo: WindowServerInfo?) {
@@ -80,6 +119,17 @@ extension AXEventHandler {
         else { return }
         applyObservedWindowOrdering(windowInfo, token: token)
         controller.surfaceReconciler.noteRestackOccurred()
+    }
+
+    func applyWindowVisibilityChanged(windowId: UInt32, windowInfo: WindowServerInfo?) {
+        guard let controller,
+              case let .exact(token, _) = WindowServerIdentityResolution(windowId: windowId, info: windowInfo)
+        else { return }
+        guard windowInfo?.isOrderedIn != false || controller.workspaceManager.nativeManagedFocusToken != token else {
+            lifecycleQueries.visibilityRechecksAfterFocusLoss.insert(token)
+            return
+        }
+        applyObservedWindowOrdering(windowInfo, token: token)
     }
 
     func applyObservedWindowOrdering(
@@ -93,12 +143,12 @@ extension AXEventHandler {
               windowInfo.id == UInt32(exactly: token.windowId),
               managedWindowTokenUsingCachedIdentity(token, matchesObservedPid: windowInfo.pid),
               let isOrderedIn = windowInfo.isOrderedIn,
-              let entry = controller.workspaceManager.entry(for: token)
+              controller.workspaceManager.entry(for: token) != nil
         else { return }
+        lifecycleQueries.visibilityRechecksAfterFocusLoss.remove(token)
         if !isOrderedIn {
             let topology = controller.workspaceManager.spaceTopology
             guard !appFullscreen,
-                  entry.hiddenState == nil,
                   !topology.isWindowOnFullscreenSpace(token.windowId),
                   !topology.isWindowOnKnownInactiveSpace(token.windowId)
             else { return }
@@ -121,7 +171,15 @@ extension AXEventHandler {
             deferCreatedWindow(windowId)
             return
         }
+        if retryWaitingFocusedAdmission(windowId: windowId) { return }
         processCreatedWindow(windowId: windowId)
+    }
+
+    private func retryWaitingFocusedAdmission(windowId: UInt32) -> Bool {
+        guard let state = admissionRetryStateByWindowId[windowId], case .focused = state.trigger,
+              state.executionPhase == .waiting
+        else { return false }
+        return dispatchAdmissionRetry(windowId: windowId)
     }
 
     func shouldDeferCreateForInactiveNativeSpace(_ spaceId: UInt64) -> Bool {

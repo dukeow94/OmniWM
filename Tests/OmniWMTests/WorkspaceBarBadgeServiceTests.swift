@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import Foundation
 import Observation
@@ -38,6 +38,24 @@ final class WorkspaceBarBadgeServiceTests: XCTestCase {
         await harness.completeRead(1, result: DockBadgeReadResult(labels: ["com.example.app": "4"], dockPID: 42))
         await harness.waitForSleeps(4)
         XCTAssertEqual(service.label(for: "com.example.app"), "4")
+    }
+
+    @MainActor
+    func testLabelChangesNotifyTheShell() async {
+        let harness = BadgeServiceHarness()
+        let service = makeService(harness)
+        defer { service.stop() }
+        var changes = 0
+        service.onLabelsChange = { changes += 1 }
+
+        service.configure(mode: .dot, interval: 5, bundleIDs: ["com.example.App"])
+        await harness.waitForReads(1)
+        await harness.completeRead(0, result: DockBadgeReadResult(labels: ["com.example.app": "3"], dockPID: 42))
+        await harness.waitForSleeps(1)
+        XCTAssertEqual(changes, 1)
+
+        service.stop()
+        XCTAssertEqual(changes, 2)
     }
 
     @MainActor

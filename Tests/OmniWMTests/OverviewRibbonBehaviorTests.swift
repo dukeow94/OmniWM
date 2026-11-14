@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 @testable import OmniWM
@@ -44,8 +44,8 @@ final class OverviewRibbonBehaviorTests: XCTestCase {
 
         XCTAssertTrue(layout.panStrip(fixture.workspaceId, by: 60))
         updateRenderer(renderer, layout: layout)
-        XCTAssertEqual(wallpaper.frame.minX - initialFrame.minX, 60, accuracy: 0.0001)
-        XCTAssertEqual(wallpaper.frame.maxX - initialFrame.maxX, 60, accuracy: 0.0001)
+        XCTAssertEqual(wallpaper.frame.minX - initialFrame.minX, 60)
+        XCTAssertEqual(wallpaper.frame.maxX - initialFrame.maxX, 60)
         try assertBackgroundCoversVisibleContent(layout, renderer: renderer)
 
         let remaining = Fixture(
@@ -220,7 +220,7 @@ final class OverviewRibbonBehaviorTests: XCTestCase {
         let section = try XCTUnwrap(original.workspaceSections.first)
         let desktopPan: CGFloat = 80
         XCTAssertTrue(original.panStrip(fixture.workspaceId, by: desktopPan * section.contentScale))
-        XCTAssertEqual(try XCTUnwrap(original.stripPanByWorkspace[fixture.workspaceId]), desktopPan, accuracy: 0.0001)
+        XCTAssertEqual(try XCTUnwrap(original.stripPanByWorkspace[fixture.workspaceId]), desktopPan)
         let baseline = makeLayout(fixture, zoom: 1.4)
         let rebuilt = makeLayout(fixture, zoom: 1.4, pans: original.stripPanByWorkspace)
         let newScale = try XCTUnwrap(rebuilt.workspaceSections.first).contentScale
@@ -229,12 +229,11 @@ final class OverviewRibbonBehaviorTests: XCTestCase {
             let after = try XCTUnwrap(rebuilt.window(for: handle))
             XCTAssertEqual(
                 after.overviewFrame.minX - before.overviewFrame.minX,
-                desktopPan * newScale,
-                accuracy: 0.0001
+                desktopPan * newScale
             )
             XCTAssertEqual(after.overviewFrame.size, before.overviewFrame.size)
         }
-        XCTAssertEqual(try XCTUnwrap(rebuilt.stripPanByWorkspace[fixture.workspaceId]), desktopPan, accuracy: 0.0001)
+        XCTAssertEqual(try XCTUnwrap(rebuilt.stripPanByWorkspace[fixture.workspaceId]), desktopPan)
     }
 
     func testFloatingPreviewUsesUnparkedFrameWithoutChangingOriginalAnimationFrame() throws {
@@ -287,7 +286,7 @@ final class OverviewRibbonBehaviorTests: XCTestCase {
         XCTAssertTrue(layout.panStrip(fixture.workspaceId, by: delta))
         let after = try XCTUnwrap(layout.window(for: fixture.handles[1])).overviewFrame
         XCTAssertEqual(after.minX, before.minX)
-        XCTAssertEqual(after.minY - before.minY, delta, accuracy: 0.0001)
+        XCTAssertEqual(after.minY - before.minY, delta)
 
         let renderer = makeRenderer(layout)
         let columns = descendants(of: renderer.root).filter {
@@ -510,9 +509,12 @@ final class OverviewRibbonBehaviorTests: XCTestCase {
         let frame = try XCTUnwrap(layout.window(for: fixture.handles[0])).overviewFrame
         let start = CGPoint(x: frame.midX, y: frame.midY)
         let end = CGPoint(x: start.x + 35, y: start.y + 8)
-        var deltas: [CGFloat] = []
+        final class PanRecorder {
+            var deltas: [CGFloat] = []
+        }
+        let recorder = PanRecorder()
         var unintendedCallbacks = 0
-        view.onStripPan = { _, delta in deltas.append(delta) }
+        view.onStripPan = { _, delta in recorder.deltas.append(delta) }
         view.onWindowSelected = { _ in unintendedCallbacks += 1 }
         view.onDragBegin = { _, _ in unintendedCallbacks += 1 }
         view.onDragEnd = { _ in unintendedCallbacks += 1 }
@@ -521,7 +523,7 @@ final class OverviewRibbonBehaviorTests: XCTestCase {
         view.rightMouseDragged(with: try mouseEvent(.rightMouseDragged, at: end, in: panel))
         view.rightMouseUp(with: try mouseEvent(.rightMouseUp, at: end, in: panel))
         view.rightMouseDragged(with: try mouseEvent(.rightMouseDragged, at: start, in: panel))
-        XCTAssertEqual(deltas, [35])
+        XCTAssertEqual(recorder.deltas, [35])
         XCTAssertEqual(unintendedCallbacks, 0)
     }
 

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
+import ApplicationServices
 import Foundation
 
 extension AXEventHandler {
@@ -13,6 +14,7 @@ extension AXEventHandler {
         case spaceDestroyed
         case closed
         case orderChanged
+        case visibilityChanged
         case activation(ActivationFacts)
     }
 
@@ -51,11 +53,38 @@ extension AXEventHandler {
             return result[$0]
         }
 
+        var probe: @MainActor (AXWindowRef, Thread?) async -> Bool = {
+            await LifecycleQueries.probeAXElement($0, on: $1)
+        }
+
+        @MainActor
+        static func probeAXElement(
+            _ axRef: AXWindowRef,
+            on worker: Thread?,
+            setTimeout: @escaping @Sendable (AXWindowRef, Float) -> AXError = {
+                AXUIElementSetMessagingTimeout($0.element, $1)
+            },
+            readRole: @escaping @Sendable (AXWindowRef) -> AXError = { axRef in
+                var role: CFTypeRef?
+                return AXUIElementCopyAttributeValue(axRef.element, kAXRoleAttribute as CFString, &role)
+            }
+        ) async -> Bool {
+            guard let worker else { return false }
+            return (try? await worker.runInLoop(timeout: .seconds(AXManager.perAppTimeout)) { job in
+                let timeoutResult = setTimeout(axRef, Float(AXManager.perAppTimeout))
+                guard timeoutResult == .success else { return timeoutResult == .invalidUIElement }
+                defer { _ = setTimeout(axRef, 0) }
+                try job.checkCancellation()
+                return readRole(axRef) == .invalidUIElement
+            }) ?? false
+        }
+
         var pending: [LifecycleQuery] = []
         var active: LifecycleQuery?
         var nextSequence: UInt64 = 1
         var task: Task<Void, Never>?
         var deferredCloseProbeExpiration: IntentID?
+        var visibilityRechecksAfterFocusLoss: Set<WindowToken> = []
     }
 
     func enqueueLifecycleQuery(windowId: UInt32, kind: LifecycleQueryKind) {
@@ -80,6 +109,7 @@ extension AXEventHandler {
              .spaceDestroyed: lifecycleIdentity(windowId: windowId)
         case .created,
              .orderChanged,
+             .visibilityChanged,
              .activation: nil
         }
         let query = LifecycleQuery(
@@ -108,11 +138,15 @@ extension AXEventHandler {
                 if case .activation = $0.kind { return true }
                 return false
             }
-        case .orderChanged:
+        case .orderChanged,
+             .visibilityChanged:
             return lifecycleQueries.pending.contains {
                 guard $0.windowId == windowId else { return false }
-                if case .orderChanged = $0.kind { return true }
-                return false
+                switch ($0.kind, kind) {
+                case (.orderChanged, .orderChanged),
+                     (.visibilityChanged, .visibilityChanged): return true
+                default: return false
+                }
             }
         default:
             break
@@ -139,6 +173,18 @@ extension AXEventHandler {
         lifecycleQueries.active = nil
         lifecycleQueries.pending.removeAll()
         lifecycleQueries.deferredCloseProbeExpiration = nil
+        lifecycleQueries.visibilityRechecksAfterFocusLoss.removeAll()
+    }
+
+    func recheckVisibilityAfterFocusLoss() {
+        guard let controller, !lifecycleQueries.visibilityRechecksAfterFocusLoss.isEmpty else { return }
+        let focusedToken = controller.workspaceManager.nativeManagedFocusToken
+        let unfocused = lifecycleQueries.visibilityRechecksAfterFocusLoss.filter { $0 != focusedToken }
+        lifecycleQueries.visibilityRechecksAfterFocusLoss.subtract(unfocused)
+        for token in unfocused where controller.workspaceManager.entry(for: token) != nil {
+            guard let windowId = UInt32(exactly: token.windowId) else { continue }
+            enqueueLifecycleQuery(windowId: windowId, kind: .visibilityChanged)
+        }
     }
 
     private func performLifecycleQuery(_ request: LifecycleQuery) async {
@@ -157,19 +203,35 @@ extension AXEventHandler {
         }
         guard !Task.isCancelled, lifecycleQueries.active?.sequence == request.sequence else { return }
         guard isCurrentLifecycleCreate(request) else { return }
-        let appliedIdentity = lifecycleQueries.active?.destructionIdentity ?? identity
+        var appliedIdentity = lifecycleQueries.active?.destructionIdentity ?? identity
+        // Some apps (WhatsApp) keep a closed window alive, ordered out, in the WindowServer and
+        // post `closed` only on next activation. A dead AX element is the authoritative signal.
+        var closedButRetained = false
+        if case .spaceDestroyed = request.kind, info?.isOrderedIn == false,
+           let axRef = appliedIdentity.axRef, let token = appliedIdentity.token
+        {
+            let invalid = await lifecycleQueries.probe(axRef, AppAXContextRegistry.contexts[token.pid]?.axThread)
+            guard !Task.isCancelled, lifecycleQueries.active?.sequence == request.sequence else { return }
+            appliedIdentity = lifecycleQueries.active?.destructionIdentity ?? identity
+            closedButRetained = invalid && CFEqual(appliedIdentity.axRef?.element, axRef.element)
+        }
         lifecycleQueries.active = nil
-        applyLifecycleObservation(request, identity: appliedIdentity, observedAtSeq: observedAtSeq, windowInfo: info)
+        applyLifecycleObservation(
+            request, identity: appliedIdentity, observedAtSeq: observedAtSeq,
+            windowInfo: info, closedButRetained: closedButRetained
+        )
     }
 
     private func applyLifecycleObservation(
-        _ request: LifecycleQuery, identity: LifecycleIdentity, observedAtSeq: UInt64, windowInfo: WindowServerInfo?
+        _ request: LifecycleQuery, identity: LifecycleIdentity, observedAtSeq: UInt64,
+        windowInfo: WindowServerInfo?, closedButRetained: Bool = false
     ) {
         guard let controller, !controller.isOwnedWindow(windowNumber: Int(request.windowId)) else { return }
         let current = controller.workspaceManager.entry(forWindowId: Int(request.windowId))
+        guard current == nil || current?.axRef != nil else { return }
         guard current?.token == identity.token,
               current.flatMap({ controller.workspaceManager.handle(for: $0.token) }) === identity.handle,
-              current.map({ CFEqual($0.axRef.element, identity.axRef?.element) }) ?? (identity.axRef == nil)
+              current.flatMap(\.axRef).map({ CFEqual($0.element, identity.axRef?.element) }) ?? (identity.axRef == nil)
         else { return }
 
         let retryGeneration = admissionRetryStateByWindowId[request.windowId]?.generation
@@ -185,7 +247,7 @@ extension AXEventHandler {
             else { return }
             if case .spaceDestroyed = request.kind {
                 guard current?.hiddenState == identity.hiddenState else { return }
-                guard windowInfo == nil else { return }
+                guard windowInfo == nil || closedButRetained else { return }
                 cancelFrameObservation(windowId: request.windowId)
                 guard current?.hiddenState == nil else { return }
             }
@@ -198,18 +260,32 @@ extension AXEventHandler {
                     windowId: request.windowId, evidence: .transientLifecycle, windowInfo: windowInfo
                 )
             }
-        case .orderChanged:
-            guard let current,
-                  controller.workspaceManager.isSeqCurrent(
-                      observedAtSeq, for: current.workspaceId, domains: .layoutCommit
-                  )
-            else {
-                controller.surfaceReconciler.noteRestackOccurred()
-                return
-            }
-            applyWindowOrderChanged(windowId: request.windowId, windowInfo: windowInfo)
+        case .orderChanged,
+             .visibilityChanged:
+            applyLifecycleOrdering(request, current: current, observedAtSeq: observedAtSeq, windowInfo: windowInfo)
         case let .activation(facts):
             applyLifecycleActivation(facts, current: current, observedAtSeq: observedAtSeq, windowInfo: windowInfo)
+        }
+    }
+
+    private func applyLifecycleOrdering(
+        _ request: LifecycleQuery, current: WindowState?, observedAtSeq: UInt64, windowInfo: WindowServerInfo?
+    ) {
+        guard let controller else { return }
+        let isCurrent = current.map {
+            controller.workspaceManager.isSeqCurrent(observedAtSeq, for: $0.workspaceId, domains: .layoutCommit)
+        } ?? false
+        if case .visibilityChanged = request.kind {
+            guard let current else { return }
+            guard isCurrent, !hasPendingLifecycleDestruction(current.token) else {
+                enqueueLifecycleQuery(windowId: request.windowId, kind: .visibilityChanged)
+                return
+            }
+            applyWindowVisibilityChanged(windowId: request.windowId, windowInfo: windowInfo)
+        } else if isCurrent {
+            applyWindowOrderChanged(windowId: request.windowId, windowInfo: windowInfo)
+        } else {
+            controller.surfaceReconciler.noteRestackOccurred()
         }
     }
 
@@ -226,7 +302,8 @@ extension AXEventHandler {
                   observedAtSeq, for: current.workspaceId, domains: .layoutCommit
               ),
               let focusedWindow = facts.focusedWindow,
-              CFEqual(current.axRef.element, focusedWindow.axRef.element)
+              let currentAXRef = current.axRef,
+              CFEqual(currentAXRef.element, focusedWindow.axRef.element)
               || isKnownAXIdentityAlias(windowId: current.windowId, axRef: focusedWindow.axRef)
         else { return }
         applyObservedWindowOrdering(
@@ -296,13 +373,23 @@ extension AXEventHandler {
         )
     }
 
+    func hasVisibilityQuery(windowId: UInt32) -> Bool {
+        func matches(_ request: LifecycleQuery) -> Bool {
+            guard request.windowId == windowId, case .visibilityChanged = request.kind else { return false }
+            return true
+        }
+        return lifecycleQueries.active.map(matches) == true || lifecycleQueries.pending.contains(where: matches)
+    }
+
     func hasPendingLifecycleDestruction(_ token: WindowToken) -> Bool {
-        guard let controller, let entry = controller.workspaceManager.entry(for: token) else { return false }
+        guard let controller, let entry = controller.workspaceManager.entry(for: token),
+              let entryAXRef = entry.axRef
+        else { return false }
         let handle = controller.workspaceManager.handle(for: token)
         func matches(_ request: LifecycleQuery) -> Bool {
             guard let identity = request.destructionIdentity else { return false }
             return identity.token == token && identity.handle === handle
-                && CFEqual(identity.axRef?.element, entry.axRef.element)
+                && CFEqual(identity.axRef?.element, entryAXRef.element)
         }
         return lifecycleQueries.active.map(matches) == true || lifecycleQueries.pending.contains(where: matches)
     }

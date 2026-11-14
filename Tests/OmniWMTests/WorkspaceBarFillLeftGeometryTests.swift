@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import CoreGraphics
 import Foundation
@@ -64,24 +64,6 @@ final class WorkspaceBarFillLeftGeometryTests: XCTestCase {
         )
     }
 
-    func testFillLeftOfNotchFrameCoversMenuBarToNotch() throws {
-        let monitor = makeMonitor()
-        let resolved = makeResolved(notchMode: .fillLeftOfNotch)
-        let geometry = WorkspaceBarGeometry.resolve(monitor: monitor, resolved: resolved, isVisible: true)
-
-        let frame = geometry.frame(fittingLength: 200, monitor: monitor, resolved: resolved)
-
-        let expectedNotchStart = monitor.notchRange?.lowerBound ?? monitor.frame.midX
-        let expectedMaxX = expectedNotchStart - WorkspaceBarGeometry.notchGap
-        let expectedWidth = max(0, expectedMaxX - monitor.frame.minX)
-
-        XCTAssertEqual(frame.minX, monitor.frame.minX)
-        XCTAssertEqual(frame.maxX, expectedMaxX)
-        XCTAssertEqual(frame.width, expectedWidth)
-        XCTAssertEqual(frame.height, 32)
-        XCTAssertEqual(frame.minY, monitor.frame.maxY - 32)
-    }
-
     func testFillLeftOfNotchFrameUsesVirtualMidpointWithoutNotch() throws {
         let monitor = makeMonitor(hasNotch: false, notchRange: nil)
         let resolved = makeResolved(notchMode: .fillLeftOfNotch)
@@ -96,6 +78,43 @@ final class WorkspaceBarFillLeftGeometryTests: XCTestCase {
         XCTAssertEqual(geometry.effectivePosition, .overlappingMenuBar)
         XCTAssertEqual(geometry.barHeight, geometry.menuBarHeight)
         XCTAssertEqual(geometry.reservedInsets, .zero)
+    }
+
+    func testFillLeftOfNotchReservesItsOverlapWhenTheDisplayHasNoMenuBarStrip() throws {
+        let monitor = makeMonitor(
+            frame: CGRect(x: 0, y: 0, width: 2560, height: 1440),
+            visibleTop: 1440,
+            hasNotch: false,
+            notchRange: nil
+        )
+        let reserving = WorkspaceBarGeometry.resolve(
+            monitor: monitor, resolved: makeResolved(reserveLayoutSpace: true), isVisible: true
+        )
+        let frame = reserving.frame(fittingLength: 200, monitor: monitor, resolved: makeResolved())
+
+        XCTAssertEqual(reserving.reservedInsets.top, frame.height)
+        XCTAssertEqual(reserving.reservedInsets.top, reserving.menuBarHeight)
+        XCTAssertEqual(
+            WorkspaceBarGeometry.resolve(monitor: monitor, resolved: makeResolved(), isVisible: true).reservedInsets,
+            .zero
+        )
+        XCTAssertEqual(
+            WorkspaceBarGeometry.resolve(
+                monitor: monitor, resolved: makeResolved(reserveLayoutSpace: true), isVisible: false
+            ).reservedInsets,
+            .zero
+        )
+    }
+
+    func testFillLeftOfNotchReservesNothingWhenTheMenuBarStripHoldsTheBar() throws {
+        for hasNotch in [true, false] {
+            let monitor = makeMonitor(hasNotch: hasNotch, notchRange: hasNotch ? 656 ... 856 : nil)
+            let geometry = WorkspaceBarGeometry.resolve(
+                monitor: monitor, resolved: makeResolved(reserveLayoutSpace: true), isVisible: true
+            )
+
+            XCTAssertEqual(geometry.reservedInsets, .zero)
+        }
     }
 
     func testFillLeftOfNotchFrameWithTranslatedMonitor() throws {
@@ -125,7 +144,7 @@ final class WorkspaceBarFillLeftGeometryTests: XCTestCase {
         let monitor = makeMonitor()
         let resolved = makeResolved(
             notchMode: .fillLeftOfNotch,
-            position: .belowMenuBar,
+            position: .overlappingMenuBar,
             height: 30,
             reserveLayoutSpace: true,
             xOffset: 19,

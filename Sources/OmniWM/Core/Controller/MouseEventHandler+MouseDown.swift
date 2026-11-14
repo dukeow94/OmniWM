@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import Foundation
@@ -36,12 +36,12 @@ extension MouseEventHandler {
         guard let engine = controller.niriEngine else { return false }
 
         if button == .left,
-           let moveMode = Self.mouseMoveMode(
-               modifiers: modifiers,
+           Self.mouseMoveModifiersMatch(
+               modifiers,
                required: controller.settings.gestures.mouseMoveModifierKey.cgEventFlags
            )
         {
-            beginNiriMouseMove(at: location, mode: moveMode, engine: engine, workspaceId: wsId, button: button)
+            beginNiriMouseMove(at: location, engine: engine, workspaceId: wsId, button: button)
             return false
         }
 
@@ -56,18 +56,11 @@ extension MouseEventHandler {
     }
 
     private func beginNiriMouseMove(
-        at location: CGPoint, mode: MouseMoveMode, engine: NiriLayoutEngine,
+        at location: CGPoint, engine: NiriLayoutEngine,
         workspaceId: WorkspaceDescriptor.ID, button: MouseButton
     ) {
         guard let window = engine.hitTestTiled(point: location, in: workspaceId) else { return }
-        _ = beginNiriMove(
-            window: window,
-            engine: engine,
-            wsId: workspaceId,
-            at: location,
-            isInsertMode: mode == .insert,
-            source: .mouse(button)
-        )
+        _ = beginNiriMove(window: window, engine: engine, wsId: workspaceId, at: location, source: .mouse(button))
     }
 
     private func beginNiriMouseResize(
@@ -97,6 +90,8 @@ extension MouseEventHandler {
         let focusIntentToken = exactToken ?? (windowIdUnderPointer == nil
             ? geometricFocusIntentCandidate(at: location, workspaceId: wsId)
             : nil)
+        captureNativeCrossDisplayMove(for: focusIntentToken)
+        captureNativeResizeStart(for: focusIntentToken, at: location)
         if let token = focusIntentToken {
             controller.axEventHandler.noteMouseFocusIntent(token: token)
         } else {
@@ -118,17 +113,20 @@ extension MouseEventHandler {
     ) -> Bool {
         guard let controller, let engine = controller.dwindleEngine else { return false }
         if button == .left {
-            guard Self.mouseMoveMode(
-                modifiers: modifiers,
-                required: controller.settings.gestures.mouseMoveModifierKey.cgEventFlags
-            ) == .swap,
-                let token = engine.hitTestFocusableWindow(
-                    point: location,
-                    in: wsId,
-                    at: controller.animationClock.now()
-                )
+            guard Self.mouseMoveModifiersMatch(
+                      modifiers,
+                      required: controller.settings.gestures.mouseMoveModifierKey.cgEventFlags
+                  ),
+                  let token = engine.hitTestFocusableWindow(
+                      point: location,
+                      in: wsId,
+                      at: controller.animationClock.now()
+                  )
             else { return false }
-            _ = beginDwindleMove(token: token, engine: engine, wsId: wsId, at: location, source: .mouse(button))
+            _ = beginDwindleMove(
+                token: token, engine: engine, wsId: wsId, at: location,
+                source: .mouse(button)
+            )
             return false
         }
         guard button == .right,

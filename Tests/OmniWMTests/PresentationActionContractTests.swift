@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import Carbon
 import Foundation
@@ -23,6 +23,8 @@ final class PresentationActionContractTests: XCTestCase {
             XCTAssertEqual(spec.title, title)
             XCTAssertEqual(command.displayName, title)
             XCTAssertEqual(command.layoutCompatibility, .shared)
+            XCTAssertEqual(spec.layoutCompatibility, .shared)
+            XCTAssertNotNil(spec.ipcDescriptor)
             XCTAssertEqual(spec.defaultBinding, expected.binding)
             XCTAssertEqual(spec.category, .focus)
             XCTAssertEqual(spec.visibility, .normal)
@@ -31,10 +33,11 @@ final class PresentationActionContractTests: XCTestCase {
     }
 
     func testPresentationRegistrationKeepsInterleavedWorkspaceLayoutOrder() {
-        XCTAssertEqual(Array(ActionCatalog.allSpecs().suffix(6).map(\.id)), [
+        let expectedTail = [
             "toggleWorkspaceBarVisibility", "toggleHiddenBarPanel", "toggleQuakeTerminal",
             "toggleWorkspaceLayout", "toggleOverview", "toggleSystemStats"
-        ])
+        ]
+        XCTAssertEqual(Array(ActionCatalog.allSpecs().suffix(expectedTail.count).map(\.id)), expectedTail)
         XCTAssertEqual(
             ActionCatalog.spec(for: "toggleOverview")?.keywords,
             ["overview", "Toggle Overview", "toggleOverview"]

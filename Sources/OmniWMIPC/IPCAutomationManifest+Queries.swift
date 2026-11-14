@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import Foundation
 
@@ -23,7 +23,8 @@ extension IPCAutomationManifest {
         "is-scratchpad",
         "scratchpad-index",
         "hidden-reason",
-        "column-index"
+        "column-index",
+        "focus-rank"
     ]
 
     public static let workspaceFieldCatalog: [String] = [
@@ -56,7 +57,12 @@ extension IPCAutomationManifest {
         "outer-gap-top",
         "outer-gap-bottom",
         "fullscreen-uses-outer-gaps",
-        "active-workspace"
+        "active-workspace",
+        "uuid",
+        "notch",
+        "menu-bar-height",
+        "bar-frames",
+        "reserved-insets"
     ]
 
     public static let queryDescriptors: [IPCQueryDescriptor] = [
@@ -148,6 +154,10 @@ extension IPCAutomationManifest {
         IPCQueryDescriptor(
             name: .capabilities,
             summary: "Return protocol, command, query, selector, and subscription capabilities."
+        ),
+        IPCQueryDescriptor(
+            name: .shellWidgets,
+            summary: "Return the Luau shell's widgets with their state, placement and any error."
         )
     ]
 

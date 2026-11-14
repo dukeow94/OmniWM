@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import ApplicationServices
@@ -72,6 +72,10 @@ private enum CommandPalettePasteKeyCode {
 
 @MainActor
 struct CommandPaletteEnvironment {
+    var confirmLauncherEntryRemoval: (LauncherEntry, NSWindow?, @escaping @MainActor (Bool) -> Void) -> Void = {
+        LauncherEntryRemovalPrompt.confirm($0, from: $1, completion: $2)
+    }
+
     var requestWindowMarkName: () -> String? = { CommandPaletteMarkNamePrompt.requestName() }
     var chooseWindowMarkNameToRemove: ([String]) -> String? = { markNames in
         CommandPaletteMarkRemovalPrompt.requestName(from: markNames)
@@ -98,7 +102,7 @@ struct CommandPaletteEnvironment {
     }
 
     var restoreCommandFocus: ((CommandPaletteFocusTarget) -> Bool)?
-    var navigateToWindow: (WMController, WindowHandle) -> Void = { controller, handle in
+    var navigateToWindow: @MainActor (WMController, WindowHandle) -> Void = { controller, handle in
         controller.navigateToCommandPaletteWindow(handle)
     }
 
@@ -109,44 +113,13 @@ struct CommandPaletteEnvironment {
         Int,
         @escaping @MainActor (Int, [LauncherSection<LauncherApplicationResult>], [LauncherChip]) -> Void
     ) -> Void = { controller, query, chip, generation, publish in
-        let service = ApplicationCatalogService.shared
-        let settings = controller.settings
-        let publishSnapshot: @MainActor () -> Void = { [weak service] in
-            guard let service, service.hasLoadedCatalog else { return }
-            if query.isEmpty {
-                publish(
-                    generation,
-                    service.browse(
-                        chip: chip,
-                        hiddenSuggestions: settings.launcherHiddenSuggestions,
-                        launchesFor: { settings.launcherLaunches(for: $0) }
-                    ),
-                    service.chips
-                )
-            } else {
-                service.rank(
-                    query: query,
-                    chip: chip,
-                    generation: generation,
-                    language: CommandPaletteKeyboardLanguage.current(),
-                    shortcutTarget: settings.launcherShortcutTarget(for: query),
-                    launchesFor: { settings.launcherLaunches(for: $0) },
-                    publish: { publishedGeneration, sections in
-                        publish(publishedGeneration, sections, service.chips)
-                    }
-                )
-            }
-        }
-        let firstSubmissionForOpening = service.onCatalogChanged == nil
-        service.onCatalogChanged = publishSnapshot
-        service.refreshIfNeeded(refreshMetadata: firstSubmissionForOpening)
-        publishSnapshot()
+        CommandPaletteEnvironment.submitLiveApplicationSearch(
+            controller: controller, query: query, chip: chip, generation: generation, publish: publish
+        )
     }
 
     var stopApplicationSearch: () -> Void = {
-        let service = ApplicationCatalogService.shared
-        service.onCatalogChanged = nil
-        service.cancelRanking()
+        CommandPaletteEnvironment.stopLiveApplicationSearch()
     }
 
     var submitFileSearch: (
@@ -187,7 +160,7 @@ struct CommandPaletteEnvironment {
         controller.workspaceManager.mostRecentlyFocusedHandle(forPid: pid)
     }
 
-    var navigateToApplicationWindow: (WMController, WindowHandle) -> Bool = { controller, handle in
+    var navigateToApplicationWindow: @MainActor (WMController, WindowHandle) -> Bool = { controller, handle in
         controller.navigateToCommandPaletteWindow(handle)
     }
 
@@ -228,7 +201,7 @@ struct CommandPaletteEnvironment {
             controller.settings.recordLauncherLaunch(targetID: targetID, query: query, displayName: displayName)
         }
 
-    var summonWindowRight: (WMController, WindowHandle, WindowToken, WorkspaceDescriptor.ID) -> Void = {
+    var summonWindowRight: @MainActor (WMController, WindowHandle, WindowToken, WorkspaceDescriptor.ID) -> Void = {
         controller,
         handle,
         anchorToken,
@@ -240,7 +213,7 @@ struct CommandPaletteEnvironment {
         )
     }
 
-    var moveWindowToWorkspace: (WMController, WindowHandle, WorkspaceDescriptor.ID) -> Bool = {
+    var moveWindowToWorkspace: @MainActor (WMController, WindowHandle, WorkspaceDescriptor.ID) -> Bool = {
         controller,
         handle,
         workspaceId in
@@ -258,7 +231,7 @@ struct CommandPaletteEnvironment {
         return true
     }
 
-    var summonWindowRightOutcome: (WMController, WindowHandle, CommandPaletteSummonAnchor?)
+    var summonWindowRightOutcome: @MainActor (WMController, WindowHandle, CommandPaletteSummonAnchor?)
         -> WindowSummonRightOutcome = {
             controller,
             handle,
@@ -373,12 +346,12 @@ struct CommandPaletteEnvironment {
         let system = AXUIElementCreateSystemWide()
         var value: AnyObject?
         guard AXUIElementCopyAttributeValue(
-            system,
-            kAXFocusedUIElementAttribute as CFString,
-            &value
-        ) == .success,
-            let value,
-            CFGetTypeID(value) == AXUIElementGetTypeID()
+                  system,
+                  kAXFocusedUIElementAttribute as CFString,
+                  &value
+              ) == .success,
+              let value,
+              CFGetTypeID(value) == AXUIElementGetTypeID()
         else {
             return nil
         }
@@ -397,15 +370,67 @@ struct CommandPaletteEnvironment {
         let appElement = AXUIElementCreateApplication(pid)
         var windowValue: AnyObject?
         guard AXUIElementCopyAttributeValue(
-            appElement,
-            kAXFocusedWindowAttribute as CFString,
-            &windowValue
-        ) == .success,
-            let windowValue,
-            CFGetTypeID(windowValue) == AXUIElementGetTypeID()
+                  appElement,
+                  kAXFocusedWindowAttribute as CFString,
+                  &windowValue
+              ) == .success,
+              let windowValue,
+              CFGetTypeID(windowValue) == AXUIElementGetTypeID()
         else {
             return nil
         }
         return getWindowId(from: unsafeDowncast(windowValue, to: AXUIElement.self))
+    }
+}
+
+extension CommandPaletteEnvironment {
+    private static func submitLiveApplicationSearch(
+        controller: WMController,
+        query: String,
+        chip: LauncherChip?,
+        generation: Int,
+        publish: @escaping @MainActor (Int, [LauncherSection<LauncherApplicationResult>], [LauncherChip]) -> Void
+    ) {
+        let service = ApplicationCatalogService.shared
+        let settings = controller.settings
+        let publishSnapshot: @MainActor () -> Void = { [weak service] in
+            guard let service, service.hasLoadedCatalog else { return }
+            if query.isEmpty {
+                publish(
+                    generation,
+                    service.browse(
+                        chip: chip,
+                        hiddenSuggestions: settings.launcherHiddenSuggestions,
+                        launchesFor: { settings.launcherLaunches(for: $0) }
+                    ),
+                    service.chips
+                )
+            } else {
+                service.rank(
+                    query: query,
+                    chip: chip,
+                    generation: generation,
+                    language: CommandPaletteKeyboardLanguage.current(),
+                    shortcutTarget: settings.launcherShortcutTarget(for: query),
+                    launchesFor: { settings.launcherLaunches(for: $0) },
+                    publish: { publishedGeneration, sections in
+                        publish(publishedGeneration, sections, service.chips)
+                    }
+                )
+            }
+        }
+        let firstSubmissionForOpening = service.onCatalogChanged == nil
+        service.onCatalogChanged = publishSnapshot
+        service.refreshIfNeeded(
+            refreshMetadata: firstSubmissionForOpening,
+            extraFolders: settings.launcher.appFolders
+        )
+        publishSnapshot()
+    }
+
+    private static func stopLiveApplicationSearch() {
+        let service = ApplicationCatalogService.shared
+        service.onCatalogChanged = nil
+        service.cancelRanking()
     }
 }

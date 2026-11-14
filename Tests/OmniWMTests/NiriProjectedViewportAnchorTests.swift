@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import CoreGraphics
 import Foundation
@@ -75,11 +75,10 @@ final class NiriProjectedViewportAnchorTests: XCTestCase {
         )
 
         XCTAssertEqual(state.activeColumnIndex, 0)
-        XCTAssertEqual(state.viewOffset, -gap, accuracy: 0.001)
+        XCTAssertEqual(state.viewOffset, -gap)
         XCTAssertEqual(
             viewOrigin(engine: engine, workspaceId: workspaceId, state: state, gap: gap),
-            settledOrigin,
-            accuracy: 0.001
+            settledOrigin
         )
         let focusedFrames = frames(engine: engine, workspaceId: workspaceId, state: state, gap: gap)
         XCTAssertEqual(focusedFrames[tokens[0]], settledFrames[tokens[0]])

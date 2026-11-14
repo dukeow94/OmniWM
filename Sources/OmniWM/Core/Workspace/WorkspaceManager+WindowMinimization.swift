@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import Foundation
 
@@ -20,6 +20,10 @@ extension WorkspaceManager {
         source: WMEventSource = .ax
     ) -> Bool {
         guard let entry = entry(for: token), entry.observedState.isMinimized != minimized else { return false }
+        if let parent = entry.target.hostedMetadata?.role.parent {
+            guard hostedFamilyRoot(for: token) == parent,
+                  self.entry(for: parent)?.observedState.isMinimized == minimized else { return false }
+        }
         let txn = recordReconcileEvent(.windowMinimizedChanged(
             token: token,
             workspaceId: entry.workspaceId,

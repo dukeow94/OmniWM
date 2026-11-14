@@ -7,19 +7,27 @@
     "node": "24.x"
   },
   "scripts": {
+    "reference:generate": "node scripts/omnishell-api.mjs --write",
+    "reference:check": "node scripts/omnishell-api.mjs --check",
     "dev": "astro dev",
     "build": "astro build",
     "preview": "astro preview",
     "check": "astro check",
+    "test": "node --test src/scripts/*.test.js",
     "astro": "astro"
   },
   "dependencies": {
     "@astrojs/starlight": "0.41.9",
-    "astro": "7.2.9",
-    "sharp": "0.35.4"
+    "astro": "7.4.2",
+    "sharp": "0.35.5"
   },
   "devDependencies": {
     "@astrojs/check": "0.9.10",
     "typescript": "6.0.3"
+  },
+  "overrides": {
+    "postcss-nested": {
+      "postcss-selector-parser": "7.1.6"
+    }
   }
 }

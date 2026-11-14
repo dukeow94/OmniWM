@@ -1,0 +1,120 @@
+// SPDX-License-Identifier: GPL-2.0-only
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
+
+import AppKit
+import OmniWMIPC
+
+extension ShellWidgetHost {
+    func updateIslands(_ desired: [DesiredIslandSurface], level: NSWindow.Level) {
+        desiredIslands = desired
+        islandLevel = level
+        if refreshIslandData() {
+            for state in widgets.values {
+                place(state)
+            }
+            publishDemand()
+        }
+        reconcileIslandWindows()
+    }
+
+    @discardableResult
+    func refreshIslandData() -> Bool {
+        let next = islandPlacements(desiredIslands)
+        guard next != islandData else { return false }
+        islandData = next
+        if let popout, popout.key.placement == .island, next[popout.key]?.surface?.visible != true {
+            closePopout()
+        }
+        return true
+    }
+
+    func islandPlacements(_ desired: [DesiredIslandSurface]) -> [ShellBarKey: ShellBarData] {
+        guard let island = config.island else { return [:] }
+        var result: [ShellBarKey: ShellBarData] = [:]
+        for target in desired where island.includes(target.monitor) {
+            let key = ShellBarKey(monitor: target.monitor.id, placement: .island)
+            let bar = bars[ShellBarKey(monitor: target.monitor.id)]
+                ?? bars[ShellBarKey(monitor: target.monitor.id, island: .active)]
+            let geometry = ShellIslandGeometry(monitor: target.monitor, size: island.size(on: target.monitor))
+            let data = ShellIslandData(
+                monitor: target.monitor,
+                geometry: geometry,
+                visible: !target.fullscreen || island.fullscreen == .show,
+                fullscreen: target.fullscreen,
+                reservedInsets: target.reservedInsets,
+                focused: focusedIsland == target.monitor.id,
+                drag: islandDragMonitor?.state ?? .init(),
+                navigation: target.navigation,
+                sessionToken: sessionToken,
+                drawer: islandDrawer?.monitor == target.monitor.id ? islandDrawer?.id : nil
+            )
+            result[key] = ShellBarData(
+                monitor: target.monitor.name,
+                monitorId: IPCDisplayRef.identifier(target.monitor.id),
+                style: bar?.style ?? ShellBarStyle(),
+                barEnabled: bar != nil,
+                workspaces: bar?.workspaces ?? [],
+                scratchpads: bar?.scratchpads ?? [],
+                drag: bar?.drag,
+                surface: data
+            )
+        }
+        return result
+    }
+
+    func reconcileIslandWindows() {
+        guard let config = config.island, let state = widgets[config.root] else {
+            closeIslands()
+            return
+        }
+        for (monitor, island) in islandWindows {
+            let key = ShellBarKey(monitor: monitor, placement: .island)
+            if islandData[key] == nil || state.instances[key]?.surface !== island.surface {
+                releaseIslandFocus(on: monitor, restore: true)
+                island.close()
+                islandWindows.removeValue(forKey: monitor)
+            }
+        }
+        for target in desiredIslands {
+            let monitor = target.monitor
+            let key = ShellBarKey(monitor: monitor.id, placement: .island)
+            guard let data = islandData[key]?.surface, let instance = state.instances[key] else { continue }
+            if let existing = islandWindows[monitor.id], existing.surface.scale != monitor.backingScale {
+                releaseIslandFocus(on: monitor.id, restore: true)
+                existing.close()
+                islandWindows[monitor.id] = nil
+                instance.surface = nil
+            }
+            if islandWindows[monitor.id] == nil {
+                _ = surfaceView(widget: state.name, key: key, scale: monitor.backingScale)
+                guard let surface = instance.surface else { continue }
+                let island = ShellIsland(surface: surface, monitor: monitor, size: config.size(on: monitor))
+                islandWindows[monitor.id] = island
+                connectIslandInput(island, on: monitor.id)
+            }
+            islandWindows[monitor.id]?.update(
+                monitor: monitor,
+                size: config.size(on: monitor),
+                visible: data.visible,
+                level: islandLevel
+            )
+        }
+        updateIslandInputMonitoring()
+        updateIslandDragMonitoring()
+    }
+
+    func toggleIsland(on monitor: Monitor.ID) -> Bool {
+        guard let root = config.island?.root,
+              islandData[ShellBarKey(monitor: monitor, placement: .island)]?.surface?.visible == true
+        else { return false }
+        return trigger(root, name: "toggle", value: IPCDisplayRef.identifier(monitor))
+    }
+
+    func closeIslands() {
+        if let monitor = focusedIsland { releaseIslandFocus(on: monitor, restore: true) }
+        for island in islandWindows.values { island.close() }
+        islandWindows.removeAll()
+        updateIslandInputMonitoring()
+        updateIslandDragMonitoring()
+    }
+}

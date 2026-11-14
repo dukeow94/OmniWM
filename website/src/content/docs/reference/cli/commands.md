@@ -16,13 +16,14 @@ omniwmctl <command> [arguments...] [--format json|ndjson|table|tsv|text] [--json
 | Command | Type | Description |
 |---------|------|-------------|
 | `ping` | remote | Verify IPC reachability and return `pong` |
-| `version` | remote | Return app and IPC protocol versions plus available build fingerprint fields |
+| `version`, `--version`, `-V` | remote | Return app and IPC protocol versions plus available build fingerprint fields |
 | `command` | remote | Execute window manager commands through the IPC command surface |
 | `capture` | remote | Start, stop, or inspect a diagnostics trace or performance capture |
 | `query` | remote | Query OmniWM state, registries, and protocol capabilities |
 | `rule` | remote | Manage persisted window rules and reapply them to windows |
 | `workspace` | remote | Perform workspace actions such as focusing, moving, or renaming by workspace name |
-| `window` | remote | Perform window actions using session-scoped opaque IDs; it also supports [window marks](/reference/cli/actions/#window-marks) |
+| `window` | remote | Perform window actions using session-scoped opaque IDs; it also supports [window marks](/reference/cli/actions/#window-marks) and [window gather](/reference/cli/actions/#window-gather) |
+| `shell` | remote | Set [values for Luau bar widgets](/reference/cli/actions/#shell-widgets) or open their popouts |
 | `subscribe` | remote | Stream the subscribe handshake plus live event envelopes as JSON |
 | `watch` | remote | Consume subscription events and run a child command once per event |
 | `help`, `--help`, `-h` | local | Print CLI usage text without connecting to IPC |
@@ -214,6 +215,30 @@ Workspace IDs are global, so `switch-workspace 3` targets workspace `3` wherever
 | `command toggle-system-stats` | — | shared | Toggle the system stats popup when a workspace-bar System Stats button is available |
 
 For example, run `omniwmctl command hidden-bar panel` to show or dismiss the Hidden Bar panel.
+
+### Keyboard Modes
+
+See [keyboard modes](/guides/keyboard-shortcuts/#keyboard-modes).
+
+| Command | Arguments | Layout | Description |
+|---------|-----------|--------|-------------|
+| `command toggle-shortcut-pause` | — | shared | Pause OmniWM shortcuts so their keys reach the focused app, or resume them |
+| `command begin-prefix` | — | shared | Arm the prefix: the next mode key runs its command; returns `no_change` when no mode key is assigned, Secure Input is on, the screen is locked, or OmniWM cannot capture keys |
+| `command toggle-window-mode` | — | shared | Enter Window mode, where mode keys run their commands until Escape, or leave it; refused for the same reasons as `begin-prefix` |
+| `command exit-keyboard-mode` | — | shared | Leave Pause, Prefix, or Window mode |
+
+### Volume and Media
+
+| Command | Arguments | Layout | Description |
+|---------|-----------|--------|-------------|
+| `command volume-up` | — | shared | Raise the output volume by one step |
+| `command volume-down` | — | shared | Lower the output volume by one step |
+| `command volume-mute` | — | shared | Mute or unmute the output |
+| `command media-play-pause` | — | shared | Play or pause what is playing |
+| `command media-next` | — | shared | Skip to the next track |
+| `command media-previous` | — | shared | Go back to the previous track |
+
+These are also available as hotkey actions in Settings.
 
 Overview is modal with respect to external commands. While it is open every IPC/external command except `toggle-overview` returns `ignored_overview`; `omniwmctl command toggle-overview` closes it onto the current selection, exactly like Escape, Enter, backdrop dismissal, or the configured physical Overview toggle.
 

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import Foundation
@@ -8,9 +8,11 @@ import OmniWMIPC
 @MainActor
 struct IPCWindowMarkRequestExecutor {
     private let controller: WMController
+    private let sessionToken: String
 
-    init(controller: WMController) {
+    init(controller: WMController, sessionToken: String = "") {
         self.controller = controller
+        self.sessionToken = sessionToken
     }
 
     func response(for request: IPCWindowMarkRequest, id: String) -> IPCResponse {
@@ -47,7 +49,16 @@ struct IPCWindowMarkRequestExecutor {
             return .disabled
         case .ignoredOverview:
             return .overviewOpen
-        default:
+        case .executed,
+             .ignoredLayoutMismatch,
+             .staleWindowId,
+             .workspaceAssignmentConflict,
+             .workspaceStateConflict,
+             .notFound,
+             .noChange,
+             .windowActionFailed,
+             .attachedWindow,
+             .invalidArguments:
             return nil
         }
     }
@@ -84,15 +95,19 @@ struct IPCWindowMarkRequestExecutor {
                 continue
             }
 
-            let appInfo = controller.appInfoCache.info(for: entry.pid)
-            let app = IPCAppRef(
-                name: appInfo?.name ?? "PID \(entry.pid)",
-                bundleId: appInfo?.bundleId
+            let presentation = controller.appInfoCache.presentation(
+                for: entry, title: AXWindowService.titlePreferFast(windowId: UInt32(entry.windowId))
             )
-            let title = AXWindowService.titlePreferFast(windowId: UInt32(entry.windowId))
+            let app = IPCAppRef(
+                name: presentation.name ?? "PID \(entry.pid)",
+                bundleId: entry.target.hostedMetadata?.appId ?? controller.appInfoCache.bundleId(for: entry.pid)
+            )
+            let title = presentation.title
+            let id = IPCWindowOpaqueID.encode(token: entry.token, sessionToken: sessionToken)
             entries.append(
                 IPCWindowMarkEntry(
                     name: mark.name,
+                    id: id,
                     workspace: IPCWorkspaceRef(descriptor: descriptor, settings: controller.settings),
                     app: app,
                     title: title?.isEmpty == false ? title : nil

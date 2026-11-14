@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import ApplicationServices
@@ -73,6 +73,8 @@ enum CommandPaletteSelectionID: Hashable {
     case clipboard(UUID)
     case command(String)
     case application(LauncherSectionID, String)
+    case launcherEntry(UUID)
+    case executable(String)
     case file(LauncherSectionID, String)
 }
 

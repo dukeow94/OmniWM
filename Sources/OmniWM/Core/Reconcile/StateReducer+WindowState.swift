@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import CoreGraphics
 import Foundation
@@ -10,13 +10,17 @@ extension StateReducer {
         let currentSnapshot = context.currentSnapshot
         let windowExistedBeforeMutation = context.windowExistedBeforeMutation
         switch event {
-        case let .windowAdmitted(token, workspaceId, monitorId, mode, _, _, _, _, adoptNativeFocus, _, _):
+        case let .windowAdmitted(token, workspaceId, monitorId, mode, _, _, _, _, adoptNativeFocus, _, _, initialFrame):
             plan.lifecyclePhase = lifecyclePhase(for: mode)
-            plan.observedState = baseObservedState(
+            var observedState = baseObservedState(
                 from: existingEntry,
                 workspaceId: workspaceId,
                 monitorId: monitorId
             )
+            if let initialFrame {
+                observedState.frame = initialFrame
+            }
+            plan.observedState = observedState
             plan.desiredState = baseDesiredState(
                 from: existingEntry,
                 workspaceId: workspaceId,
@@ -119,6 +123,21 @@ extension StateReducer {
             }
         default:
             break
+        }
+    }
+
+    static func reduceHostedGeometry(_ event: WMEvent, context: ReductionContext, plan: inout ActionPlan) {
+        guard case let .hostedWindowGeometryObserved(_, _, monitorId, frame, _) = event,
+              let entry = context.existingEntry, entry.target.hostedMetadata != nil else { return }
+        var observed = entry.observedState
+        observed.frame = frame
+        if let monitorId { observed.monitorId = monitorId }
+        plan.observedState = observed
+        if entry.mode == .floating {
+            var desired = entry.desiredState
+            desired.floatingFrame = frame
+            if let monitorId { desired.monitorId = monitorId }
+            plan.desiredState = desired
         }
     }
 

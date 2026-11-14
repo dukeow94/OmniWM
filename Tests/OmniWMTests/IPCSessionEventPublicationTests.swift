@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import CoreGraphics
 import Foundation
 @testable import OmniWM
 import OmniWMIPC
+import Synchronization
 import XCTest
 
 @MainActor
@@ -55,11 +56,17 @@ final class IPCSessionEventPublicationTests: XCTestCase {
         fixture.controller.ipcApplicationBridge = bridge
         let stream = await bridge.stream(for: .activeWorkspace)
         var iterator = stream.makeAsyncIterator()
+        let publishingChanges = Mutex(0)
+        let observers = [Notification.Name.omniwmFocusedWorkspaceChanged, .omniwmFocusedMonitorChanged].map { name in
+            NotificationCenter.default.addObserver(forName: name, object: fixture.controller, queue: nil) { _ in
+                publishingChanges.withLock { $0 += 1 }
+            }
+        }
+        defer { observers.forEach(NotificationCenter.default.removeObserver) }
 
         fixture.controller.workspaceNavigationHandler.switchWorkspaceRelative(isNext: true)
 
-        let delivered = await iterator.next()
-        let event = try XCTUnwrap(delivered)
+        let event = try await nextEvent(in: stream)
         XCTAssertEqual(event.channel, .activeWorkspace)
         guard case let .activeWorkspace(result) = event.result.payload else {
             return XCTFail("unexpected payload \(event.result.payload)")
@@ -69,9 +76,7 @@ final class IPCSessionEventPublicationTests: XCTestCase {
         XCTAssertNotNil(result.display)
 
         await WindowAdmissionTestSupport.drainLayoutRefreshes(fixture.controller)
-        for _ in 0 ..< 8 {
-            await Task.yield()
-        }
+        XCTAssertEqual(publishingChanges.withLock { $0 }, 1)
         XCTAssertEqual(fixture.controller.workspaceManager.nativeFocusOwner, .none)
         await bridge.shutdown()
         let trailing = await iterator.next()
@@ -91,7 +96,7 @@ final class IPCSessionEventPublicationTests: XCTestCase {
             currentMonitors: [fixture.monitor, second],
             performPostUpdateActions: false
         )
-        let addedEvent = await iterator.next()
+        let addedEvent = try await nextEvent(in: stream)
         let added = try displays(in: addedEvent)
         XCTAssertEqual(added.map(\.name), ["Events", "Second"])
 
@@ -99,7 +104,7 @@ final class IPCSessionEventPublicationTests: XCTestCase {
             currentMonitors: [fixture.monitor, makeMonitor(displayId: 2, name: "Second", width: 1920)],
             performPostUpdateActions: false
         )
-        let reconfiguredEvent = await iterator.next()
+        let reconfiguredEvent = try await nextEvent(in: stream)
         let reconfigured = try displays(in: reconfiguredEvent)
         XCTAssertEqual(reconfigured.map(\.name), ["Events", "Second"])
         XCTAssertNotEqual(reconfigured[1].frame, added[1].frame)
@@ -108,7 +113,7 @@ final class IPCSessionEventPublicationTests: XCTestCase {
             currentMonitors: [fixture.monitor],
             performPostUpdateActions: false
         )
-        let removedEvent = await iterator.next()
+        let removedEvent = try await nextEvent(in: stream)
         let removed = try displays(in: removedEvent)
         XCTAssertEqual(removed.map(\.name), ["Events"])
 
@@ -120,9 +125,7 @@ final class IPCSessionEventPublicationTests: XCTestCase {
             currentMonitors: [fixture.monitor, makeMonitor(displayId: 3, name: "Transient", width: 1)],
             performPostUpdateActions: false
         )
-        for _ in 0 ..< 8 {
-            await Task.yield()
-        }
+        await bridge.publishEvent(.displayChanged)
         await bridge.shutdown()
         let trailing = await iterator.next()
         XCTAssertNil(trailing)
@@ -135,13 +138,26 @@ final class IPCSessionEventPublicationTests: XCTestCase {
         var iterator = stream.makeAsyncIterator()
 
         await bridge.publishEvent(.displayChanged)
-        let first = await iterator.next()
-        XCTAssertEqual(first?.channel, .displayChanged)
+        let first = try await nextEvent(in: stream)
+        XCTAssertEqual(first.channel, .displayChanged)
 
         await bridge.publishEvent(.displayChanged)
         await bridge.shutdown()
         let trailing = await iterator.next()
         XCTAssertNil(trailing)
+    }
+
+    private func nextEvent(in stream: AsyncStream<IPCEventEnvelope>) async throws -> IPCEventEnvelope {
+        let received = expectation(description: "IPC envelope received")
+        var delivered: IPCEventEnvelope?
+        let consumer = Task { @MainActor in
+            var iterator = stream.makeAsyncIterator()
+            delivered = await iterator.next()
+            received.fulfill()
+        }
+        defer { consumer.cancel() }
+        await fulfillment(of: [received], timeout: failureBound)
+        return try XCTUnwrap(delivered, "Expected an IPC envelope before the deadline")
     }
 
     private func displays(in delivered: IPCEventEnvelope?) throws -> [IPCDisplayQuerySnapshot] {
@@ -167,12 +183,14 @@ final class IPCSessionEventPublicationTests: XCTestCase {
     }
 
     private func makeBridge(controller: WMController) -> IPCApplicationBridge {
-        IPCApplicationBridge(
+        let bridge = IPCApplicationBridge(
             controller: controller,
             appVersion: "0.0.0-test",
             sessionToken: "session",
             authorizationToken: "token"
         )
+        addTeardownBlock { await bridge.shutdown() }
+        return bridge
     }
 
     private func makeFixture() throws -> Fixture {
