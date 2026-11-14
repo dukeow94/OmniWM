@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import Foundation
@@ -7,24 +7,6 @@ import QuartzCore
 
 @MainActor final class LayoutRefreshController: NSObject {
     typealias PostLayoutAction = @MainActor () -> Void
-
-    @MainActor
-    private final class RefreshFrameContext {
-        private var cache: [WindowToken: CGRect?] = [:]
-        private(set) var requests = 0
-        private(set) var hits = 0
-
-        func fastFrame(for token: WindowToken, axRef: AXWindowRef) -> CGRect? {
-            requests += 1
-            if let cached = cache[token] {
-                hits += 1
-                return cached
-            }
-            let frame = AXWindowService.framePreferFast(axRef)
-            cache[token] = .some(frame)
-            return frame
-        }
-    }
 
     weak var controller: WMController?
     static let hiddenWindowEdgeRevealEpsilon: CGFloat = 1.0
@@ -66,10 +48,11 @@ import QuartzCore
     var displayTickMetrics = DisplayTickMetrics()
     var performanceCounters: PerformanceCounters?
     var displayLinkActivationForTests: ((CGDirectDisplayID) -> Bool)?
+    var screenParametersHandledForTests: (() -> Void)?
     var displayLinkCreationAllowedForTests: ((CGDirectDisplayID) -> Bool)?
     var activeDisplayLinkCountForTests: (() -> Int)?
     var fullRescanEnumerationSnapshotForTests: AXManager.FullRescanEnumerationSnapshot?
-    private var activeFrameContext: RefreshFrameContext?
+    private var activeFrameContext: LayoutRefreshFrameContext?
     private var nextPendingRevealTransactionId: UInt64 = 1
     private var pendingRevealTransactionsByWindowId: [Int: PendingRevealTransaction] = [:]
     private var pendingRevealVerificationTasksByWindowId: [Int: Task<Void, Never>] = [:]
@@ -86,8 +69,15 @@ import QuartzCore
         SkyLight.shared.nativeSpaceWindowInventory(spaceIds: $0)
     }
 
-    func fastFrame(for token: WindowToken, axRef: AXWindowRef) -> CGRect? {
-        activeFrameContext?.fastFrame(for: token, axRef: axRef)
+    var windowBoundsProvider: ([UInt32]) -> [UInt32: CGRect] = { SkyLight.shared.getWindowBounds($0) }
+
+    func primeFrames(for targets: [HideTarget], skipping isKnown: (WindowState) -> Bool) {
+        activeFrameContext?.prime(targets, skipping: isKnown, using: windowBoundsProvider)
+    }
+
+    func fastFrame(for token: WindowToken, axRef: AXWindowRef?) -> CGRect? {
+        guard let axRef else { return controller?.shellAppWindowManager.frame(for: token) }
+        return activeFrameContext?.fastFrame(for: token, axRef: axRef)
             ?? fastFrameProvider(token, axRef)
     }
 
@@ -109,7 +99,7 @@ import QuartzCore
         guard let controller else { return false }
         guard isCurrentRefreshGeneration(generation) else { return false }
 
-        activeFrameContext = RefreshFrameContext()
+        activeFrameContext = LayoutRefreshFrameContext()
         defer { activeFrameContext = nil }
 
         applyEffectPlan(plan, controller: controller)
@@ -118,7 +108,7 @@ import QuartzCore
     }
 
     func resetState() {
-        workspaceSwipe.cancel(reason: "reset")
+        workspaceSwipe.cancelAll(reason: "reset")
         let discardedScratchpadIndices = revealGroups.indices()
         layoutState.activeRefreshTask?.cancel()
         layoutState.activeRefreshTask = nil
@@ -183,26 +173,6 @@ import QuartzCore
             workspaceCount: workspaceCount,
             windowCount: windowCount
         )
-    }
-}
-
-extension LayoutRefreshController {
-    func discardScratchpadRevealGroupAndReconcile(_ groupId: UInt64) {
-        guard let index = revealGroups.discard(groupId) else { return }
-        reconcileRevealedScratchpadAfterGroupDiscard(index)
-    }
-
-    func reconcileRevealedScratchpadAfterGroupDiscard(_ index: ScratchpadIndex) {
-        guard let controller,
-              controller.workspaceManager.revealedScratchpadIndex() == index,
-              !controller.workspaceManager.scratchpadMembers(in: index).contains(where: {
-                  controller.isManagedWindowDisplayable($0)
-              })
-        else {
-            return
-        }
-        controller.workspaceManager.setRevealedScratchpad(nil)
-        controller.requestWorkspaceBarRefresh()
     }
 }
 
@@ -278,7 +248,7 @@ extension LayoutRefreshController {
         for entry: WindowState,
         hiddenState: HiddenState
     ) -> Bool {
-        !hiddenState.workspaceInactive
+        entry.axRef != nil && !hiddenState.workspaceInactive
             && entry.mode == .floating
             && hiddenState.restoresViaFloatingState
     }
@@ -490,8 +460,13 @@ extension LayoutRefreshController {
 extension LayoutRefreshController {
     func applyLayoutMutations(_ plan: WorkspaceLayoutPlan, controller: WMController) {
         controller.withRuntimeFrameJobCancellationSuppressed {
-            applySessionPatch(plan.sessionPatch)
-            diffExecutor.execute(plan)
+            if plan.sessionPatch.viewportState != nil || plan.sessionPatch.rememberedFocusToken != nil {
+                controller.workspaceManager.applySessionPatch(plan.sessionPatch)
+            }
+            diffExecutor.execute(plan, controller: controller)
+            if !plan.isAnimationTick {
+                controller.shellAppWindowManager.reconcileAttachedGeometry(in: plan.workspaceId)
+            }
             controller.workspaceManager.setNiriRestorePlacements(plan.niriRestorePlacements)
             controller.workspaceManager.setDwindleRestorePlacements(plan.dwindleRestorePlacements)
         }

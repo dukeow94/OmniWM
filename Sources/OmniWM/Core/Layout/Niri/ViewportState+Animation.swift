@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import Foundation
@@ -35,6 +35,7 @@ extension ViewportState {
     }
 
     mutating func reset() {
+        preservesGestureOffset = false
         activeColumnIndex = 0
         jumpOffset(to: 0.0)
         selectedNodeId = nil

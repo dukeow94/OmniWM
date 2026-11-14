@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import ApplicationServices
@@ -48,6 +48,7 @@ struct MenuBarItemResolution: Sendable {
 struct MenuBarItemActivationCandidate: Sendable {
     let pid: pid_t
     let useAXPress: Bool
+    var allowsClick = true
 }
 
 enum MenuBarItemActivation: Sendable {
@@ -57,9 +58,44 @@ enum MenuBarItemActivation: Sendable {
 }
 
 enum MenuBarItemLocator {
-    private static let messagingTimeoutSeconds: Float = 0.1
+    static let messagingTimeoutSeconds: Float = 0.1
     private static let settlePollInterval: TimeInterval = 0.05
     private static let locateDeadline: Duration = .seconds(2)
+
+    @MainActor
+    static func menuTarget(
+        matching target: ResolvedMenuBarItem,
+        cachedItems: [ResolvedMenuBarItem],
+        environment: MenuExtractorEnvironment
+    ) throws -> AXUIElement? {
+        let deadline = MenuAXDeadline(start: environment.now(), timeout: 0.25)
+        let children = try extrasChildren(pid: target.pid, environment: environment, deadline: deadline)
+        let names = ["AXIdentifier", "AXTitle", "AXDescription", "AXHelp"]
+        var freshItems: [ResolvedMenuBarItem] = []
+        freshItems.reserveCapacity(children.count)
+        for (index, child) in children.enumerated() {
+            let values = try environment.readAttributes(
+                child, names as CFArray, deadline.remaining(at: environment.now())
+            )
+            let attributes = try MenuAXReader.decodeAttributeValues(names: names, values: values)
+            var strings: [String: String] = [:]
+            for (name, value) in attributes {
+                guard let value = value as? String else { throw MenuExtractionError.invalidResponse }
+                let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !normalized.isEmpty { strings[name] = normalized }
+            }
+            let identity = semanticIdentity(includesHelp: children.count > 1) { strings[$0] }
+            freshItems.append(ResolvedMenuBarItem(
+                key: MenuBarItemKey(bundleID: target.key.bundleID, ordinal: index),
+                pid: target.pid, bounds: .zero, semanticIdentity: identity
+            ))
+        }
+        guard let match = HiddenBarActivationPolicy.activationTarget(
+            for: target.key, cachedItems: cachedItems, cachedIcons: [:],
+            freshItems: freshItems, freshIcons: [:]
+        ) else { return nil }
+        return children[match.key.ordinal]
+    }
 
     static func resolveItems(
         candidates: [MenuBarAppCandidate],
@@ -75,15 +111,18 @@ enum MenuBarItemLocator {
         while resolved.count < bundleIDs.count {
             guard tracker.shouldContinue(at: clock.now) else { break }
             try job.checkCancellation()
+            let agent = HostedItemIndex()
             for bundleID in bundleIDs where resolved[bundleID] == nil {
                 try job.checkCancellation()
-                if let items = try resolveStableItems(
-                    candidates: candidates,
-                    bundleID: bundleID,
-                    allowEmptyBundleIDs: allowEmptyBundleIDs,
-                    job: job,
-                    tracker: &tracker
-                ) {
+                if let items = try resolveStableItems(bundleID: bundleID, tracker: &tracker, sample: {
+                    try itemSample(
+                        candidates: candidates,
+                        bundleID: bundleID,
+                        allowEmpty: allowEmptyBundleIDs.contains(bundleID),
+                        agent: agent,
+                        job: job
+                    )
+                }) {
                     resolved[bundleID] = items
                 }
             }
@@ -91,6 +130,7 @@ enum MenuBarItemLocator {
                 Thread.sleep(forTimeInterval: settlePollInterval)
             }
         }
+        let agent = HostedItemIndex()
         for bundleID in allowEmptyBundleIDs where resolved[bundleID] == nil {
             try job.checkCancellation()
             guard let pid = tracker.authoritativeEmptyPID(for: bundleID),
@@ -98,6 +138,7 @@ enum MenuBarItemLocator {
                       candidates: candidates,
                       bundleID: bundleID,
                       allowEmpty: true,
+                      agent: agent,
                       job: job
                   ),
                   sample.pid == pid, sample.items.isEmpty
@@ -108,19 +149,12 @@ enum MenuBarItemLocator {
     }
 
     private static func resolveStableItems(
-        candidates: [MenuBarAppCandidate],
         bundleID: String,
-        allowEmptyBundleIDs: Set<String>,
-        job: RunLoopJob,
-        tracker: inout MenuBarItemSampleTracker
+        tracker: inout MenuBarItemSampleTracker,
+        sample takeSample: () throws -> (pid: pid_t, items: [MenuBarItemElement])?
     ) throws -> [ResolvedMenuBarItem]? {
         let attempt = tracker.beginAttempt(for: bundleID)
-        guard let sample = try itemSample(
-            candidates: candidates,
-            bundleID: bundleID,
-            allowEmpty: allowEmptyBundleIDs.contains(bundleID),
-            job: job
-        ) else {
+        guard let sample = try takeSample() else {
             tracker.discardSample(for: bundleID)
             return nil
         }
@@ -133,9 +167,13 @@ enum MenuBarItemLocator {
                 key: MenuBarItemKey(bundleID: bundleID, ordinal: ordinal),
                 pid: sample.pid,
                 bounds: item.frame,
-                semanticIdentity: semanticIdentity(of: item.element)
+                semanticIdentity: semanticIdentity(of: item.element, includesHelp: sample.items.count > 1)
             )
         }
+    }
+
+    static func fallback(for candidate: MenuBarItemActivationCandidate, frame: CGRect) -> MenuBarItemActivation {
+        candidate.allowsClick ? .clickFrame(frame) : .unavailable
     }
 
     static func activate(
@@ -149,9 +187,12 @@ enum MenuBarItemLocator {
 
         while clock.now < deadline {
             try job.checkCancellation()
+            let agent = HostedItemIndex()
             for candidate in candidates where candidate.pid == target.pid {
                 try job.checkCancellation()
-                guard let elements = itemElements(pid: candidate.pid), target.key.ordinal < elements.count else {
+                guard let elements = itemElements(pid: candidate.pid, agent: agent),
+                      target.key.ordinal < elements.count
+                else {
                     previousFrames.removeValue(forKey: candidate.pid)
                     continue
                 }
@@ -162,8 +203,10 @@ enum MenuBarItemLocator {
                 }
                 if item.frame == previousFrames[candidate.pid] {
                     try job.checkCancellation()
-                    guard semanticIdentity(of: item.element) == target.semanticIdentity else { return .unavailable }
-                    if candidate.useAXPress {
+                    guard semanticIdentity(of: item.element, includesHelp: elements.count > 1) == target
+                        .semanticIdentity
+                    else { return .unavailable }
+                    if usesAXPress(for: candidate, hosted: item.hosted) {
                         if performAXAction(
                             item.element,
                             "AXPress" as CFString,
@@ -172,7 +215,7 @@ enum MenuBarItemLocator {
                             return .axPressed
                         }
                     }
-                    return .clickFrame(item.frame)
+                    return fallback(for: candidate, frame: item.frame, hosted: item.hosted)
                 }
                 previousFrames[candidate.pid] = item.frame
             }
@@ -185,12 +228,13 @@ enum MenuBarItemLocator {
         candidates: [MenuBarAppCandidate],
         bundleID: String,
         allowEmpty: Bool,
+        agent: HostedItemIndex,
         job: RunLoopJob
     ) throws -> (pid: pid_t, items: [MenuBarItemElement])? {
         var emptyPID: pid_t?
         for candidate in candidates where candidate.bundleID == bundleID {
             try job.checkCancellation()
-            guard let items = itemElements(pid: candidate.pid) else { continue }
+            guard let items = itemElements(pid: candidate.pid, agent: agent) else { continue }
             if !items.isEmpty {
                 return (candidate.pid, items)
             }
@@ -202,18 +246,21 @@ enum MenuBarItemLocator {
         return (emptyPID, [])
     }
 
-    private struct MenuBarItemElement {
+    struct MenuBarItemElement {
         let element: AXUIElement
         let frame: CGRect
+        var hosted = false
     }
 
-    private static func itemElements(pid: pid_t) -> [MenuBarItemElement]? {
+    private static func itemElements(pid: pid_t, agent: HostedItemIndex) -> [MenuBarItemElement]? {
         let appElement = AXUIElementCreateApplication(pid)
         AXUIElementSetMessagingTimeout(appElement, messagingTimeoutSeconds)
         defer { AXUIElementSetMessagingTimeout(appElement, 0) }
 
         var extrasRef: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(appElement, "AXExtrasMenuBar" as CFString, &extrasRef) == .success,
+        let extrasResult = AXUIElementCopyAttributeValue(appElement, "AXExtrasMenuBar" as CFString, &extrasRef)
+        if extrasResult == .noValue { return agent.items(for: pid) }
+        guard extrasResult == .success,
               let extras = extrasRef, CFGetTypeID(extras) == AXUIElementGetTypeID()
         else { return nil }
 
@@ -235,8 +282,18 @@ enum MenuBarItemLocator {
         return items.sorted { $0.frame.minX < $1.frame.minX }
     }
 
-    private static func semanticIdentity(of element: AXUIElement) -> MenuBarItemSemanticIdentity? {
-        if let identifier = stringAttribute("AXIdentifier", of: element) {
+    private static func semanticIdentity(
+        of element: AXUIElement,
+        includesHelp: Bool
+    ) -> MenuBarItemSemanticIdentity? {
+        semanticIdentity(includesHelp: includesHelp) { stringAttribute($0, of: element) }
+    }
+
+    private static func semanticIdentity(
+        includesHelp: Bool,
+        read: (String) -> String?
+    ) -> MenuBarItemSemanticIdentity? {
+        if let identifier = read("AXIdentifier") {
             return MenuBarItemSemanticIdentity(
                 identifier: identifier,
                 title: nil,
@@ -246,9 +303,9 @@ enum MenuBarItemLocator {
         }
         let identity = MenuBarItemSemanticIdentity(
             identifier: nil,
-            title: stringAttribute(kAXTitleAttribute, of: element),
-            accessibilityDescription: stringAttribute(kAXDescriptionAttribute, of: element),
-            help: stringAttribute(kAXHelpAttribute, of: element)
+            title: read(kAXTitleAttribute),
+            accessibilityDescription: read(kAXDescriptionAttribute),
+            help: includesHelp ? read(kAXHelpAttribute) : nil
         )
         guard identity.identifier != nil || identity.title != nil
             || identity.accessibilityDescription != nil || identity.help != nil

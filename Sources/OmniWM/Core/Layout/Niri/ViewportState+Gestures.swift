@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import Foundation
@@ -91,7 +91,7 @@ extension ViewportState {
         }
 
         let snapTargetOffset = result.viewPos - Double(newContainerPosition)
-        let correctedTargetOffset = correctedGestureTargetOffset(
+        let correctedTargetOffset = result.isOverscrollBoundary ? snapTargetOffset : correctedGestureTargetOffset(
             result: result,
             columns: columns,
             geometry: geometry
@@ -128,10 +128,14 @@ extension ViewportState {
             let bounds = gestureSnapBounds(columns: columns, plan: &plan)
             plan.appendBoundedPoints(in: columns, bounds: bounds)
         }
+        if let bounds = plan.geometry.viewport.overscrollBounds(columns: columns) {
+            plan.appendPoint(Double(bounds.lowerBound), columnIndex: 0, isOverscrollBoundary: true)
+            plan.appendPoint(Double(bounds.upperBound), columnIndex: columns.count - 1, isOverscrollBoundary: true)
+        }
         guard let closest = plan.closestPoint(to: projectedViewPos) else {
             return NiriGestureSnapPlan.Point(viewPos: 0, columnIndex: 0)
         }
-        guard !plan.geometry.isCentering else { return closest }
+        guard !plan.geometry.isCentering, !closest.isOverscrollBoundary else { return closest }
         let columnIndex = if projectedOffset >= currentOffset {
             forwardGestureSnapColumn(closest: closest, columns: columns, geometry: plan.geometry)
         } else {
@@ -305,7 +309,10 @@ extension ViewportState {
             gap: geometry.gap,
             viewportSpan: Double(geometry.viewportSpan),
             totalContentSpan: totalContentSpan,
-            sizeKeyPath: sizeKeyPath
+            sizeKeyPath: sizeKeyPath,
+            viewStartBounds: geometry.overscrollBounds(columns: columns).map {
+                Double($0.lowerBound) ... Double($0.upperBound)
+            }
         )?.landing(
             columns: columns,
             activeIndex: activeColumnIndex,
@@ -330,20 +337,33 @@ extension ViewportState {
         activeColumnIndex = preserved.normalizedActiveColumn
 
         let maxViewStart = max(0, totalContentSpan - Double(geometry.viewportSpan))
-        let overscrolled = Double(oldActivePosition) + projectedOffset < 0
-            || Double(oldActivePosition) + projectedOffset > maxViewStart
+        let bounds = geometry.overscrollBounds(columns: columns).map {
+            Double($0.lowerBound) ... Double($0.upperBound)
+        } ?? (0 ... maxViewStart)
+        let overscrolled = !bounds.contains(Double(oldActivePosition) + projectedOffset)
 
+        applyMomentumLanding(
+            finalOffset: preserved.finalOffset, offsetDelta: offsetDelta, overscrolled: overscrolled, motion: motion
+        )
+    }
+
+    private mutating func applyMomentumLanding(
+        finalOffset: Double,
+        offsetDelta: CGFloat,
+        overscrolled: Bool,
+        motion: MotionSnapshot
+    ) {
         guard motion.animationsEnabled else {
-            jumpOffset(to: CGFloat(preserved.finalOffset))
+            jumpOffset(to: CGFloat(finalOffset))
             activatePrevColumnOnRemoval = nil
             return
         }
 
         rebaseOffset(by: offsetDelta)
         if overscrolled {
-            springOffset(to: CGFloat(preserved.finalOffset), config: motion.scaled(.niriHorizontalViewMovement))
+            springOffset(to: CGFloat(finalOffset), config: motion.scaled(.niriHorizontalViewMovement))
         } else {
-            decelerateOffset(to: CGFloat(preserved.finalOffset))
+            decelerateOffset(to: CGFloat(finalOffset))
         }
         activatePrevColumnOnRemoval = nil
     }

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 
@@ -24,7 +24,7 @@ extension ServiceLifecycleManager {
         guard let controller else { return [] }
         let manager = controller.workspaceManager
         return manager.allEntries().compactMap { entry in
-            guard !entry.observedState.isNativeWithdrawn,
+            guard let axRef = entry.axRef,
                   entry.layoutReason != .nativeFullscreen,
                   manager.nativeFullscreenRecord(for: entry.token) == nil,
                   !manager.spaceTopology.isWindowOnFullscreenSpace(entry.windowId),
@@ -32,39 +32,23 @@ extension ServiceLifecycleManager {
             else { return nil }
             let reveal = controller.layoutRefreshController.pendingRevealTransaction(for: entry.windowId)
             let hidden = entry.hiddenState ?? reveal?.hiddenState
-            let frame = controller.layoutRefreshController.fastFrame(for: entry.token, axRef: entry.axRef)
-            let offscreen = frame.map { frame in
-                !manager.monitors.contains {
-                    let overlap = $0.frame.intersection(frame)
-                    return overlap.width > 1 && overlap.height > 1
-                }
-            } ?? false
-            guard hidden != nil || reveal != nil || offscreen
+            let frame = controller.layoutRefreshController.fastFrame(for: entry.token, axRef: axRef)
+            let offscreen = frame.map { !StopWindowGeometry.isOnscreen($0, monitors: manager.monitors) } ?? false
+            let parkedByOmniWM = hidden != nil || reveal != nil
                 || controller.axManager.pendingParkWindowIds.contains(entry.windowId)
                 || controller.axManager.verifiedParkFrame(for: entry.windowId) != nil
-            else { return nil }
+            guard parkedByOmniWM || offscreen && !entry.observedState.isNativeWithdrawn else { return nil }
             let monitor = manager.monitor(for: entry.workspaceId)
                 ?? (hidden?.referenceMonitorId ?? entry.floatingState?.referenceMonitorId)
                 .flatMap { manager.monitor(byId: $0) }
                 ?? manager.monitors.first(where: \.isMain) ?? manager.monitors.first
-            let placement: StopWindowTarget.Placement?
-            if entry.mode == .floating, let floating = entry.floatingState {
-                if floating.referenceMonitorId != monitor?.id, let normalized = floating.normalizedOrigin {
-                    placement = .floatingNormalizedOrigin(normalized)
-                } else {
-                    placement = .floatingOrigin(floating.lastFrame.origin)
-                }
-            } else if let hidden, let monitor {
-                placement = .topLeft(CGPoint(
-                    x: monitor.frame.minX + monitor.frame.width * min(max(hidden.proportionalPosition.x, 0), 1),
-                    y: monitor.frame.maxY - monitor.frame.height * min(max(hidden.proportionalPosition.y, 0), 1)
-                ))
-            } else {
-                placement = reveal.map { .topLeft($0.targetFrame.topLeftCorner) }
-            }
+            let placement = StopWindowGeometry.placement(
+                floating: entry.mode == .floating ? entry.floatingState : nil,
+                hidden: hidden, monitor: monitor, fallbackFrame: reveal?.targetFrame
+            )
             return StopWindowTarget(
                 token: entry.token,
-                window: entry.axRef,
+                window: axRef,
                 visibleFrame: monitor?.visibleFrame,
                 placement: placement
             )
@@ -114,7 +98,8 @@ extension ServiceLifecycleManager {
 
     func reconcileStopOutcome(_ outcome: StopWindowOutcome) {
         guard let controller, let entry = controller.workspaceManager.entry(for: outcome.target.token),
-              sameAXWindowIdentity(entry.axRef, outcome.target.window)
+              let axRef = entry.axRef,
+              sameAXWindowIdentity(axRef, outcome.target.window)
         else { return }
         if let minimized = outcome.confirmedMinimized {
             controller.workspaceManager.setWindowMinimized(minimized, token: entry.token, source: .service)

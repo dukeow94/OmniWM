@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import Foundation
 
@@ -28,8 +28,13 @@ final class EventInterpreter: EventIntakeSink {
         case let .focusedAdmissionRetryFactRequestSuperseded(execution):
             controller.axEventHandler.finishFocusedAdmissionRetryExecution(execution)
 
-        case .activeSpaceChanged:
-            controller.serviceLifecycleManager.handleActiveSpaceDidChange()
+        case .activeSpaceChanged,
+             .display,
+             .nativeFullscreenTransitionExpired,
+             .secureInputStateMayHaveChanged,
+             .systemSleep,
+             .systemWake:
+            handleLifecycleIntakeEvent(stamped.event, controller: controller)
 
         case let .application(event):
             handleApplicationIntakeEvent(event, sequence: stamped.seq, controller: controller)
@@ -39,9 +44,6 @@ final class EventInterpreter: EventIntakeSink {
 
         case let .cgs(event):
             controller.axEventHandler.handleCGSEvent(event)
-
-        case let .display(event):
-            controller.serviceLifecycleManager.monitorConfiguration.handle(event)
 
         case let .hotkeyInvocation(invocation):
             handleHotkeyInvocation(invocation, sequence: stamped.seq, controller: controller)
@@ -68,6 +70,25 @@ final class EventInterpreter: EventIntakeSink {
         case let .mouseScroll(payload):
             controller.mouseEventHandler.dispatchScrollWheel(payload)
 
+        case let .pointerEdgeCrossed(target):
+            controller.mouseWarpHandler.notePointerEdgeCrossing(to: target)
+
+        case .pointerEdgeOwnershipChanged:
+            controller.mouseEventHandler.reconcileMouseMoveSubscription()
+
+        case let .windowConstraintsResolved(fact):
+            controller.layoutRefreshController.applyResolvedConstraints(fact)
+        }
+    }
+
+    private func handleLifecycleIntakeEvent(_ event: IntakeEvent, controller: WMController) {
+        switch event {
+        case .activeSpaceChanged:
+            controller.serviceLifecycleManager.handleActiveSpaceDidChange()
+
+        case let .display(event):
+            controller.serviceLifecycleManager.monitorConfiguration.handle(event)
+
         case let .nativeFullscreenTransitionExpired(originalToken, generation):
             _ = controller.workspaceManager.expireNativeFullscreenTransition(
                 originalToken: originalToken,
@@ -84,8 +105,8 @@ final class EventInterpreter: EventIntakeSink {
         case .systemWake:
             controller.serviceLifecycleManager.handleSystemWake()
 
-        case let .windowConstraintsResolved(fact):
-            controller.layoutRefreshController.applyResolvedConstraints(fact)
+        default:
+            preconditionFailure("Unexpected non-lifecycle intake event")
         }
     }
 
@@ -194,6 +215,10 @@ final class EventInterpreter: EventIntakeSink {
         case let .windowDeminiaturized(pid, axRef, callbackGeneration):
             guard acceptsCallbackGeneration(callbackGeneration, pid: pid) else { return }
             controller.axEventHandler.handleWindowMinimized(pid: pid, axRef: axRef, minimized: false)
+
+        case let .titleChanged(pid, windowId, callbackGeneration):
+            guard acceptsCallbackGeneration(callbackGeneration, pid: pid) else { return }
+            controller.axEventHandler.handleWindowTitleChanged(windowId: windowId, pid: pid)
         }
     }
 }

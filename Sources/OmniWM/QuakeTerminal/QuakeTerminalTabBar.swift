@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import Cocoa
 
@@ -41,7 +41,7 @@ final class QuakeTerminalTabBar: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         NSColor(white: 0.1, alpha: 0.95).setFill()
-        dirtyRect.fill()
+        bounds.fill()
 
         let tabWidth = calculateTabWidth()
 

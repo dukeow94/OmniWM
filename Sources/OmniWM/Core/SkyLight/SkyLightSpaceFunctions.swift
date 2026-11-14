@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import CoreGraphics
 import Foundation
@@ -17,12 +17,14 @@ struct SkyLightSpaceFunctions {
         UnsafeMutablePointer<UInt64>
     ) -> Unmanaged<CFArray>?
     typealias GetSpaceManagementModeFunc = @convention(c) (Int32) -> Int32
+    typealias SetMenuBarAutohideEnabledFunc = @convention(c) (Int32, Bool) -> CGError
 
     let copyManagedDisplaySpaces: CopyManagedDisplaySpacesFunc
     let getActiveSpace: GetActiveSpaceFunc
     let copySpacesForWindows: CopySpacesForWindowsFunc
     let copyWindowsWithOptionsAndTags: CopyWindowsWithOptionsAndTagsFunc?
     let getSpaceManagementMode: GetSpaceManagementModeFunc
+    let setMenuBarAutohideEnabled: SetMenuBarAutohideEnabledFunc?
 
     init(resolver: inout SkyLightSymbolResolver) {
         copyManagedDisplaySpaces = resolver.resolve(
@@ -36,5 +38,9 @@ struct SkyLightSpaceFunctions {
             as: CopyWindowsWithOptionsAndTagsFunc.self
         )
         getSpaceManagementMode = resolver.resolve("SLSGetSpaceManagementMode", as: GetSpaceManagementModeFunc.self)
+        setMenuBarAutohideEnabled = resolver.resolveOptional(
+            "SLSSetMenuBarAutohideEnabled",
+            as: SetMenuBarAutohideEnabledFunc.self
+        )
     }
 }

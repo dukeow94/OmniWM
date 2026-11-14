@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 extension IPCCommandRequest: Codable {
     public init(from decoder: Decoder) throws {
@@ -11,6 +11,9 @@ extension IPCCommandRequest: Codable {
     public func encode(to encoder: Encoder) throws {
         var writer = try IPCCommandArgumentWriter(encoder: encoder, name: name.rawValue)
         switch self {
+        case let .shellAppOpen(appID),
+             let .shellAppNewWindow(appID):
+            try writer.encode(appID: appID)
         case let .focus(command):
             try command.encodeArguments(to: &writer)
         case let .windowMovement(command):
@@ -38,6 +41,8 @@ extension IPCCommandRequest: Codable {
              .rescueOffscreenWindows,
              .fullscreen,
              .presentation,
+             .media,
+             .keyboardMode,
              .windowState,
              .openMenuAnywhere:
             break

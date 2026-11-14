@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import CoreGraphics
 import Foundation
@@ -93,6 +93,18 @@ final class WorkspaceBarFeatureSwitchTests: XCTestCase {
         controller.setWorkspaceBarEnabled(false)
         XCTAssertNil(manager.hoverPreview)
         XCTAssertNil(secondPreview)
+    }
+
+    @MainActor
+    func testRepeatedSetupKeepsThePermissionPromptCoordinator() throws {
+        let settings = makeSettingsStore()
+        settings.workspaceBar.enabled = false
+        let controller = WMController(settings: settings)
+        controller.setWorkspaceBarEnabled(false)
+        let prompts = try XCTUnwrap(controller.workspaceBarManager.shellPermissionPrompts)
+
+        controller.setWorkspaceBarEnabled(false)
+        XCTAssertTrue(controller.workspaceBarManager.shellPermissionPrompts === prompts)
     }
 
     @MainActor

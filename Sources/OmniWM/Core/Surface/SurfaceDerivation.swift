@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import CoreGraphics
 import Foundation
@@ -19,7 +19,8 @@ enum SurfaceDerivation {
             tabRailStyle: world.tabRailStyle,
             placeholders: world.nativeFullscreenPlaceholders(),
             bars: world.barSurfaces(),
-            parkingEdgeMasks: deriveParkingEdgeMasks(monitors: world.monitors, spaceTopology: world.spaceTopology),
+            islands: world.islandSurfaces(),
+            parkingEdgeMasks: world.parkingEdgeMasks(),
             niriColumns: world.niriColumnSummaries()
         )
     }
@@ -79,31 +80,42 @@ enum SurfaceDerivation {
         let config = world.borderConfig
         guard config.enabled else { return nil }
         guard let token = world.borderFocusToken,
-              let entry = world.entry(for: token)
+              let entry = world.entry(for: token),
+              entry.target.hostedMetadata?.role.isSheet != true
         else {
             return nil
         }
         guard !world.hasPendingNativeFullscreenTransition(for: token) else { return nil }
         guard !world.hasPendingWindowClose(for: entry) else { return nil }
         guard world.systemModalFocusToken != token else { return nil }
+        let picture = world.edgePicturePresentation(for: entry)
         guard world.suppressedFocusToken != token,
               !world.hasPendingNativeFullscreenTransition(in: entry.workspaceId),
-              !world.isWindowFullscreenInLayout(token),
-              world.isManagedWindowDisplayable(entry.token),
+              !world.isWindowFullscreenInLayout(entry),
+              picture != nil || world.isManagedWindowDisplayable(entry),
               world.isWorkspaceVisible(entry.workspaceId)
         else {
             return nil
         }
-        guard let frame = borderFrame(
-            for: entry,
-            world: world,
-            policy: framePolicy
-        ),
-            frame.width > 0, frame.height > 0
+        guard let frame = picture?.frame ?? borderFrame(
+                  for: entry,
+                  world: world,
+                  policy: framePolicy
+              ),
+              frame.width > 0, frame.height > 0
         else {
             return nil
         }
-        return DesiredBorderSurface(token: entry.token, frame: frame, config: config)
+        return DesiredBorderSurface(
+            token: entry.token, frame: frame, config: config,
+            presentation: picture.map {
+                BorderPresentation(
+                    windowId: $0.windowId, displayFrame: $0.displayFrame, scale: $0.scale,
+                    otherDisplayFrames: $0.otherDisplayFrames, isMoving: $0.isMoving
+                )
+            },
+            isMoving: world.hasMotion(in: entry.workspaceId)
+        )
     }
 
     @MainActor
@@ -114,6 +126,9 @@ enum SurfaceDerivation {
     ) -> CGRect? {
         switch policy {
         case .complete:
+            if world.hasMotion(in: entry.workspaceId), let planned = world.cachedBorderFrame(for: entry) {
+                return planned
+            }
             return world.borderFrame(for: entry)
         case let .animation(previous):
             if let cached = world.cachedBorderFrame(for: entry) {

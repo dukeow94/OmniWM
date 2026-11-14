@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import Foundation
@@ -26,6 +26,7 @@ final class WorkspaceManager {
     var nativeFullscreenTransitionTimeoutTasks: [WindowToken: Task<Void, Never>] = [:]
     var pendingRuntimeMonitorOverrideClearWorkspaceIds: Set<WorkspaceDescriptor.ID> = []
     var isDrainingPendingRuntimeMonitorOverrideClears = false
+    var quietArrivalTokens: Set<WindowToken> = []
     private lazy var persistedRestoreCatalogStore = PersistedRestoreCatalogStore(
         bootCatalog: settings.loadPersistedWindowRestoreCatalog(),
         buildSnapshot: { [unowned self] in self.persistedWindowRestoreCatalogBuildSnapshot() },
@@ -41,6 +42,7 @@ final class WorkspaceManager {
         ((WorkspaceDescriptor.ID?, InvalidationDomain, SessionSurfaceInvalidationScope) -> Void)?
     var onWindowPresenceObserved: ((WindowHandle) -> Void)?
     var onWindowRemoved: ((WindowState) -> Void)?
+    var onHostedFamilyWorkspaceChanged: ((WindowToken, WorkspaceDescriptor.ID) -> Void)?
     var onDeferredWorkspaceMonitorMove: ((WorkspaceMonitorMoveOutcome) -> Void)?
     var onAnimationMotionsWillBeRemoved: ((Set<WorkspaceDescriptor.ID>) -> Void)?
 
@@ -173,7 +175,8 @@ extension WorkspaceManager {
         world.commit(
             event,
             monitors: monitors,
-            snapshot: { self.reconcileSnapshot() },
+            snapshot: { self.reconcileReductionSnapshot() },
+            completeSnapshot: { self.populateReconcileLayouts(&$0) },
             preMutate: preMutate,
             resolvePlan: resolvePlan
         )
@@ -317,9 +320,7 @@ extension WorkspaceManager {
     func schedulePersistedWindowRestoreCatalogSave() {
         persistedRestoreCatalogStore.scheduleSave()
     }
-}
 
-extension WorkspaceManager {
     func monitor(byId id: Monitor.ID) -> Monitor? {
         _monitorsById[id]
     }
@@ -385,8 +386,7 @@ extension WorkspaceManager {
 
     func setCachedConstraints(_ constraints: WindowSizeConstraints, for token: WindowToken) {
         guard windowQueries.entry(for: token) != nil else { return }
-        let normalized = constraints.normalized()
-        world.setCachedConstraints(normalized, for: token)
+        world.setCachedConstraints(constraints.normalized(), for: token)
     }
 
     @discardableResult
@@ -406,6 +406,10 @@ extension WorkspaceManager {
             monitors: monitors
         )
         world.niriEngine?.moveWorkspace(move.workspaceId, to: move.targetMonitor.id, monitor: move.targetMonitor)
+    }
+
+    func applyNiriGather(_ plan: NiriGatherPlan, assignments: StateReducer.GatherAssignmentPlan) {
+        world.applyNiriGather(plan, assignments: assignments, monitors: monitors)
     }
 
     var niriEngine: NiriLayoutEngine? {
@@ -473,9 +477,7 @@ extension WorkspaceManager {
     var spaceTopology: SpaceTopology {
         world.spaceTopology
     }
-}
 
-extension WorkspaceManager {
     func noteInvalidation(
         workspaceId: WorkspaceDescriptor.ID?,
         domains: InvalidationDomain,

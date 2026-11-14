@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import Dispatch
 import Foundation
@@ -41,13 +41,13 @@ final class WindowFocusDispatcherTests: XCTestCase {
         XCTAssertEqual(events, ["idle"])
 
         firstGate.signal()
-        await fulfillment(of: [afterSecond], timeout: 2)
+        await fulfillment(of: [afterSecond], timeout: failureBound)
 
         XCTAssertEqual(order.withLock { $0 }, [1, 2])
         XCTAssertEqual(events, ["idle", "after-2"])
 
         thirdGate.signal()
-        await fulfillment(of: [afterThird], timeout: 2)
+        await fulfillment(of: [afterThird], timeout: failureBound)
 
         XCTAssertEqual(order.withLock { $0 }, [1, 2, 3])
         XCTAssertEqual(events, ["idle", "after-2", "after-3"])

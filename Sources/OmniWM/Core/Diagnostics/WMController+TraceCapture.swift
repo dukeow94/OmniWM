@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import Foundation
@@ -237,6 +237,14 @@ extension WMController {
             performanceMetricsEnd: { [weak self] in
                 guard profile == .performance else { return }
                 performanceSnapshots.finalOwnerSnapshots = self?.endPerformanceMetricsCapture()
+            },
+            traceMetricsBegin: { [weak self] in
+                await self?.workspaceBarManager.shellHost?.beginTraceCapture()
+            },
+            traceMetricsEnd: { [weak self] in
+                ShellWidgetHost.sealTraceCapture()
+                await self?.workspaceBarManager.shellHost?.endTraceCapture()
+                await ShellWidgetHost.finishTraceRetirements()
             },
             automaticEvidenceProvider: { [weak self] in
                 await self?.automaticTraceEvidence() ?? "status=controller_unavailable"

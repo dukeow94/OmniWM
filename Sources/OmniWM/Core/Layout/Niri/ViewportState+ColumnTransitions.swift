@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import Foundation
@@ -16,6 +16,7 @@ extension ViewportState {
         scale: CGFloat = 2.0,
         viewFrame: CGRect? = nil
     ) {
+        preservesGestureOffset = false
         guard !columns.isEmpty else { return }
         let clampedIndex = newIndex.clamped(to: 0 ... (columns.count - 1))
 
@@ -57,6 +58,15 @@ extension ViewportState {
             viewFrame: viewFrame
         )
 
+        applyColumnTransition(targetOffset: targetOffset, motion: context.motion, animate: animate, scale: scale)
+    }
+
+    private mutating func applyColumnTransition(
+        targetOffset: CGFloat,
+        motion: MotionSnapshot,
+        animate: Bool,
+        scale: CGFloat
+    ) {
         let pixel: CGFloat = 1.0 / max(scale, 1.0)
         let toDiff = targetOffset - viewOffset
         if abs(toDiff) < pixel {
@@ -67,7 +77,7 @@ extension ViewportState {
         }
 
         if animate {
-            animateToOffset(targetOffset, motion: context.motion)
+            animateToOffset(targetOffset, motion: motion)
         } else {
             jumpOffset(to: targetOffset)
         }
@@ -88,6 +98,7 @@ extension ViewportState {
         scale: CGFloat = 2.0,
         viewFrame: CGRect? = nil
     ) {
+        preservesGestureOffset = false
         guard !containers.isEmpty, containerIndex >= 0, containerIndex < containers.count else { return }
 
         let sizeKeyPath = context.orientation.settledSpanKeyPath

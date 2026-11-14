@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import ApplicationServices
 @testable import OmniWM
@@ -41,10 +41,7 @@ final class WindowMinimizationTests: XCTestCase {
             XCTAssertFalse(plan.diff.frameChanges.contains { $0.token == minimized })
             XCTAssertFalse(plan.diff.restoreChanges.contains { $0.token == minimized })
             let visibleFrame = try XCTUnwrap(engine.findNode(for: survivor, in: workspaceId)?.frame)
-            XCTAssertTrue(visibleFrame.approximatelyEqual(
-                to: controller.borderSafeFillFrame(for: monitor),
-                tolerance: 1
-            ))
+            XCTAssertEqual(visibleFrame, controller.borderSafeFillFrame(for: monitor))
             XCTAssertEqual(engine.columns(in: workspaceId).map(\.id), columnIds)
             XCTAssertEqual(controller.resolveAndSetWorkspaceFocusToken(for: workspaceId), survivor)
             controller.workspaceManager.setWindowMinimized(false, token: minimized)

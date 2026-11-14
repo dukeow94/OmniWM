@@ -1,0 +1,312 @@
+---
+title: Effects and shaders
+description: Editable motion presets, Metal shaders, native glass bodies, shaped materials, masks, and explicit opening timing.
+sidebar:
+  order: 9
+---
+
+import LuauDeclaration from '../../../../components/docs/LuauDeclaration.astro';
+
+Use [shared element properties](/omnishell/reference/layout-styling/) for material and paint, and [input and motion](/omnishell/reference/input-motion/) for native transitions. The effects library is editable Luau and Metal source, rather than additional `ui` globals.
+
+## Shaders
+
+`ui.shader{ source = "glow.metal", values = { 1, 0.5 }, fps = 30 }` draws a Metal fragment shader from the widget's folder or a `shaders/` folder. The file defines one function:
+
+```cpp
+float4 shade(float2 uv, constant OmniShader& shader) {
+    float edge = smoothstep(0.0, 0.2, uv.y) * shader.progress;
+    return float4(shader.colors[omni_accent].rgb, edge);
+}
+```
+
+`uv` runs from 0 to 1 across the shader, top left first. `shader` holds:
+
+- `size` (points), `scale`, `time` (seconds, while `fps` is above 0), `values` (up to four numbers) and `colors` (the theme's roles, such as `omni_accent`);
+- `progress`, which runs from 0 to 1 as a popout opens and back to 0 as it closes;
+- `anchor`, the middle of the bar item that opened the popout, and `content`, the popout's content as x, y, width and height, both in points from the shader's top left;
+- `audio`, with `audio = true` on the shader: the 60 `spectrum` bars from 0 to 1, updated 30 times a second without re-rendering the widget. Such a shader draws at 30 fps unless `fps` says otherwise.
+
+With `fps` at 0, animations off or Low Power Mode, a shader draws once, with `progress` at its end value.
+
+A profile can also draw a shader behind the entire workspace bar, underneath all three widget lanes:
+
+```toml
+[barShader]
+source = "matrix-rain.metal"
+fps = 30
+values = [0.38, 1, 12, 1]
+```
+
+Put this table in the profile's `shell.toml`; in the user shell file, use `[profiles.matrix.barShader]`. The source is a `.metal` filename resolved through `shell/shaders/`, the selected profile's `shaders/`, then `default/shaders/`. `fps` accepts integers from 0 to 60, and `values` accepts up to four finite numbers. `enabled = false` disables the profile's bar shader. Matrix's four values are intensity, speed, character size in points, and bar glow (0–1). Sakura's are petal opacity, speed, petal size in points, and time offset; its popouts set these in `sakura/lib/style.luau`. The background follows bar opacity and yields to transparent or solid-black bar settings. It never intercepts clicks, and it pauses while hidden, locked or displays are asleep. Oversized bars keep their full logical bounds while lowering shader resolution to fit the existing 4096-pixel limit; widget text remains at display resolution. Failed shaders leave the ordinary bar fill visible and report their error in the shell log.
+
+`open` and `close` on a popout's root set how many seconds `progress` takes to run from 0 to 1 and back, for example `ui.stack{ open = 0.8, close = 0.4, ... }`. They are exact: they ignore the animation speed setting, still play with animations off, and keep the shader drawing while they run whatever its `fps`. Drawers use the `open` and `close` of each widget they show; without them a drawer's shaders follow its slide.
+
+Any element in a popout or drawer can take `enter`, the state it starts from as the popout opens: `opacity`, `scale` (around its centre), `dx` and `dy` (points), plus `from` and `to`, the part of the opening it moves in (0 to 1, by default all of it), and `curve`. Closing plays it backwards. Give rows different `from` values to bring them in one after another:
+
+```lua
+ui.text{ text = "Hello", enter = { opacity = 0, dy = -8, from = 0.5, to = 0.9, curve = "back" } }
+```
+
+A `curve` is `linear`, `easeIn`, `easeOut`, `easeInOut`, `back` (overshoots), one of Material 3's `standard`, `standardAccel`, `standardDecel`, `emphasized`, `emphasizedAccel` and `emphasizedDecel`, one of the expressive `fastSpatial`, `spatial`, `slowSpatial` (these overshoot), `fastEffects`, `effects` and `slowEffects`, or your own cubic Bézier as 4 numbers, or 6 numbers per segment ending each at `x, y`. `animate` takes the same names, with their Material durations (`spatial` is 0.5 s), or `{ duration = 0.3, curve = ... }`. When the root of a popout or drawer has `animate`, the panel morphs to its new size instead of jumping, for example between dashboard tabs. `enter = { dy = -400, curve = "spatial", stretch = 0.1 }` also squashes the element along its slide while it moves fast and springs it back, as Caelestia's panels do; `stretch` is how strongly (Caelestia uses 0.03 to 0.25). `rotate` turns an element by degrees around its centre; a text turned by 90 also takes the turned space in its row or column, for vertical titles on side bars. `loop = { rotate = { 0, 360, 20 }, dx = { -10, 10, 6 }, dy = ..., paused = not playing }` repeats each motion from `from` to `to` every `seconds`, without re-rendering the widget. `trail = true` on an element with `animate` moves its leading edge on time and its trailing edge 1.5 times slower, so a moving indicator stretches and catches up.
+
+`mask = true` turns a shader into the shape of the stack it sits in. The shader is not drawn; everything else in that stack (its material, fill, border and children) shows only where the shader's alpha is. That gives blurred material in any shape. Use one mask per stack, and for a shaped popout put the shaped material in a stack inside a `clear` root, because the popout's own panel background stays a rounded rectangle:
+
+```lua
+function popout(ctx)
+    return ui.stack{ material = "clear", open = 0.6,
+        ui.stack{ material = "regular",
+            ui.shader{ source = "blob.metal", mask = true, fps = 60 },
+            ui.column{ pad = 24, ui.text{ text = "Shaped glass" } } } }
+end
+```
+
+Until a mask shader draws its first frame its stack stays hidden; if it fails to compile, the stack shows unmasked.
+
+The element shader `fps` property is bounded to 0–120; profile-wide `[barShader].fps` is 0–60. Those are distinct contracts. `texture` accepts a qualified asset or contained image path; `source` names the Metal program, `values` supplies up to four parameters, and `audio = true` enables the native spectrum input.
+
+<LuauDeclaration name="ui.shader" />
+
+<LuauDeclaration name="ShaderProps" />
+
+## Native glass bodies
+
+`ui.glass` draws one native glass body from a union of `ui.shape` elements. It applies backdrop blur, tint, directional rim light and an outside shadow to that body. Use an ordinary stack to place text and controls above it:
+
+```lua
+function popout(ctx)
+    return ui.stack{ w = 360, h = 220, material = "clear",
+        ui.glass{ key = "body", blend = 26,
+            ui.shape{ key = "card", w = 280, h = 180, dx = -20, radius = 24 },
+            ui.shape{ key = "orb", shape = "ellipse", w = 64, h = 64, dx = 110 },
+        },
+        ui.column{ pad = 24,
+            ui.text{ text = "One joined glass body", size = 18 },
+        },
+    }
+end
+```
+
+A body accepts only direct `ui.shape` children, with at most 64 shapes. Shapes cannot have children, ordinary paint or input handlers of their own. Shapes can also animate on their own and follow tracks, as described below. Both constructors are always decorative; `decorative` is not a configurable property. Put interactive content in sibling elements or an enclosing ordinary container. A body cannot sit inside an `effect` subtree or contain an effect. Whole-body `animate`, `appear`, `exit`, opacity and transforms remain available through `GlassProps`.
+
+Shapes use the body's overlay layout. Omitted width and height fill the body; `align`, `dx` and `dy` place smaller shapes. `shape` is `"rect"` by default, `"ellipse"` for an ellipse, or `"frame"` for an outer rounded rectangle with an inset opening. `radius` belongs on the shape. A frame must be the first shape, and a body can contain only one frame. Frame `thickness` defaults to 8 points, must be positive and at most 256, and must leave a positive opening after layout.
+
+Inset frames and rounded outer edges are supported as base geometry. A large frame padded well past the body gets the full native rim, fillets and shadow: it needs `blend >= 8` and an outer rounded rectangle that still contains the whole body canvas after an inward inset of `2 * blend` points. Otherwise, as with a thin inset rounded ring or a lower blend, the whole body renders as frosted blur and tint with a clear opening and no native rim, fillets or shadow. Invalid resolved geometry is separate: it hides the whole body until valid geometry arrives, rather than filling the frame's opening with glass.
+
+The native union uses one blend width for the whole body. Independent per-shape blend widths are not supported. Backdrop blur covers the base shapes, including a frame's ring, rather than the extra fillets created by smoothing.
+
+| Glass property | Default and bounds |
+| --- | --- |
+| `blend` | 26 points; finite 0–256 |
+| `light` | `{ x = -1, y = 0 }`; both components required when supplied, each −1–1, and the vector must be nonzero |
+| `fill` | `"#3F47685C"`; explicit transparent color removes the tint |
+| `blurRadius` | 6 points; 0–64, with 0 removing blur |
+| `saturation` | 1, neutral; 0–3 |
+| `shadow` | `"#0B0E1114"`; explicit transparent color removes the shadow |
+| `shadowRadius` | 6 points; 0–64 |
+| `shadowOffset` | `{ x = 0, y = 1 }`; both components required when supplied, each −256–256 points |
+
+`ui.glass` is separate from `material = "glass"`. The material setting selects the system material for an ordinary element or panel with its usual rounded rectangular bounds. The glass constructor owns a compound native silhouette and accepts only the properties in `GlassProps`; it does not accept `material`, `radius`, `border`, `mask`, `effect` or handlers on the body itself.
+
+The native glass path uses private Core Animation capabilities and has been verified on macOS 27.2. Class availability alone does not guarantee that every required property or effect exists on another OS build. When the complete native capability is unavailable, valid base shapes fall back to blur plus tint, or tint alone if backdrop filtering is unavailable, without the native fillets, rim or shadow. Capability misses are recorded in OmniWM's private API capability diagnostics. This fallback does not promise an identical appearance on older or incomplete implementations.
+
+<LuauDeclaration name="ui.glass" />
+
+<LuauDeclaration name="GlassProps" />
+
+<LuauDeclaration name="ui.shape" />
+
+<LuauDeclaration name="ShapeProps" />
+
+### Shape track wire contract
+
+Rectangles, ellipses and frames can carry shape tracks. A shape under a [reveal stack](/omnishell/reference/input-motion/#reveal-and-element-morphs) can declare:
+
+```lua
+ui.shape {
+    key = "card-shape", w = 360, h = 240, radius = 26,
+    morph = {
+        anchor = { x = 1, y = 0.5 },
+        stops = {
+            { at = 0, scale = 0.05, w = 1, h = 1, round = 1 },
+            { at = 0.5, scale = 1, w = 0.93, h = 1, round = 1 },
+            { at = 1, scale = 1, w = 1, h = 1, round = 1 },
+        },
+        stretch = { gain = 0.02, max = 0.4, w = 1, h = -0.5 },
+    },
+}
+```
+
+Shape stops accept `at`, `scale`, `w`, `h`, `round`, `dx` and `dy`; frames also accept `thickness`. Size, radius and thickness are multipliers, defaulting to 1; offsets are points, defaulting to zero. Shape stops do not accept opacity. Use 2–16 stops with strictly increasing `at` values in −0.5–1.5. The optional anchor requires both components in 0–1 and defaults to the centre.
+
+`stretch` is a shape-only property, including when the supplied table is empty. Its optional `gain`, `max`, `w` and `h` fields each default to zero. For reveal velocity `v`, let `sigma = clamp(gain * v, 0, max)`. Stretch adds to the sampled width and height factors:
+
+```text
+width  = baseWidth  * (w(progress) + stretch.w * sigma)
+height = baseHeight * (h(progress) + stretch.h * sigma)
+```
+
+The shared scale is applied about the anchor. The stretched shape is then resized about its centre, so a nonzero stretch can move its edge past the unstretched anchor. `round` scales the base corner radius, clamped to the resulting shape's half-size. An ordinary element or the whole `ui.glass` uses the element/group `Morph` contract (`at`, `scale`, `opacity`, `dx`, `dy`) instead; it cannot declare shape stretch. Ordinary morphs require a reveal ancestor. A shape can instead declare its own `reveal`, `edges`, `source` or `trigger`. Morph cannot share an element with ordinary `appear` or `exit`. `morph` and `reveal` are rejected on `ui.component` mounts; declare them on the component view's returned visible elements.
+
+`ui.shape` also accepts `animate`, `rotate` (rectangles and ellipses only; frames reject it), `follow`, `followRadius`, `hit` and shape-specific `reveal`. Shape reveal takes the normal spring plus `delay` and `hold` (0–2 seconds, default zero) and `exit` (default true). Group reveal still accepts only its spring. `follow` names a keyed manipulation-follow target anywhere in the final expanded tree; the shape is then drawn and hit-tested at that target's presented position and scale. `followRadius` is `"scaled"` by default; `"fixed"` keeps the corner radius in body units while the shape scales. `hit = false` leaves the shape out of glass input coverage and island regions; it does not add handlers to decorative shapes.
+
+A shape with its own `reveal` runs from progress 0 to 1 after `delay`. On removal, it holds its current progress and velocity for `hold`, then closes toward 0; `exit = false` removes it immediately. A keyed reinsertion resumes the retained state without repeating the entry delay. Independent shape clocks take precedence over an ancestor reveal. Ordinary sibling content and shape tracks inserted together share the commit clock.
+
+Shape stops also accept `dx`, `dy` in body-space points and a `thickness` multiplier for frame insets; the shared scale also scales the inset. Rotation and non-uniform ellipse scale are composed with the sampled geometry. Moving a shape with `edges` springs its leading and trailing edges independently along the longer axis, with the leading edge chosen by the direction of movement. Retargeting carries the presented edge velocities.
+
+An impulse starts at each qualifying progress crossing, including overshoot recrossings, or at its `after` time from the commit. `on = "close"` prevents a closing impulse from firing during an opening reversal that briefly keeps moving inward. Active impulses carry their displacement and speed when a track is interrupted. A triggered shape waits at progress 0 until its source reaches the declared crossing; chained triggers use the shifted source clock. Removing a body, hiding the surface or disabling animations finishes the associated transient state. Frame bodies keep the one-frame invariant during replacement: a newly keyed frame ends an outgoing frame immediately; other outgoing shapes finish their own exits.
+
+Additional shape morph fields are:
+
+- `impulses`: up to eight entries with exactly one of `at` (−0.5–1.5) and `after` (0–30 seconds), a required `spring`, optional `rising` (true), `on` (`"open"` or `"close"`; omitted means both directions), `velocity`, `w`, `h` (zero), and `pivot` (`"anchor"` or `"centre"`, default anchor).
+- `edges`: required `lead` and `trail` springs and positive `unit`; optional `thin` is 0–1. Edges replace explicit stops, so the two cannot be combined.
+- `source`: a keyed move or scale target, `edge` (`"top"`, `"left"`, `"right"`, `"bottom"`), positive `span`, optional `from` (zero), optional `pads` with point-valued `left`, `right`, `top`, `bottom`, and optional `adhere` mapping extra attaching sides to their own `from` values. The source edge cannot also appear in `adhere`; every side shares `span`. Optional `contact = true` translates a decorative source along the edge’s tangent with its target; it cannot be combined with `pads`.
+- `trigger`: a shape key, threshold `at` (−0.5–1.5), optional `rising` (true), and optional `contact` (false). A contact trigger requires a source with `source.contact = true`; each pulse keeps the tangent position captured at its crossing while the target moves on. `{ beat = true }` instead replays the morph on each bass beat; see [audio-reactive glass shapes](/omnishell/reference/audio-reactive-shapes/).
+
+Target and shape references must resolve in the final expanded tree, including component views. Unresolved or wrong-kind references reject publication. Morph recipes are capped at 1536 bytes including their extensions.
+
+A `source` uses the target's spring-presented rectangle. Its progress is `clamp((gap - from) / span, 0, 1)`, where `gap` measures from the chosen target edge to that side of the glass body's frame. This source progress drives the morph stops, impulses and triggers. With `pads`, the source edge interpolates from its authored attachment to the presented target edge plus its pad multiplied by the target scale. Each side named in `adhere` does the same using its own side's gap and `from`. Every other side follows its presented target edge plus its scaled pad directly. Attachments themselves are never scaled. Bound hit coverage uses this same projected geometry. Moving targets reserve their trajectory while exact hit testing uses the current shape. For a contact source, left/right edges translate along y and top/bottom edges along x; the normal-axis position stays authored, and the source progress still drives its stops. A source-driven shape cannot also declare `follow` or `trigger`, and cannot bind a target with a resize handle; use move or proportional scale handles.
+
+Source impulses and triggered shapes are planned at every matching analytic crossing, including spring overshoot and recrossing, without calling Luau on animation frames. A retarget or changed trigger declaration replaces obsolete future events while preserving an active pulse. On removal, a retained source or active pulse keeps its geometry owner until the retained exit deadline; a second reveal geometry track is not layered over it. Use `hit = false` for decorative necks, bulges, crests and drops.
+
+
+`ui.glass` accepts `rim` (0–1, default 0.1). With `backdrop = false`, it draws a flat body with tint or gradient, rim and shadow, without backdrop blur. A flat body cannot also declare `blurRadius` or `saturation`.
+
+`gradient = { from = Color, to = Color, angle = 90 }` accepts palette roles or colours for its two endpoints. The angle is in degrees: 0 runs left to right, 90 runs top to bottom, and diagonals run corner to corner. A gradient replaces the tint and backdrop blur and spans the body box.
+
+<LuauDeclaration name="ShapeReveal" />
+
+<LuauDeclaration name="ShapeImpulse" />
+
+<LuauDeclaration name="ShapeEdges" />
+
+<LuauDeclaration name="ShapeSource" />
+
+<LuauDeclaration name="ShapeTrigger" />
+
+<LuauDeclaration name="ShapeMorphStop" />
+
+<LuauDeclaration name="ShapeStretch" />
+
+<LuauDeclaration name="ShapeMorph" />
+
+## Editable effects library
+
+Add `effects-lab` to a bar lane in `shell.toml` to try the bundled motion, light and mask presets. The gallery is opt-in and works with every profile. Its **Glass / Frosted** button changes the panel material; the light and mask previews also use a blurred material behind their content. **Hide / Show** plays element transitions, **Move** retargets the trailing indicator, **Freeze / Animate** selects a static or animated shader, and the mask slider scrubs the reveal. Stretch also plays when the panel opens. Freeze draws the shader at time zero; it does not hold its last animated frame.
+
+The editable files are installed under `~/.config/omniwm/shell/default/`:
+
+- `lib/effects.luau` contains the recipes and defaults.
+- `shaders/effects-*.metal` contains the visual effects and reveal masks.
+- `widgets/effects-lab/init.luau` is the complete gallery example.
+
+From a widget's `init.luau`, load the library with `require("../lib/effects")`. User `shell/lib/` and `shell/shaders/` files override the selected profile, which overrides `default/`. Use `omniwmctl shell eject lib/effects.luau` to create a persistent library override. To customize a shader, copy it into `shell/shaders/` with the same filename. To customize the gallery, use `omniwmctl shell eject effects-lab`.
+
+`effects.motion(name, props)` returns element properties. Preset tables are copied, caller properties win, and your supplied properties are not modified. Nested properties such as `animate`, `appear` and `exit` replace the preset's corresponding table as a whole.
+
+| Motion | Behavior |
+| --- | --- |
+| `fade` | Short ease-out opacity transition |
+| `slide` | Spring movement and fade on insertion/removal |
+| `pop` | Scale from half size, settle with a small bounce, shrink on removal |
+| `spring` | Softer, more pronounced spring |
+| `stretch` | Spatial entrance with native stretch; insertion/removal slides |
+| `indicator` | Spring retargeting with a trailing edge |
+
+```lua
+local effects = require("../lib/effects")
+
+function render(ctx)
+    return ui.box(effects.motion("pop", {
+        key = "status", pad = 8, radius = 10, fill = "surface",
+        pressScale = 0.95,
+        ui.text{ text = "Ready" },
+    }))
+end
+```
+
+Keep the same key when moving or resizing an element. `appear` and `exit` run when an element is inserted or removed; changing its key requests a new identity. Ordinary motion runs in Core Animation, without a Luau update for every frame.
+
+`effects.shader(name, props)` and `effects.mask(name, props)` return `ui.shader` elements. Properties such as `w`, `h`, `key`, `fps` and `values` override their defaults. Omit size to fill the parent stack. Supply all four `values` when overriding them:
+
+| Helper / name | Four values, in order | Default fps |
+| --- | --- | --- |
+| `shader("aurora")` | strength `0.7`, speed `1`, unused `0`, unused `0` | 30 |
+| `shader("sheen")` | strength `0.3`, pattern frequency `1`, unused `0`, unused `0` | 0 |
+| `shader("glow")` | corner radius `16`, inward reach `18`, strength `0.65`, falloff power `2` | 0 |
+| `shader("ring")` | corner radius `16`, stroke width `2`, angle in degrees `45`, opacity `1` | 0 |
+| `shader("rotating-border")` | corner radius `16`, stroke width `3`, degrees per second `90`, opacity `1` | 30 |
+| `shader("pixelate")` | maximum block size `48`, unused `0`, unused `0`, progress `-1` | 0 |
+| `shader("genie")` | horizontal anchor `0.5`, top anchor `0` (bottom; `1` for top), unused `0`, progress `-1` | 0 |
+| `mask("burn")` | noise size `26`, feather `0.015`, edge overlay `0`, progress `-1` | 0 |
+| `mask("smoke")` | cloud size `60`, softness `0.14`, haze overlay `0`, progress `-1` | 0 |
+| `mask("circle")` | origin x `0.5`, origin y `0.5`, feather `1`, progress `-1` | 0 |
+| `mask("wipe")` | direction x `1`, direction y `0`, feather `1`, progress `-1` | 0 |
+| `mask("dissolve")` | cell size `8`, softness `1`, seed `0`, progress `-1` | 0 |
+
+Lengths are in points, circle origins are fractions of the element size, and strength/opacity/softness range from 0 to 1. A wipe direction of `0, 1` reveals downward; `-1, 0` reveals from the right. Reveal presets use `shader.progress` when the fourth value is `-1`, an explicit 0–1 reveal otherwise, or `-2` with `fps = 30` for a three-second repeating preview. Dissolve is deterministic for the same size, seed and progress. All masks fully hide at 0 and fully reveal at 1.
+
+The **Light** tab includes a rotating gradient border. **Masks** includes burn and smoke; their paired `effects.shader("burn")` / `effects.shader("smoke")` presets use the same parameters with the third value set to `1` to draw the ember edge or haze over the masked content. The **Texture** tab demonstrates actual image pixelation and genie deformation. **Play preview** animates on the native shader clock; moving the progress slider returns to manual scrubbing.
+
+The **Blur** tab adjusts the existing native backdrop with `blurRadius = 0…64` points and `saturation = 0…3`; omitted values retain the material's radius and saturation `1.8`. Zero radius removes blur, and saturation `1` is neutral. Use `fill` for tint and opacity. These properties apply to layer materials such as `regular`; they do not change root `glass` or `popover` system materials. The Lab uses a clear panel and an image behind the controlled material so you can compare the full range.
+
+```lua
+ui.stack{ material = "regular", blurRadius = 28, saturation = 1.2,
+    fill = "surface/0.15", radius = 16, w = 320, h = 180,
+    ui.text{ text = "Adjustable native blur" },
+}
+```
+
+A texture shader accepts `texture = omniwm.asset("@self/card.png")` or a contained image path using the same lookup as `ui.image`. It samples the first image frame, stretched into the shader bounds. The image uploads once when its decoded identity changes; normal shader frames only sample that texture. Missing images render transparently. This operates on the supplied image, not a live subtree or another application's window. Keep live blur/glass on the surrounding stack.
+
+```lua
+local effects = require("../lib/effects")
+local card = omniwm.asset("@self/card.png")
+
+function popout(ctx)
+    return ui.stack{ w = 360, h = 180, material = "glass", open = 0.65, close = 0.35,
+        effects.shader("genie", { texture = card }),
+    }
+end
+```
+
+Custom texture shaders declare `#define OMNI_TEXTURE` and use `float4 shade(float2 uv, constant OmniShader& shader, texture2d<float> image)`. `omni_sample(image, uv)` returns straight RGBA with safe premultiplied filtering; return that color directly. Coordinates outside 0–1 are transparent; edge texels stay opaque when enlarged. Existing two-argument shaders keep their usual signature. `omni_progress(shader)` implements the reveal convention above, and `omni_noise(point)` provides smooth deterministic value noise. The editable sample texture is `widgets/effects-lab/sample.png`.
+
+This example combines a circular reveal, blurred material, aurora and real text. Explicit root `open`/`close` timing drives the mask while its `fps = 0` leaves it idle after the transition. As with other explicit shader timing, it still plays with ordinary animations disabled.
+
+```lua
+local effects = require("../lib/effects")
+
+function render(ctx)
+    return ui.box{ popout = true, pad = 6, ui.text{ text = "Reveal" } }
+end
+
+function popout(ctx)
+    return ui.stack{ material = "clear", open = 0.55, close = 0.25,
+        ui.stack{ w = 320, h = 180, radius = 16, material = "regular", center = true,
+            effects.mask("circle"),
+            effects.shader("aurora"),
+            ui.text{ text = "A softer arrival", size = 20, weight = "semibold" },
+        },
+    }
+end
+```
+
+For native Liquid Glass, set the popout root to `material = "glass"` and add a ring or sheen:
+
+```lua
+local effects = require("../lib/effects")
+
+function render(ctx)
+    return ui.box{ popout = true, pad = 6, ui.text{ text = "Glass" } }
+end
+
+function popout(ctx)
+    return ui.stack{ w = 320, h = 180, radius = 16, material = "glass", center = true,
+        effects.shader("ring", { values = { 16, 2, 45, 0.8 } }),
+        ui.text{ text = "Glass with a little color", size = 18 },
+    }
+end
+```
+
+The library draws procedural color and alpha. Aurora and sheen are decorative adaptations; they do not refract the desktop. Masks shape their parent, including its material and children, but do not distort the children's pixels. The system `material = "glass"` panel remains rectangular with rounded corners. Use a `clear` root with a masked inner material for shader-defined panels, or a [native glass body](#native-glass-bodies) for joined rect, ellipse and frame shapes. Existing shader visibility, Low Power Mode and GPU-budget controls apply to shaders. No screen capture or additional provider is needed for these effects.

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import CoreGraphics
 @testable import OmniWM
@@ -100,8 +100,8 @@ final class NiriPortraitSizingTests: NiriInteractionTestCase {
             try XCTUnwrap(framesAfter[fixture.second.token]).width,
             secondBefore.width
         )
-        XCTAssertEqual(fixture.column.cachedWidth, 0, accuracy: 0.001)
-        XCTAssertEqual(fixture.state.viewOffset, -120, accuracy: 0.001)
+        XCTAssertEqual(fixture.column.cachedWidth, 0)
+        XCTAssertEqual(fixture.state.viewOffset, -120)
     }
 
     func testPortraitBottomResizeChangesRenderedRowHeightAndRebasesViewport() throws {
@@ -139,9 +139,9 @@ final class NiriPortraitSizingTests: NiriInteractionTestCase {
             portraitLayout(engine, in: workspaceId, state: state)[first.token]
         )
         XCTAssertEqual(column.height, .fixed(frameBefore.height - 200))
-        XCTAssertEqual(column.cachedHeight, frameBefore.height - 200, accuracy: 0.001)
-        XCTAssertEqual(frameAfter.height, frameBefore.height - 200, accuracy: 0.001)
-        XCTAssertEqual(state.viewOffset, -120, accuracy: 0.001)
+        XCTAssertEqual(column.cachedHeight, frameBefore.height - 200)
+        XCTAssertEqual(frameAfter.height, frameBefore.height - 200)
+        XCTAssertEqual(state.viewOffset, -120)
         engine.interactiveResizeEnd(
             motion: .disabled,
             state: &state,
@@ -174,8 +174,8 @@ final class NiriPortraitSizingTests: NiriInteractionTestCase {
         var frame = try XCTUnwrap(
             portraitLayout(engine, in: workspaceId, state: state)[window.token]
         )
-        XCTAssertEqual(frame.height, 800, accuracy: 0.001)
-        XCTAssertEqual(frame.midY, portraitFrame.midY, accuracy: 0.001)
+        XCTAssertEqual(frame.height, 800)
+        XCTAssertEqual(frame.midY, portraitFrame.midY)
 
         engine.toggleContainerFullPrimarySpan(
             column,
@@ -190,8 +190,7 @@ final class NiriPortraitSizingTests: NiriInteractionTestCase {
         )
         XCTAssertEqual(
             try XCTUnwrap(portraitLayout(engine, in: workspaceId, state: state)[window.token]).height,
-            1600,
-            accuracy: 0.001
+            1600
         )
         engine.toggleContainerFullPrimarySpan(
             column,
@@ -229,8 +228,8 @@ final class NiriPortraitSizingTests: NiriInteractionTestCase {
         let resizedFrame = try XCTUnwrap(
             portraitLayout(engine, in: workspaceId, state: state)[window.token]
         )
-        XCTAssertEqual(resizedFrame.height, 700, accuracy: 0.001)
-        XCTAssertEqual(resizedFrame.midY, portraitFrame.midY, accuracy: 0.001)
+        XCTAssertEqual(resizedFrame.height, 700)
+        XCTAssertEqual(resizedFrame.midY, portraitFrame.midY)
     }
 
     func testPortraitSingleWindowExplicitFullProportionOverridesFitAndBalanceRestoresFit() throws {
@@ -257,8 +256,7 @@ final class NiriPortraitSizingTests: NiriInteractionTestCase {
         XCTAssertTrue(column.hasManualSingleWindowHeightOverride)
         XCTAssertEqual(
             try XCTUnwrap(portraitLayout(engine, in: workspaceId, state: state)[window.token]).height,
-            portraitFrame.height,
-            accuracy: 0.001
+            portraitFrame.height
         )
 
         XCTAssertTrue(
@@ -275,8 +273,8 @@ final class NiriPortraitSizingTests: NiriInteractionTestCase {
         )
 
         XCTAssertFalse(column.hasManualSingleWindowHeightOverride)
-        XCTAssertEqual(balancedFrame.width, 600, accuracy: 0.001)
-        XCTAssertEqual(balancedFrame.height, 1000, accuracy: 0.001)
+        XCTAssertEqual(balancedFrame.width, 600)
+        XCTAssertEqual(balancedFrame.height, 1000)
     }
 
     func testPortraitSingleWindowPresetWidthResolvesOnceAndUsesAxisSpecificGaps() throws {
@@ -296,10 +294,10 @@ final class NiriPortraitSizingTests: NiriInteractionTestCase {
             )[window.token]
         )
 
-        XCTAssertEqual(frame.width, 420, accuracy: 0.001)
-        XCTAssertEqual(frame.height, 740, accuracy: 0.001)
-        XCTAssertEqual(frame.midX, portraitFrame.midX, accuracy: 0.001)
-        XCTAssertEqual(frame.midY, portraitFrame.midY, accuracy: 0.001)
+        XCTAssertEqual(frame.width, 420)
+        XCTAssertEqual(frame.height, 740)
+        XCTAssertEqual(frame.midX, portraitFrame.midX)
+        XCTAssertEqual(frame.midY, portraitFrame.midY)
     }
 
     func testPortraitSingleWindowResizeKeepsFixedPixelBaselineAfterTopologyChange() throws {
@@ -357,8 +355,7 @@ final class NiriPortraitSizingTests: NiriInteractionTestCase {
         )
         XCTAssertEqual(
             try XCTUnwrap(portraitLayout(engine, in: workspaceId, state: state)[first.token]).height,
-            800,
-            accuracy: 0.001
+            800
         )
         XCTAssertEqual(column.width, horizontalWidth)
 
@@ -376,8 +373,7 @@ final class NiriPortraitSizingTests: NiriInteractionTestCase {
         )
         XCTAssertEqual(
             try XCTUnwrap(portraitLayout(engine, in: workspaceId, state: state)[first.token]).height,
-            1200,
-            accuracy: 0.001
+            1200
         )
 
         engine.toggleContainerFullPrimarySpan(
@@ -394,8 +390,7 @@ final class NiriPortraitSizingTests: NiriInteractionTestCase {
         XCTAssertTrue(column.isFullHeight)
         XCTAssertEqual(
             try XCTUnwrap(portraitLayout(engine, in: workspaceId, state: state)[first.token]).height,
-            1600,
-            accuracy: 0.001
+            1600
         )
 
         engine.toggleContainerFullPrimarySpan(
@@ -423,8 +418,7 @@ final class NiriPortraitSizingTests: NiriInteractionTestCase {
         XCTAssertTrue(column.isFullHeight)
         XCTAssertEqual(
             try XCTUnwrap(portraitLayout(engine, in: workspaceId, state: state)[first.token]).height,
-            1600,
-            accuracy: 0.001
+            1600
         )
 
         engine.toggleContainerPrimarySpan(
@@ -442,8 +436,7 @@ final class NiriPortraitSizingTests: NiriInteractionTestCase {
         XCTAssertFalse(column.isFullHeight)
         XCTAssertEqual(
             try XCTUnwrap(portraitLayout(engine, in: workspaceId, state: state)[first.token]).height,
-            400,
-            accuracy: 0.001
+            400
         )
 
         engine.toggleWindowPrimarySpan(
@@ -460,8 +453,7 @@ final class NiriPortraitSizingTests: NiriInteractionTestCase {
         )
         XCTAssertEqual(
             try XCTUnwrap(portraitLayout(engine, in: workspaceId, state: state)[first.token]).height,
-            800,
-            accuracy: 0.001
+            800
         )
     }
 
@@ -497,8 +489,7 @@ final class NiriPortraitSizingTests: NiriInteractionTestCase {
                     state: fixture.state
                 )[fixture.first.token]
             ).width,
-            300,
-            accuracy: 0.001
+            300
         )
 
         fixture.engine.toggleWindowSecondarySpan(
@@ -519,8 +510,7 @@ final class NiriPortraitSizingTests: NiriInteractionTestCase {
                     state: fixture.state
                 )[fixture.first.token]
             ).width,
-            450,
-            accuracy: 0.001
+            450
         )
         XCTAssertEqual(fixture.first.height, horizontalHeight)
 
@@ -537,8 +527,7 @@ final class NiriPortraitSizingTests: NiriInteractionTestCase {
                     state: fixture.state
                 )[fixture.first.token]
             ).width,
-            450,
-            accuracy: 0.001
+            450
         )
     }
 
@@ -567,11 +556,84 @@ final class NiriPortraitSizingTests: NiriInteractionTestCase {
             in: fixture.workspaceId,
             state: fixture.state
         )
-        XCTAssertEqual(try XCTUnwrap(frames[fixture.first.token]).height, 800, accuracy: 0.001)
-        XCTAssertEqual(try XCTUnwrap(frames[fixture.first.token]).width, 450, accuracy: 0.001)
-        XCTAssertEqual(try XCTUnwrap(frames[fixture.second.token]).width, 450, accuracy: 0.001)
+        XCTAssertEqual(try XCTUnwrap(frames[fixture.first.token]).height, 800)
+        XCTAssertEqual(try XCTUnwrap(frames[fixture.first.token]).width, 450)
+        XCTAssertEqual(try XCTUnwrap(frames[fixture.second.token]).width, 450)
         XCTAssertEqual(fixture.column.width, .fixed(700))
         XCTAssertEqual(fixture.column.height, .proportion(0.5))
         XCTAssertEqual(fixture.first.height, .fixed(250))
+    }
+
+    func testPortraitPresetHeightSpringsFromTheRenderedHeightToThePreset() throws {
+        let preset: CGFloat = 0.25
+        let fixture = try makeTwoWindowRow()
+        fixture.engine.presetContainerPrimarySpans = [.proportion(preset)]
+        fixture.engine.animationClock = AnimationClock()
+        var state = fixture.state
+        let renderedHeight = try XCTUnwrap(
+            portraitLayout(fixture.engine, in: fixture.workspaceId, state: state)[fixture.first.token]
+        ).height
+
+        fixture.engine.toggleContainerPrimarySpan(
+            fixture.column,
+            forwards: true,
+            context: .init(
+                workspaceId: fixture.workspaceId,
+                motion: .enabled,
+                workingFrame: portraitFrame,
+                gaps: 0,
+                orientation: .vertical
+            ),
+            state: &state
+        )
+
+        let presetHeight = portraitFrame.height * preset
+        XCTAssertNotEqual(renderedHeight, presetHeight)
+        XCTAssertEqual(fixture.column.cachedHeight, renderedHeight)
+        XCTAssertEqual(try XCTUnwrap(fixture.column.targetHeight), presetHeight)
+        XCTAssertEqual(fixture.column.settledHeight, presetHeight)
+        XCTAssertTrue(fixture.engine.hasAnyColumnAnimationsRunning(in: fixture.workspaceId))
+        XCTAssertEqual(
+            fixture.column.currentHeightForSizing(workingAreaHeight: portraitFrame.height, gaps: 0),
+            presetHeight
+        )
+
+        XCTAssertFalse(fixture.engine.tickAllColumnAnimations(in: fixture.workspaceId, at: .infinity))
+        XCTAssertEqual(fixture.column.cachedHeight, presetHeight)
+        XCTAssertNil(fixture.column.heightAnimation)
+        XCTAssertNil(fixture.column.targetHeight)
+        XCTAssertEqual(
+            try XCTUnwrap(
+                portraitLayout(fixture.engine, in: fixture.workspaceId, state: state)[fixture.first.token]
+            ).height,
+            presetHeight
+        )
+    }
+
+    func testPortraitPresetHeightRetargetKeepsTheRunningSpring() throws {
+        let presets: [CGFloat] = [0.25, 0.75]
+        let fixture = try makeTwoWindowRow()
+        fixture.engine.presetContainerPrimarySpans = presets.map { .proportion($0) }
+        fixture.engine.animationClock = AnimationClock()
+        var state = fixture.state
+        _ = portraitLayout(fixture.engine, in: fixture.workspaceId, state: state)
+        let context = NiriInteractionContext(
+            workspaceId: fixture.workspaceId,
+            motion: .enabled,
+            workingFrame: portraitFrame,
+            gaps: 0,
+            orientation: .vertical
+        )
+
+        fixture.engine.toggleContainerPrimarySpan(fixture.column, forwards: true, context: context, state: &state)
+        let firstTarget = try XCTUnwrap(fixture.column.targetHeight)
+        let spring = try XCTUnwrap(fixture.column.heightAnimation)
+        fixture.engine.toggleContainerPrimarySpan(fixture.column, forwards: true, context: context, state: &state)
+
+        XCTAssertEqual(firstTarget, portraitFrame.height * presets[0])
+        XCTAssertEqual(try XCTUnwrap(fixture.column.targetHeight), portraitFrame.height * presets[1])
+        XCTAssertEqual(try XCTUnwrap(fixture.column.heightAnimation).from, spring.from)
+        XCTAssertFalse(fixture.engine.tickAllColumnAnimations(in: fixture.workspaceId, at: .infinity))
+        XCTAssertEqual(fixture.column.cachedHeight, portraitFrame.height * presets[1])
     }
 }

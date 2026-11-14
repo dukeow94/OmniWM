@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import Foundation
@@ -114,6 +114,17 @@ extension IPCColumnViewport {
     }
 }
 
+extension IPCColumnDisplayMode {
+    init(displayMode: ColumnDisplay) {
+        switch displayMode {
+        case .normal:
+            self = .normal
+        case .tabbed:
+            self = .tabbed
+        }
+    }
+}
+
 extension IPCWorkspaceLayout {
     init(layout: LayoutType) {
         switch layout {
@@ -161,6 +172,8 @@ extension IPCResult {
             self.init(subscriptions: queryRouter.subscriptionsResult())
         case .capabilities:
             self.init(capabilities: queryRouter.capabilitiesResult())
+        case .shellWidgets:
+            self.init(shellWidgets: queryRouter.shellWidgetsResult())
         }
     }
 
@@ -181,6 +194,8 @@ extension IPCResult {
             self.init(displays: queryRouter.displaysResult(IPCQueryRequest(name: .displays)))
         case .layoutChanged:
             self.init(workspaces: queryRouter.workspacesResult(IPCQueryRequest(name: .workspaces)))
+        case .shellWidgets:
+            self.init(shellWidgets: queryRouter.shellWidgetsResult())
         }
     }
 }

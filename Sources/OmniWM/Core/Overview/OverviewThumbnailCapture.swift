@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import CoreGraphics
 import Foundation
@@ -21,6 +21,7 @@ final class OverviewThumbnailCapture {
         let id: UInt64
         let generation: UInt64
         let request: OverviewPreviewRequest
+        var stopsAfterFirstFrame = false
         let requestedAt = CACurrentMediaTime()
         var status = Status.queued
         var published = false
@@ -42,6 +43,8 @@ final class OverviewThumbnailCapture {
         let capturedAt: UInt64
     }
 
+    private static let startTimeout: Duration = .seconds(3)
+
     private let consumer: OverviewFrameTrace.PreviewConsumer
     private let cacheId: UInt64
     private let traceRecorder: OverviewFrameTrace.Recorder
@@ -49,6 +52,7 @@ final class OverviewThumbnailCapture {
     private let adoptsProvisionalPreviews: Bool
     private let hasCaptureAccess: @MainActor () -> Bool
     private let streamFactory: StreamFactory?
+    private let sleep: @MainActor (Duration) async throws -> Void
     private var generation: UInt64 = 1
     private var nextSourceId: UInt64 = 0
     private var sources: [ObjectIdentifier: Source] = [:]
@@ -69,6 +73,7 @@ final class OverviewThumbnailCapture {
         hasCaptureAccess: @escaping @MainActor () -> Bool = { ScreenCapturePermissionMonitor.shared.isGranted },
         adoptsProvisionalPreviews: Bool = true,
         maximumRetainedBytes: Int = 128 * 1_024 * 1_024,
+        sleep: @escaping @MainActor (Duration) async throws -> Void = { try await Task.sleep(for: $0) },
         streamFactory: StreamFactory? = nil
     ) {
         Self.nextCacheId &+= 1
@@ -80,6 +85,7 @@ final class OverviewThumbnailCapture {
         self.hasCaptureAccess = hasCaptureAccess
         self.maximumRetainedBytes = max(0, maximumRetainedBytes)
         self.streamFactory = streamFactory
+        self.sleep = sleep
         coordinator.register(self)
     }
 
@@ -96,7 +102,8 @@ final class OverviewThumbnailCapture {
         visible: [OverviewPreviewRequest],
         prioritizing selectedHandle: WindowHandle? = nil,
         retainingUnrepresentedPreviews: Bool = false,
-        firstFrameOnly: Bool = false
+        firstFrameOnly: Bool = false,
+        firstFrameHandles: Set<WindowHandle> = []
     ) {
         isPresenting = true
         stopsAfterFirstFrame = firstFrameOnly
@@ -109,14 +116,11 @@ final class OverviewThumbnailCapture {
             removeCachedPreview(for: handle, reason: reason)
             onPreview(handle, nil)
         }
-        var requests = collectRequests(represented: represented, visible: visible, selectedHandle: selectedHandle)
-        adoptSharedPreviews(for: &requests, droppingSatisfied: firstFrameOnly)
-        for (key, source) in sources where requests[key]?.token != source.request.token
-            || (!firstFrameOnly && source.status == .completed)
-        {
-            retire(source)
-            sources.removeValue(forKey: key)
-        }
+        var requests = OverviewThumbnailSizing.collectRequests(
+            represented: represented, visible: visible, selectedHandle: selectedHandle, sourceOrder: &sourceOrder
+        )
+        adoptSharedPreviews(for: &requests) { firstFrameOnly || firstFrameHandles.contains($0) }
+        retireStaleSources(for: requests, firstFrameOnly: firstFrameOnly, firstFrameHandles: firstFrameHandles)
         guard !requests.isEmpty, hasCaptureAccess() else {
             for source in sources.values { retire(source) }
             sources.removeAll()
@@ -128,6 +132,7 @@ final class OverviewThumbnailCapture {
             guard sources[key] == nil, let request = requests[key] else { continue }
             nextSourceId &+= 1
             let source = Source(id: nextSourceId, generation: generation, request: request)
+            source.stopsAfterFirstFrame = firstFrameOnly || firstFrameHandles.contains(request.handle)
             sources[key] = source
             trace(.previewRequested, source: source)
             added = true
@@ -142,6 +147,23 @@ final class OverviewThumbnailCapture {
         if added { onCaptureStarted() }
         startQueuedSources()
         onReadinessChange()
+    }
+
+    private func retireStaleSources(
+        for requests: [ObjectIdentifier: OverviewPreviewRequest],
+        firstFrameOnly: Bool,
+        firstFrameHandles: Set<WindowHandle>
+    ) {
+        for (key, source) in sources {
+            let request = requests[key]
+            let live = request.map { !firstFrameOnly && !firstFrameHandles.contains($0.handle) } ?? false
+            guard let request, request.token == source.request.token, !(live && source.status == .completed) else {
+                retire(source)
+                sources.removeValue(forKey: key)
+                continue
+            }
+            if firstFrameOnly || live { source.stopsAfterFirstFrame = !live }
+        }
     }
 
     func remove(handle: WindowHandle) {
@@ -197,8 +219,10 @@ final class OverviewThumbnailCapture {
                     try Task.checkCancellation()
                     source.control = control
                     try await control.start()
+                    guard starts[sourceId] != nil else { return }
                     finishStarting(source, failed: false)
                 } catch {
+                    guard starts[sourceId] != nil else { return }
                     if !(error is CancellationError) {
                         ScreenCapturePermissionMonitor.shared.noteCaptureFailure(error)
                         FallbackFiringRecorder.shared.note(.capture, "overviewStreamStartException")
@@ -206,7 +230,23 @@ final class OverviewThumbnailCapture {
                     finishStarting(source, failed: true)
                 }
             }
+            Task { @MainActor [weak self, sleep] in
+                do {
+                    try await sleep(Self.startTimeout)
+                } catch {
+                    return
+                }
+                self?.expireStart(of: source, key: key)
+            }
         }
+    }
+
+    private func expireStart(of source: Source, key: ObjectIdentifier) {
+        guard let start = starts[source.id] else { return }
+        start.cancel()
+        FallbackFiringRecorder.shared.note(.capture, "overviewStreamStartTimeout")
+        finishStarting(source, failed: true)
+        if sources[key] === source { sources.removeValue(forKey: key) }
     }
 
     private func finishStarting(_ source: Source, failed: Bool) {
@@ -250,7 +290,7 @@ final class OverviewThumbnailCapture {
     }
 
     private func completeFirstFrame(_ source: Source) {
-        guard stopsAfterFirstFrame, source.published, source.status != .completed else { return }
+        guard source.stopsAfterFirstFrame, source.published, source.status != .completed else { return }
         retire(source)
         source.status = .completed
     }
@@ -259,7 +299,7 @@ final class OverviewThumbnailCapture {
         guard let source = sources[key], source.id == sourceId, isCurrent(source) else { return }
         source.output?.invalidate()
         source.status = .failed
-        if stopsAfterFirstFrame { source.control?.stop() }
+        if source.stopsAfterFirstFrame { source.control?.stop() }
         source.control = nil
         FallbackFiringRecorder.shared.note(.capture, "overviewStreamException")
         onReadinessChange()
@@ -318,7 +358,7 @@ extension OverviewThumbnailCapture {
 
     private func adoptSharedPreviews(
         for requests: inout [ObjectIdentifier: OverviewPreviewRequest],
-        droppingSatisfied: Bool
+        droppingSatisfied: (WindowHandle) -> Bool
     ) {
         for (key, request) in requests where previewCache[request.handle]?.token != request.token {
             guard let frame = adoptSharedPreview(
@@ -326,7 +366,7 @@ extension OverviewThumbnailCapture {
                 satisfying: adoptsProvisionalPreviews ? nil : request
             ) else { continue }
             onPreview(request.handle, frame)
-            if droppingSatisfied, frame.covers(request) { requests.removeValue(forKey: key) }
+            if droppingSatisfied(request.handle), frame.covers(request) { requests.removeValue(forKey: key) }
         }
     }
 
@@ -453,33 +493,5 @@ extension OverviewThumbnailCapture {
                 cachedCount: cachedCount ?? previewCache.count
             )
         )
-    }
-
-    private func collectRequests(
-        represented: Set<WindowHandle>,
-        visible: [OverviewPreviewRequest],
-        selectedHandle: WindowHandle?
-    ) -> [ObjectIdentifier: OverviewPreviewRequest] {
-        var requests: [ObjectIdentifier: OverviewPreviewRequest] = [:]
-        sourceOrder.removeAll(keepingCapacity: true)
-        for request in visible where represented.contains(request.handle) && request.token == request.handle.token {
-            let key = ObjectIdentifier(request.handle)
-            if let previous = requests[key] {
-                requests[key] = OverviewPreviewRequest(
-                    handle: request.handle,
-                    pixelWidth: max(previous.pixelWidth, request.pixelWidth),
-                    pixelHeight: max(previous.pixelHeight, request.pixelHeight)
-                )
-            } else {
-                requests[key] = request
-                sourceOrder.append(key)
-            }
-        }
-        if let selectedHandle,
-           let index = sourceOrder.firstIndex(of: ObjectIdentifier(selectedHandle)), index != 0
-        {
-            sourceOrder.insert(sourceOrder.remove(at: index), at: 0)
-        }
-        return requests
     }
 }

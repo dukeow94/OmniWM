@@ -1,33 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import SwiftUI
-
-struct SettingsPage<Content: View>: View {
-    let subtitle: String?
-    @ViewBuilder let content: () -> Content
-
-    init(
-        subtitle: String? = nil,
-        @ViewBuilder content: @escaping () -> Content
-    ) {
-        self.subtitle = subtitle
-        self.content = content
-    }
-
-    var body: some View {
-        Form {
-            if let subtitle {
-                Section {
-                    SettingsCaption(subtitle)
-                }
-            }
-
-            content()
-        }
-        .formStyle(.grouped)
-    }
-}
 
 struct SettingsCaption: View {
     let content: Text
@@ -125,9 +99,9 @@ struct MonitorScopeSection: View {
     let reset: (Monitor) -> Void
 
     var body: some View {
-        Section("Configuration Scope") {
+        Section("Display") {
             Picker("Configure", selection: $selectedMonitor) {
-                Text("Global Defaults").tag(nil as Monitor.ID?)
+                Text("All Displays").tag(nil as Monitor.ID?)
                 if !monitors.isEmpty {
                     Divider()
                     ForEach(monitors, id: \.id) { monitor in
@@ -151,7 +125,7 @@ struct MonitorScopeSection: View {
                         Text(hasOverrides(monitor) ? String(localized: "Custom") :
                             String(localized: "Using global defaults"))
                             .foregroundStyle(.secondary)
-                        Button("Reset to Global") {
+                        Button("Reset Display Overrides") {
                             reset(monitor)
                         }
                         .disabled(!hasOverrides(monitor))
@@ -180,6 +154,26 @@ struct ResetIconButton: View {
     }
 }
 
+struct OverrideStatus: View {
+    let label: String
+    let isOverridden: Bool
+    let onReset: () -> Void
+
+    var body: some View {
+        if isOverridden {
+            ResetIconButton(title: String(localized: "Reset \(label) to global default"), action: onReset)
+        } else {
+            Text("Global")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .frame(minWidth: 45)
+                .accessibilityElement(children: .ignore)
+                .accessibilityAddTraits(.isStaticText)
+                .accessibilityLabel(String(localized: "\(label) uses global default"))
+        }
+    }
+}
+
 struct OverridableToggle: View {
     let label: String
     let value: Bool?
@@ -205,23 +199,10 @@ struct OverridableToggle: View {
                 .labelsHidden()
                 .accessibilityLabel(label)
 
-                overrideStatus
+                OverrideStatus(label: label, isOverridden: isOverridden, onReset: onReset)
             }
         } label: {
             Text(label)
-        }
-    }
-
-    @ViewBuilder
-    private var overrideStatus: some View {
-        if isOverridden {
-            ResetIconButton(title: String(localized: "Reset \(label) to global default"), action: onReset)
-        } else {
-            Text("Global")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .frame(minWidth: 45)
-                .accessibilityLabel(String(localized: "\(label) uses global default"))
         }
     }
 }
@@ -257,21 +238,8 @@ struct OverridablePicker<T: Hashable & Identifiable>: View {
                 .labelsHidden()
                 .accessibilityLabel(label)
 
-                overrideStatus
+                OverrideStatus(label: label, isOverridden: isOverridden, onReset: onReset)
             }
-        }
-    }
-
-    @ViewBuilder
-    private var overrideStatus: some View {
-        if isOverridden {
-            ResetIconButton(title: String(localized: "Reset \(label) to global default"), action: onReset)
-        } else {
-            Text("Global")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .frame(minWidth: 45)
-                .accessibilityLabel(String(localized: "\(label) uses global default"))
         }
     }
 }
@@ -309,83 +277,8 @@ struct OverridableSlider: View {
                 .accessibilityValue(displayValue)
 
                 SettingsValueText(text: displayValue, width: 48)
-                overrideStatus
+                OverrideStatus(label: label, isOverridden: isOverridden, onReset: onReset)
             }
-        }
-    }
-
-    @ViewBuilder
-    private var overrideStatus: some View {
-        if isOverridden {
-            ResetIconButton(title: String(localized: "Reset \(label) to global default"), action: onReset)
-        } else {
-            Text("Global")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .frame(minWidth: 45)
-                .accessibilityLabel(String(localized: "\(label) uses global default"))
-        }
-    }
-}
-
-struct OverridableStepper: View {
-    let label: String
-    let value: Double?
-    let globalValue: Double
-    let step: Double
-    let formatter: (Double) -> String
-    let onChange: (Double) -> Void
-    let onReset: () -> Void
-
-    private var effectiveValue: Double {
-        value ?? globalValue
-    }
-
-    private var isOverridden: Bool {
-        value != nil
-    }
-
-    private var binding: Binding<Double> {
-        Binding(
-            get: { effectiveValue },
-            set: { onChange($0) }
-        )
-    }
-
-    var body: some View {
-        LabeledContent(label) {
-            HStack {
-                let displayValue = formatter(effectiveValue)
-                Stepper(value: binding, step: step) {
-                    EmptyView()
-                }
-                .labelsHidden()
-                .accessibilityLabel(label)
-                .accessibilityValue(displayValue)
-
-                TextField(label, value: binding, format: .number)
-                    .labelsHidden()
-                    .textFieldStyle(.roundedBorder)
-                    .frame(width: 64)
-                    .multilineTextAlignment(.trailing)
-                    .accessibilityLabel(label)
-
-                SettingsValueText(text: displayValue, width: 60)
-                overrideStatus
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var overrideStatus: some View {
-        if isOverridden {
-            ResetIconButton(title: String(localized: "Reset \(label) to global default"), action: onReset)
-        } else {
-            Text("Global")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .frame(minWidth: 45)
-                .accessibilityLabel(String(localized: "\(label) uses global default"))
         }
     }
 }

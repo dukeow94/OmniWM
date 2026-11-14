@@ -1,52 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import Foundation
 import OmniWMIPC
-
-// MARK: - SettingsExport
-
-struct SettingsColor: Codable, Equatable {
-    var red: Double
-    var green: Double
-    var blue: Double
-    var alpha: Double
-}
-
-enum BorderGradientDirection: String, Codable, CaseIterable, Equatable, Hashable {
-    case topLeftToBottomRight
-    case topRightToBottomLeft
-}
-
-struct BorderGradientColors: Codable, Equatable {
-    var start: SettingsColor?
-    var end: SettingsColor?
-}
-
-struct BorderGradient: Codable, Equatable {
-    var enabled: Bool
-    var start: SettingsColor
-    var end: SettingsColor
-    var direction: BorderGradientDirection
-    var dark: BorderGradientColors?
-
-    static let `default` = BorderGradient(
-        enabled: false,
-        start: SettingsColor(red: 0.0, green: 0.4, blue: 1.0, alpha: 1.0),
-        end: SettingsColor(red: 0.0, green: 1.0, blue: 0.7, alpha: 1.0),
-        direction: .topLeftToBottomRight
-    )
-}
-
-struct BorderGlow: Codable, Equatable {
-    var enabled: Bool
-    var radius: Double
-    var opacity: Double
-    var color: SettingsColor?
-    var darkColor: SettingsColor?
-
-    static let `default` = BorderGlow(enabled: false, radius: 8.0, opacity: 0.6)
-}
 
 struct SettingsExport: Equatable {
     var hotkeysEnabled: Bool
@@ -64,12 +20,16 @@ struct SettingsExport: Equatable {
     var borders: Borders
 
     var overview: Overview
+    var windowSwitcher = WindowSwitcher()
+    var keyboardModes = KeyboardModes()
+    var workspaceAutoBackAndForth = false
 
     var hotkeyBindings: [HotkeyBinding]
     var systemHyperTrigger: SystemHyperTrigger
     var hyperKeyModifiers: HyperKeyModifiers
 
     var workspaceBar: WorkspaceBar
+    var island: Island
     var scratchpads: Scratchpads
     var monitorBarSettings: [MonitorBarSettings]
 
@@ -87,10 +47,13 @@ struct SettingsExport: Equatable {
     var ipcEnabled: Bool
     var gestures: Gestures
     var statusBar: StatusBar
+    var statusMenu = StatusMenu.defaults()
     var hiddenBar: HiddenBar
     var animationsEnabled: Bool
     var animationSpeed: Double
     var language: String?
+
+    var launcher = LauncherConfiguration()
 
     var clipboard: Clipboard
 
@@ -98,9 +61,16 @@ struct SettingsExport: Equatable {
 
     var appearanceMode: AppearanceMode
     var tabRailAppIcons: Bool
+    var shellPermissions = ShellPermissionDecisions()
+
+    struct Island: Codable, Equatable {
+        var enabled: Bool
+    }
 
     struct Focus: Codable, Equatable {
         var followsMouse: Bool
+        var followsMouseOnlyFullyVisible: Bool = false
+        var edgeNavigationInterval: Double
         var raiseOnMouseFocus: Bool
         var lockModifier: FocusLockModifier
         var moveMouseToFocusedWindow: Bool
@@ -144,6 +114,9 @@ struct SettingsExport: Equatable {
         var defaultContainerPrimarySpan: Double?
         var edgeGaps: Bool?
         var resizeStepPercent: Int?
+        var moveWindowStacksIntoColumn: Bool?
+        var allowOverscroll: Bool?
+        var overscrollVisibleStripPercent: Int?
     }
 
     struct Dwindle: Codable, Equatable {
@@ -183,6 +156,9 @@ struct SettingsExport: Equatable {
         var backgroundEffect: QuakeTerminalBackgroundEffect
         var backgroundBlurRadius: Int?
         var monitorMode: QuakeTerminalMonitorMode?
+        var provider: QuakeTerminalProvider?
+        var kitty: KittyQuakeSettings?
+        var foot: FootQuakeSettings?
     }
 
     struct Borders: Codable, Equatable {
@@ -206,6 +182,7 @@ struct SettingsExport: Equatable {
         var workspaceSwipeEnabled: Bool
         var workspaceSwipeFingerCount: GestureFingerCount
         var workspaceSwipeAxis: WorkspaceSwipeAxis
+        var workspaceSwipeEdgeBehavior: WorkspaceSwipeEdgeBehavior? = .cycle
         var overviewGestureEnabled: Bool? = false
         var overviewGestureFingerCount: ThreeOrFourFingerCount? = .four
         var windowMoveEnabled: Bool? = false
@@ -213,6 +190,11 @@ struct SettingsExport: Equatable {
         var windowResizeEnabled: Bool? = false
         var windowResizeFingerCount: GestureFingerCount? = .three
         var windowGestureSensitivity: Double? = 1.0
+        var resizePreviewStyle: ResizePreviewStyle? = .live
+        var dwindleGroupDragAcrossDisplays: DwindleGroupDrag? = .group
+        var adoptNativeResize: Bool? = false
+        var adoptNativeMoveAcrossDisplays: Bool? = false
+        var mouseWheelSensitivity: Double? = 1.0
     }
 
     struct StatusBar: Codable, Equatable {
@@ -220,6 +202,24 @@ struct SettingsExport: Equatable {
         var showAppNames: Bool
         var useWorkspaceId: Bool
         var showIcon: Bool? = true
+    }
+
+    struct StatusMenu: Codable, Equatable {
+        var showControls: Bool?
+        var showControlHelp: Bool?
+        var showMenuItems: Bool?
+        var hiddenControls: [String]?
+        var hiddenMenuItems: [String]?
+
+        static func defaults() -> Self {
+            Self(
+                showControls: true,
+                showControlHelp: true,
+                showMenuItems: true,
+                hiddenControls: [],
+                hiddenMenuItems: []
+            )
+        }
     }
 
     struct HiddenBar: Codable, Equatable {
@@ -272,223 +272,20 @@ private enum ClipboardCodingKey: String, CodingKey {
     case ignoredTypes
 }
 
-// MARK: - Defaults & Diffing
-
-extension SettingsExport {
-    static func defaults() -> SettingsExport {
-        SettingsExport(
-            hotkeysEnabled: true,
-            focus: Focus.defaults(),
-            mouseWarp: MouseWarp.defaults(),
-            routing: Routing.defaults(),
-            monitorRanking: [],
-            gaps: Gaps.defaults(),
-            niri: Niri.defaults(),
-            workspaceConfigurations: BuiltInSettingsDefaults.workspaceConfigurations,
-            defaultLayoutType: .niri,
-            borders: Borders.defaults(),
-            overview: Overview.defaults(),
-            hotkeyBindings: HotkeyBindingRegistry.defaults(),
-            systemHyperTrigger: .default,
-            hyperKeyModifiers: .default,
-            workspaceBar: WorkspaceBar.defaults(),
-            scratchpads: Scratchpads(labels: [:]),
-            monitorBarSettings: [],
-            appRules: BuiltInSettingsDefaults.appRules,
-            monitorOrientationSettings: [],
-            monitorNiriSettings: [],
-            dwindle: Dwindle.defaults(),
-            monitorDwindleSettings: [],
-            monitorGapSettings: [],
-            preventSleepEnabled: false,
-            updateChecksEnabled: true,
-            ipcEnabled: false,
-            gestures: Gestures.defaults(),
-            statusBar: StatusBar.defaults(),
-            hiddenBar: HiddenBar.defaults(),
-            animationsEnabled: true,
-            animationSpeed: 1,
-            language: nil,
-            clipboard: Clipboard.defaults(),
-            quakeTerminal: QuakeTerminal.defaults(),
-            appearanceMode: .dark,
-            tabRailAppIcons: false
-        )
-    }
-}
-
-extension SettingsExport.Clipboard {
-    static func defaults() -> Self {
-        Self(
-            historyEnabled: false,
-            maxItems: 200,
-            maxItemBytes: 8_388_608,
-            maxTotalBytes: 67_108_864,
-            ignoredTypes: []
-        )
-    }
-}
-
 extension SettingsExport.Focus {
-    static func defaults() -> Self {
-        Self(
-            followsMouse: false,
-            raiseOnMouseFocus: false,
-            lockModifier: .off,
-            moveMouseToFocusedWindow: false,
-            followsWindowToMonitor: false,
-            crossesMonitorAtEdge: false,
-            monitorCrossingFocus: .spatial,
-            moveCrossesMonitorAtEdge: false
-        )
-    }
-}
-
-extension SettingsExport.MouseWarp {
-    static func defaults() -> Self {
-        Self(
-            margin: 1,
-            enabled: true,
-            constrainToArrangement: false
-        )
-    }
-}
-
-extension SettingsExport.Routing {
-    static func defaults() -> Self {
-        Self(
-            mode: .macOS,
-            arrangements: []
-        )
-    }
-}
-
-extension SettingsExport.Gaps {
-    static func defaults() -> Self {
-        Self(
-            size: 16,
-            fullscreenUsesOuterGaps: false,
-            outer: SettingsExport.OuterGaps(left: 0, right: 0, top: 0, bottom: 0)
-        )
-    }
-}
-
-extension SettingsExport.Niri {
-    static func defaults() -> Self {
-        Self(
-            visibleContainerCount: 2,
-            infiniteLoop: false,
-            centerFocusedColumn: .never,
-            alwaysCenterSingleColumn: false,
-            singleWindowFit: .fullScreen,
-            containerPrimarySpanPresets: BuiltInSettingsDefaults.niriContainerPrimarySpanPresets,
-            defaultContainerPrimarySpan: 0.5,
-            edgeGaps: true,
-            resizeStepPercent: BuiltInSettingsDefaults.niriResizeStepPercent
-        )
-    }
-}
-
-extension SettingsExport.Dwindle {
-    static func defaults() -> Self {
-        Self(
-            smartSplit: false,
-            defaultSplitRatio: 1.0,
-            splitWidthMultiplier: 1.0,
-            singleWindowFit: .fullScreen,
-            useGlobalGaps: true,
-            moveToRootStable: true
-        )
-    }
-}
-
-extension SettingsExport.Overview {
-    static func defaults() -> Self {
-        Self(
-            enabled: true,
-            zoom: 1.0,
-            backdrop: SettingsColor(red: 0.05, green: 0.05, blue: 0.08, alpha: 0),
-            windowBorders: SettingsExport.OverviewWindowBorders(
-                normal: SettingsColor(red: 0.3, green: 0.3, blue: 0.35, alpha: 0.5),
-                hovered: SettingsColor(red: 0.4, green: 0.6, blue: 1.0, alpha: 1.0),
-                selected: SettingsColor(red: 0.3, green: 0.8, blue: 0.4, alpha: 1.0)
-            ),
-            matchFocusBorder: true,
-            invertScrollDirection: false,
-            mouseScrollSpeed: 1.0
-        )
-    }
-}
-
-extension SettingsExport.QuakeTerminal {
-    static func defaults() -> Self {
-        Self(
-            enabled: true,
-            position: .center,
-            widthPercent: 50.0,
-            heightPercent: 50.0,
-            animationDuration: 0.2,
-            autoHide: false,
-            opacity: 1.0,
-            backgroundEffect: .standardBlur,
-            backgroundBlurRadius: QuakeTerminalAppearancePolicy.disabledBackgroundBlurRadius,
-            monitorMode: .focusedWindow
-        )
-    }
-}
-
-extension SettingsExport.Borders {
-    static func defaults() -> Self {
-        Self(
-            enabled: true,
-            width: 5.0,
-            color: SettingsColor(
-                red: 0.084585202284378935,
-                green: 1.0,
-                blue: 0.97930003794467602,
-                alpha: 1.0
-            ),
-            darkColor: nil,
-            gradient: nil,
-            glow: nil
-        )
-    }
-}
-
-extension SettingsExport.Gestures {
-    static func defaults() -> Self {
-        Self(
-            scrollEnabled: true,
-            scrollSensitivity: 5.0,
-            scrollModifierKey: .optionShift,
-            mouseMoveModifierKey: .option,
-            mouseResizeModifierKey: .option,
-            fingerCount: .three,
-            invertDirection: true,
-            trackpadScrollStyle: .snap,
-            workspaceSwipeEnabled: false,
-            workspaceSwipeFingerCount: .three,
-            workspaceSwipeAxis: .vertical
-        )
-    }
-}
-
-extension SettingsExport.StatusBar {
-    static func defaults() -> Self {
-        Self(
-            showWorkspaceName: false,
-            showAppNames: false,
-            useWorkspaceId: false
-        )
-    }
-}
-
-extension SettingsExport.HiddenBar {
-    static func defaults() -> Self {
-        Self(
-            enabled: true,
-            hiddenBundleIDs: [],
-            rehideIntervalSeconds: 5
-        )
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        followsMouse = try container.decode(Bool.self, forKey: .followsMouse)
+        followsMouseOnlyFullyVisible = try container.decodeIfPresent(Bool.self, forKey: .followsMouseOnlyFullyVisible)
+            ?? Self.defaults().followsMouseOnlyFullyVisible
+        edgeNavigationInterval = try container.decodeIfPresent(Double.self, forKey: .edgeNavigationInterval)
+            ?? Self.defaults().edgeNavigationInterval
+        raiseOnMouseFocus = try container.decode(Bool.self, forKey: .raiseOnMouseFocus)
+        lockModifier = try container.decode(FocusLockModifier.self, forKey: .lockModifier)
+        moveMouseToFocusedWindow = try container.decode(Bool.self, forKey: .moveMouseToFocusedWindow)
+        followsWindowToMonitor = try container.decode(Bool.self, forKey: .followsWindowToMonitor)
+        crossesMonitorAtEdge = try container.decode(Bool.self, forKey: .crossesMonitorAtEdge)
+        monitorCrossingFocus = try container.decode(MonitorCrossingFocus.self, forKey: .monitorCrossingFocus)
+        moveCrossesMonitorAtEdge = try container.decode(Bool.self, forKey: .moveCrossesMonitorAtEdge)
     }
 }

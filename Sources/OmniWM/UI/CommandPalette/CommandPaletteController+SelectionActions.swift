@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 
@@ -14,6 +14,17 @@ extension CommandPaletteController {
             pendingLauncherSelection = (launcherRequestGeneration, trigger)
             return
         }
+        if selectedMode == .applications, case let .executable(path)? = selectedItemID,
+           let executable = launcherExecutables.first(where: { $0.path == path })
+        {
+            if trigger == .reveal {
+                dismiss(reason: .selection)
+                environment.revealInFinder(URL(fileURLWithPath: path))
+            } else {
+                showLauncherSettings(entry: executable.entry, runOnly: true)
+            }
+            return
+        }
         let previousSelectionID = selectedItemID
         if selectedMode == .windows {
             refreshWindowItems()
@@ -26,7 +37,10 @@ extension CommandPaletteController {
             }
             return
         }
+        performSelected(action)
+    }
 
+    private func performSelected(_ action: CommandPaletteActionExecutor.Action) {
         if case .moveWindowToWorkspace = action {
             let outcome = actionExecutor.perform(action) ?? .moveFailed
             guard outcome == .movedToWorkspace else {
@@ -50,6 +64,13 @@ extension CommandPaletteController {
             dismiss(reason: .cancel)
             return
         }
+        if case let .command(_, .openCommandPaletteMode(mode), _) = action {
+            let mode = CommandPaletteMode(ipc: mode)
+            guard mode != selectedMode else { return }
+            searchText = ""
+            selectedMode = mode
+            return
+        }
         dismiss(reason: .selection)
         actionExecutor.perform(action)
     }
@@ -68,6 +89,12 @@ extension CommandPaletteController {
         guard isVisible, isLauncherMode, launcherPublishedGeneration == launcherRequestGeneration else { return }
         selectLauncherItem(selection, activate: false)
         switch action {
+        case .edit:
+            guard let id = UUID(uuidString: selection.itemID),
+                  let entry = launcherSavedEntries.first(where: { $0.id == id }) else { return }
+            showLauncherSettings(entry: entry)
+        case .remove:
+            if let id = UUID(uuidString: selection.itemID) { removeLauncherEntry(id) }
         case .open:
             selectCurrent()
         case .reveal:

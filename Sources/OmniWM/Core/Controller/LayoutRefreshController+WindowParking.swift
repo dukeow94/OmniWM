@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import Foundation
 
@@ -35,19 +35,46 @@ extension LayoutRefreshController {
         )
     }
 
-    func repairLayoutTransientPark(for entry: WindowState, side: HideSide, observedFrame: CGRect) {
+    func repairLayoutTransientPark(after result: AXFrameApplyResult) {
+        switch result.writeResult.failureReason {
+        case nil,
+             .verificationMismatch,
+             .positionWriteFailed:
+            break
+        default:
+            return
+        }
+        guard let controller,
+              let observedFrame = result.writeResult.observedFrame,
+              !observedFrame.size.isWithinFrameTolerance(of: result.targetFrame.size),
+              let entry = controller.workspaceManager.entry(for: WindowToken(
+                  pid: result.pid,
+                  windowId: result.windowId
+              )),
+              let axRef = entry.axRef,
+              sameAXWindowIdentity(axRef, result.expectedWindow),
+              let side = entry.hiddenState?.offscreenSide
+        else { return }
+        repairLayoutTransientPark(for: entry, side: side, observedFrame: observedFrame)
+    }
+
+    func repairLayoutTransientPark(
+        for entry: WindowState,
+        side: HideSide,
+        observedFrame: CGRect
+    ) {
         guard let controller,
               entry.layoutReason == .standard,
               let parkFrame = controller.axManager.parkTargetFrame(for: entry.windowId),
-              !observedFrame.size.isWithinFrameTolerance(of: parkFrame.size),
               let monitor = controller.workspaceManager.monitor(for: entry.workspaceId),
+              controller.workspaceManager.activeWorkspaceOrFirst(on: monitor.id)?.id == entry.workspaceId,
               let parkOrigin = liveFrameHideOrigin(
                   for: observedFrame,
                   monitor: monitor,
                   side: side,
                   reason: .layoutTransient
               ),
-              !observedFrame.approximatelyEqual(
+              !observedFrame.size.isWithinFrameTolerance(of: parkFrame.size) || !observedFrame.approximatelyEqual(
                   to: CGRect(origin: parkOrigin, size: observedFrame.size),
                   tolerance: FrameTolerance.frameWrite
               ),
@@ -65,13 +92,25 @@ extension LayoutRefreshController {
         )
     }
 
+    private func externalPositionPlans(_ plans: [WindowPositionPlan], hidingNative: Bool) -> [WindowPositionPlan] {
+        guard let controller else { return [] }
+        return plans.filter { plan in
+            guard plan.entry.axRef != nil else {
+                if !hidingNative { controller.shellAppWindowManager.setFrame(plan.frame, for: plan.entry.token) }
+                controller.shellAppWindowManager.setHidden(hidingNative, for: plan.entry.token)
+                return false
+            }
+            return !controller.workspaceManager.isWindowSuppressedByMacOS(plan.entry.token)
+        }
+    }
+
     @discardableResult
     func applyPositionPlans(
         _ plans: [WindowPositionPlan],
         deferringVisibleAXFor deferredTokens: Set<WindowToken> = []
     ) -> Set<WindowToken> {
         guard let controller, !plans.isEmpty else { return [] }
-        let plans = plans.filter { !controller.workspaceManager.isWindowSuppressedByMacOS($0.entry.token) }
+        let plans = externalPositionPlans(plans, hidingNative: false)
         guard !plans.isEmpty else { return [] }
 
         var requiresVisibleAXTokens = controller.axManager.cancelParkFrameJobs(
@@ -83,13 +122,13 @@ extension LayoutRefreshController {
             allowInactive: true
         )
         let visibleFrames = plans.compactMap { plan -> AXFrameApplicationTarget? in
-            guard requiresVisibleAXTokens.contains(plan.entry.token) else { return nil }
+            guard let axRef = plan.entry.axRef, requiresVisibleAXTokens.contains(plan.entry.token) else { return nil }
             if deferredTokens.contains(plan.entry.token) {
                 return nil
             }
             controller.axManager.markWindowActive(plan.entry.windowId)
             controller.axManager.forceApplyNextFrame(for: plan.entry.windowId)
-            return .init(pid: plan.entry.pid, window: plan.entry.axRef, frame: plan.frame)
+            return .init(pid: plan.entry.pid, window: axRef, frame: plan.frame)
         }
         if !visibleFrames.isEmpty {
             controller.axManager.unsuppressFrameWrites(
@@ -101,23 +140,30 @@ extension LayoutRefreshController {
         return requiresVisibleAXTokens
     }
 
+    private func externalFrameTarget(for plan: WindowPositionPlan) -> AXFrameApplicationTarget? {
+        guard let axRef = plan.entry.axRef else { return nil }
+        return AXFrameApplicationTarget(pid: plan.entry.pid, window: axRef, frame: plan.frame)
+    }
+
     func applyParkPositionPlans(
         _ plans: [WindowPositionPlan],
         movablePlans: [WindowPositionPlan],
-        animationTick: Bool
+        animationTick: Bool,
+        afterFrameWritesOf awaitedWindowIds: Set<Int> = []
     ) {
         guard let controller, !plans.isEmpty else { return }
-        let plans = plans.filter { !controller.workspaceManager.isWindowSuppressedByMacOS($0.entry.token) }
+        let plans = externalPositionPlans(plans, hidingNative: true)
         guard !plans.isEmpty else { return }
         let movablePlans = movablePlans.filter {
-            !controller.workspaceManager.isWindowSuppressedByMacOS($0.entry.token)
+            !controller.workspaceManager.isWindowSuppressedByMacOS($0.entry.token) && $0.entry.axRef != nil
         }
 
         if animationTick {
             for plan in plans {
+                guard let axRef = plan.entry.axRef else { continue }
                 controller.axManager.markParkPending(.init(
                     pid: plan.entry.pid,
-                    window: plan.entry.axRef,
+                    window: axRef,
                     frame: plan.frame
                 ))
             }
@@ -127,7 +173,8 @@ extension LayoutRefreshController {
             }
         }
 
-        if !movablePlans.isEmpty {
+        let waitsForFrameWrites = awaitedWindowIds.contains(where: controller.axManager.isAwaitingFrameWrite)
+        if !movablePlans.isEmpty, !waitsForFrameWrites {
             controller.axManager.applyPositionsViaSkyLight(
                 movablePlans.map { SkyLightPositionTarget(token: $0.entry.token, frame: $0.frame) },
                 allowInactive: true, tracingPark: true
@@ -149,9 +196,8 @@ extension LayoutRefreshController {
         if animationTick { return }
 
         controller.axManager.applyParkFramesParallel(
-            plans.map {
-                AXFrameApplicationTarget(pid: $0.entry.pid, window: $0.entry.axRef, frame: $0.frame)
-            }
+            plans.compactMap { externalFrameTarget(for: $0) },
+            afterFrameWritesOf: awaitedWindowIds
         )
     }
 }

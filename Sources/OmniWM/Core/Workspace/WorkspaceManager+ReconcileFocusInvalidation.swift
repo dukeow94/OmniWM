@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import Foundation
@@ -25,11 +25,15 @@ extension WorkspaceManager {
         switch event {
         case .managedFocusConfirmed,
              .windowModeChanged,
-             .windowRekeyed,
-             .windowRemoved:
+             .windowRekeyed:
             guard auxiliaryFocusStateChanged(from: previousFocus) else { return }
             let workspaceId = focusInvalidationWorkspaceId(for: focusSessionSnapshot)
             noteFocusInvalidation(previousWorkspaceId: workspaceId, currentWorkspaceId: workspaceId)
+        case let .windowRemoved(_, eventWorkspaceId, _):
+            guard auxiliaryFocusStateChanged(from: previousFocus) else { return }
+            let previousWorkspaceId = eventWorkspaceId ?? focusInvalidationWorkspaceId(for: previousFocus)
+            let currentWorkspaceId = focusInvalidationWorkspaceId(for: focusSessionSnapshot)
+            noteFocusInvalidation(previousWorkspaceId: previousWorkspaceId, currentWorkspaceId: currentWorkspaceId)
         case .suppressedFocusChanged,
              .systemModalFocusChanged:
             guard plan.focusSession != nil else { return }

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import SwiftUI
 
@@ -17,24 +17,80 @@ struct QuakeTerminalSettingsTab: View {
         Form {
             Section("Quake Terminal") {
                 Toggle("Enable Quake Terminal", isOn: Bindable(settings.quakeTerminal).enabled)
+                    .id("Enable Quake Terminal")
                     .onChange(of: settings.quakeTerminal.enabled) { _, newValue in
                         controller.setQuakeTerminalEnabled(newValue)
                     }
+
+                Picker("Terminal", selection: Bindable(settings.quakeTerminal).provider) {
+                    ForEach(QuakeTerminalProvider.allCases, id: \.self) { provider in
+                        Text(provider.displayName).tag(provider)
+                    }
+                }
+                .id("Terminal")
+                .onChange(of: settings.quakeTerminal.provider) { _, newValue in
+                    controller.setQuakeTerminalProvider(newValue)
+                }
+
+                if settings.quakeTerminal.provider == .kitty {
+                    SettingsCaption(
+                        localized: "Kitty's quick-access-terminal.conf controls tabs, splits, fonts and anything not overridden below. Overrides apply only to OmniWM's Kitty Quake panel."
+                    )
+                    if settings.quakeTerminal.kitty.placement == nil {
+                        SettingsCaption(
+                            localized: "OmniWM reserves space for the OmniShell top bar. Increase Kitty's configured lines for more terminal rows."
+                        )
+                    }
+                    if let problem = controller.kittyQuickAccessTerminal.problem, problem != .opacityNeedsRestart {
+                        SettingsCaption(problem.message)
+                    }
+                }
+                if settings.quakeTerminal.provider == .foot {
+                    SettingsCaption(
+                        localized: "foot's own configuration controls fonts, colors and anything not overridden below. OmniWM runs a dedicated foot server for this panel. Tabs and splits are not available with foot."
+                    )
+                    SettingsCaption(
+                        localized: "When the regular foot app is running, its own Option + ` (backtick) hotkey can clash with this shortcut. Change one of them, or set macos-quake-hotkey=none in foot.ini and restart foot."
+                    )
+                    if let problem = controller.footQuickAccessTerminal.problem {
+                        SettingsCaption(problem.message)
+                        if problem.needsSupportedApp,
+                           let project = URL(string: "https://github.com/gobijan/foot-macos")
+                        {
+                            Link("Get foot for macOS", destination: project)
+                                .font(.footnote)
+                        }
+                    }
+                }
+            }
+            .id("Quake Terminal")
+
+            if settings.quakeTerminal.enabled, settings.quakeTerminal.provider == .kitty {
+                KittyQuakeSettingsSections(quake: settings.quakeTerminal, controller: controller)
             }
 
-            if settings.quakeTerminal.enabled {
+            if settings.quakeTerminal.enabled, settings.quakeTerminal.provider == .foot {
+                FootQuakeSettingsSections(
+                    quake: settings.quakeTerminal,
+                    animationsEnabled: controller.motionPolicy.animationsEnabled
+                )
+            }
+
+            if settings.quakeTerminal.enabled, settings.quakeTerminal.provider == .ghostty {
                 Section("Position & Size") {
                     Picker("Position", selection: Bindable(settings.quakeTerminal).position) {
                         ForEach(QuakeTerminalPosition.allCases, id: \.self) { position in
                             Text(position.localizedDisplayName).tag(position)
                         }
                     }
+                    .id("Position")
 
                     Picker("Show On", selection: Bindable(settings.quakeTerminal).monitorMode) {
                         ForEach(QuakeTerminalMonitorMode.allCases, id: \.self) { mode in
                             Text(mode.localizedDisplayName).tag(mode)
                         }
                     }
+                    .id("Show On")
 
                     SettingsSliderRow(
                         label: String(localized: "Width"),
@@ -43,6 +99,7 @@ struct QuakeTerminalSettingsTab: View {
                         step: 5,
                         valueText: "\(Int(settings.quakeTerminal.widthPercent))%"
                     )
+                    .id("Width")
 
                     SettingsSliderRow(
                         label: String(localized: "Height"),
@@ -51,13 +108,16 @@ struct QuakeTerminalSettingsTab: View {
                         step: 5,
                         valueText: "\(Int(settings.quakeTerminal.heightPercent))%"
                     )
+                    .id("Height")
 
                     if settings.quakeTerminalUseCustomFrame {
                         Button("Reset to Default Position") {
                             settings.resetQuakeTerminalCustomFrame()
                         }
+                        .id("Reset to Default Position")
                     }
                 }
+                .id("Position & Size")
 
                 Section("Appearance") {
                     Picker("Background Effect", selection: Bindable(settings.quakeTerminal).backgroundEffect) {
@@ -65,6 +125,7 @@ struct QuakeTerminalSettingsTab: View {
                             Text(effect.localizedDisplayName).tag(effect)
                         }
                     }
+                    .id("Background Effect")
                     .onChange(of: settings.quakeTerminal.backgroundEffect) { _, _ in
                         controller.reloadQuakeTerminalBackgroundEffect()
                     }
@@ -76,6 +137,7 @@ struct QuakeTerminalSettingsTab: View {
                         step: 0.05,
                         valueText: "\(Int(settings.quakeTerminal.opacity * 100))%"
                     )
+                    .id("Quake Background Opacity")
                     .onChange(of: settings.quakeTerminal.opacity) { _, _ in
                         controller.reloadQuakeTerminalOpacity()
                     }
@@ -91,6 +153,7 @@ struct QuakeTerminalSettingsTab: View {
                         step: 5,
                         valueText: blurValueText
                     )
+                    .id("Background Blur")
                     .onChange(of: settings.quakeTerminal.backgroundBlurRadius) { _, _ in
                         controller.reloadQuakeTerminalBackgroundBlur()
                     }
@@ -109,25 +172,18 @@ struct QuakeTerminalSettingsTab: View {
                         )
                     }
                 }
+                .id("Appearance")
 
                 Section("Behavior") {
-                    SettingsSliderRow(
-                        label: String(localized: "Animation Duration"),
-                        value: Bindable(settings.quakeTerminal).animationDuration,
-                        range: 0 ... 1,
-                        step: 0.1,
-                        valueText: String(
-                            localized: "\(settings.quakeTerminal.animationDuration.formatted(.number.precision(.fractionLength(1))))s"
-                        )
+                    QuakeAnimationDurationRow(
+                        quake: settings.quakeTerminal,
+                        animationsEnabled: controller.motionPolicy.animationsEnabled
                     )
-                    .disabled(!controller.motionPolicy.animationsEnabled)
-
-                    if !controller.motionPolicy.animationsEnabled {
-                        SettingsCaption(localized: "Ignored while global animations are disabled.")
-                    }
 
                     Toggle("Auto-hide on Focus Loss", isOn: Bindable(settings.quakeTerminal).autoHide)
+                        .id("Auto-hide on Focus Loss")
                 }
+                .id("Behavior")
             }
 
             Section("About") {
@@ -140,16 +196,42 @@ struct QuakeTerminalSettingsTab: View {
                         .font(.footnote)
                         .foregroundColor(.secondary)
 
-                    SettingsCaption(
-                        localized: "Customize terminal tab and pane shortcuts in ~/.config/ghostty/config.ghostty. Reload with Cmd + Shift + , or relaunch OmniWM."
-                    )
+                    if settings.quakeTerminal.provider == .ghostty {
+                        SettingsCaption(
+                            localized: "Customize terminal tab and pane shortcuts in ~/.config/ghostty/config.ghostty. Reload with Cmd + Shift + , or relaunch OmniWM."
+                        )
+                    }
 
                     Label("Configure hotkey in Hotkeys settings", systemImage: "gearshape")
                         .font(.footnote)
                         .foregroundColor(.secondary)
                 }
             }
+            .id("About")
         }
         .formStyle(.grouped)
+    }
+}
+
+struct QuakeAnimationDurationRow: View {
+    let quake: QuakeTerminalSettings
+    let animationsEnabled: Bool
+
+    var body: some View {
+        SettingsSliderRow(
+            label: String(localized: "Animation Duration"),
+            value: Bindable(quake).animationDuration,
+            range: 0 ... 1,
+            step: 0.1,
+            valueText: String(
+                localized: "\(quake.animationDuration.formatted(.number.precision(.fractionLength(1))))s"
+            )
+        )
+        .id("Animation Duration")
+        .disabled(!animationsEnabled)
+
+        if !animationsEnabled {
+            SettingsCaption(localized: "Ignored while global animations are disabled.")
+        }
     }
 }

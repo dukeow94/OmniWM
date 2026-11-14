@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import CoreGraphics
 @testable import OmniWM
@@ -8,7 +8,6 @@ import XCTest
 final class MonitorSetupModelTests: XCTestCase {
     private let displayUUIDA = "AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA"
     private let displayUUIDB = "BBBBBBBB-BBBB-4BBB-8BBB-BBBBBBBBBBBB"
-    private let accuracy: CGFloat = 1e-6
 
     func testCompleteActiveCustomLayoutSeedsDraftAndPreservesMouseWarpChoice() {
         let monitors = sideBySideMonitors()
@@ -31,39 +30,26 @@ final class MonitorSetupModelTests: XCTestCase {
         XCTAssertTrue(draft.isCardinallyConnected)
     }
 
-    func testMacOSModeSnapshotsGeometryInsteadOfInactiveCustomLayout() {
+    func testDraftFallsBackToGeometryForInactiveOrIncompleteCustomLayouts() {
         let monitors = sideBySideMonitors()
         let inactiveRouting = [
             routing(for: monitors[0], column: 0, row: 0),
             routing(for: monitors[1], column: 0, row: 1)
         ]
 
-        let draft = MonitorSetupDraft(
-            monitors: monitors,
-            routingMode: .macOS,
-            arrangements: [MonitorArrangement(monitors: inactiveRouting)],
-            mouseWarpEnabled: true,
-            workspaceConfigurations: []
-        )
-
-        XCTAssertEqual(draft.cell(for: monitors[0].id), .init(column: 0, row: 0))
-        XCTAssertEqual(draft.cell(for: monitors[1].id), .init(column: 1, row: 0))
-    }
-
-    func testIncompleteCustomLayoutFallsBackToMacOSSnapshot() {
-        let monitors = sideBySideMonitors()
-        let incompleteRouting = [routing(for: monitors[0], column: 0, row: 0)]
-
-        let draft = MonitorSetupDraft(
-            monitors: monitors,
-            routingMode: .custom,
-            arrangements: [MonitorArrangement(monitors: incompleteRouting)],
-            mouseWarpEnabled: true,
-            workspaceConfigurations: []
-        )
-
-        XCTAssertEqual(draft.cell(for: monitors[0].id), .init(column: 0, row: 0))
-        XCTAssertEqual(draft.cell(for: monitors[1].id), .init(column: 1, row: 0))
+        let cases: [(mode: MonitorRoutingMode, routing: [MonitorRoutingSettings])] = [
+            (.macOS, inactiveRouting),
+            (.custom, [routing(for: monitors[0], column: 0, row: 0)])
+        ]
+        for row in cases {
+            let draft = MonitorSetupDraft(
+                monitors: monitors, routingMode: row.mode,
+                arrangements: [MonitorArrangement(monitors: row.routing)],
+                mouseWarpEnabled: true, workspaceConfigurations: []
+            )
+            XCTAssertEqual(draft.cell(for: monitors[0].id), .init(column: 0, row: 0))
+            XCTAssertEqual(draft.cell(for: monitors[1].id), .init(column: 1, row: 0))
+        }
     }
 
     func testCollidingMacOSSnapshotProducesUniqueCompactedCells() {
@@ -192,30 +178,16 @@ final class MonitorSetupModelTests: XCTestCase {
         )
 
         XCTAssertEqual(draft.readiness(for: monitors.reversed()), .ready)
-        XCTAssertEqual(draft.readiness(for: [monitors[0], replacement]), .monitorConfigurationChanged)
-        XCTAssertNil(draft.routingSettings(monitors: [monitors[0], replacement]))
-    }
-
-    func testReadinessDetectsStableIdentityReplacementWithReusedRuntimeID() {
-        let monitors = sideBySideMonitors()
-        let replacement = makeMonitor(
+        let reusedRuntimeID = makeMonitor(
             displayId: monitors[1].displayId,
             name: monitors[1].name,
             displayUUID: "CCCCCCCC-CCCC-4CCC-8CCC-CCCCCCCCCCCC",
             frame: monitors[1].frame
         )
-        let draft = MonitorSetupDraft(
-            monitors: monitors,
-            routingMode: .macOS,
-            arrangements: [],
-            mouseWarpEnabled: true,
-            workspaceConfigurations: []
-        )
-
-        XCTAssertEqual(
-            draft.readiness(for: [monitors[0], replacement]),
-            .monitorConfigurationChanged
-        )
+        for current in [[monitors[0], replacement], [monitors[0], reusedRuntimeID]] {
+            XCTAssertEqual(draft.readiness(for: current), .monitorConfigurationChanged)
+            XCTAssertNil(draft.routingSettings(monitors: current))
+        }
     }
 
     func testRoutingSettingsStampStableIdentityForConnectedSet() throws {
@@ -245,33 +217,6 @@ final class MonitorSetupModelTests: XCTestCase {
         XCTAssertEqual(updated.count, connected.count)
         XCTAssertNil(MonitorSettingsStore.get(for: monitors[2], in: updated))
         XCTAssertEqual(arrangement.monitors.count, 3)
-    }
-
-    func testWorkspaceCoverageUsesRuntimeMonitorAssignmentResolution() throws {
-        let monitors = threeSideBySideMonitors()
-        let configurations = [
-            WorkspaceConfiguration(name: "1", monitorAssignment: .main),
-            WorkspaceConfiguration(name: "2", monitorAssignment: .secondary)
-        ]
-        var draft = MonitorSetupDraft(
-            monitors: monitors,
-            routingMode: .macOS,
-            arrangements: [],
-            mouseWarpEnabled: true,
-            workspaceConfigurations: configurations
-        )
-
-        XCTAssertFalse(draft.hasWorkspaceCoverage(in: monitors))
-        XCTAssertEqual(draft.uncoveredMonitors(in: monitors).count, 1)
-        let uncoveredMonitor = try XCTUnwrap(draft.uncoveredMonitors(in: monitors).first)
-        XCTAssertEqual(
-            Set(draft.uncoveredMonitors(in: monitors.reversed()).map(\.id)),
-            [uncoveredMonitor.id]
-        )
-
-        draft.addWorkspace(for: uncoveredMonitor)
-
-        XCTAssertTrue(draft.hasWorkspaceCoverage(in: monitors))
     }
 
     func testWorkspaceReassignmentChangesDraftCoverageWithoutChangingConfigurationIdentity() {
@@ -312,7 +257,13 @@ final class MonitorSetupModelTests: XCTestCase {
             mouseWarpEnabled: true,
             workspaceConfigurations: configurations
         )
+        XCTAssertFalse(draft.hasWorkspaceCoverage(in: monitors))
+        XCTAssertEqual(draft.uncoveredMonitors(in: monitors).count, 1)
         let uncoveredMonitor = try XCTUnwrap(draft.uncoveredMonitors(in: monitors).first)
+        XCTAssertEqual(
+            Set(draft.uncoveredMonitors(in: monitors.reversed()).map(\.id)),
+            [uncoveredMonitor.id]
+        )
 
         draft.addWorkspace(for: uncoveredMonitor)
 
@@ -358,8 +309,8 @@ final class MonitorSetupModelTests: XCTestCase {
         for index in frames.indices.dropFirst() {
             XCTAssertLessThan(frames[index].width, frames[index - 1].width)
             XCTAssertLessThan(frames[index].height, frames[index - 1].height)
-            XCTAssertEqual(frames[index].minX, frames[index - 1].maxX, accuracy: accuracy)
-            XCTAssertEqual(frames[index].minY, frames[index - 1].maxY, accuracy: accuracy)
+            XCTAssertEqual(frames[index].minX, frames[index - 1].maxX)
+            XCTAssertEqual(frames[index].minY, frames[index - 1].maxY)
         }
     }
 
@@ -375,19 +326,20 @@ final class MonitorSetupModelTests: XCTestCase {
             )
 
             XCTAssertEqual(rects.count, count)
-            XCTAssertGreaterThanOrEqual(rects.map(\.minX).min() ?? 0, padding - accuracy)
-            XCTAssertLessThanOrEqual(rects.map(\.maxX).max() ?? 0, canvas.width - padding + accuracy)
-            XCTAssertGreaterThanOrEqual(rects.map(\.minY).min() ?? 0, padding - accuracy)
-            XCTAssertLessThanOrEqual(rects.map(\.maxY).max() ?? 0, canvas.height - padding + accuracy)
+            XCTAssertGreaterThanOrEqual(rects.map(\.minX).min() ?? 0, padding)
+            XCTAssertLessThanOrEqual(rects.map(\.maxX).max() ?? 0, canvas.width - padding)
+            XCTAssertGreaterThanOrEqual(rects.map(\.minY).min() ?? 0, padding)
+            XCTAssertLessThanOrEqual(rects.map(\.maxY).max() ?? 0, canvas.height - padding)
             XCTAssertGreaterThan(rects[0].width, rects[count - 1].width)
             XCTAssertGreaterThan(rects[0].minY, rects[count - 1].minY)
         }
     }
 
     func testTransitionUsesOneStableFitForBothArrangements() {
+        let canvas = CGSize(width: 400, height: 240)
         let transition = MonitorSetupStaircaseGeometry.transition(
             displayCount: 4,
-            in: CGSize(width: 400, height: 240),
+            in: canvas,
             padding: 10
         )
 
@@ -400,13 +352,12 @@ final class MonitorSetupModelTests: XCTestCase {
             )
             XCTAssertEqual(
                 transition.sideBySide[index].minX,
-                transition.staircase[index].minX,
-                accuracy: accuracy
+                transition.staircase[index].minX
             )
         }
         let sideBySideBottom = transition.sideBySide[0].maxY
         for rect in transition.sideBySide {
-            XCTAssertEqual(rect.maxY, sideBySideBottom, accuracy: accuracy)
+            XCTAssertEqual(rect.maxY, sideBySideBottom, accuracy: .rounding(operations: 12, at: canvas.height))
         }
         XCTAssertTrue(
             zip(transition.staircase, transition.staircase.dropFirst()).allSatisfy {

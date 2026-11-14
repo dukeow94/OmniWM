@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import Foundation
 @testable import OmniWM
@@ -47,9 +47,6 @@ final class LayoutRefreshSchedulingTests: XCTestCase {
         for refresh in refreshes {
             refreshController.enqueueRefresh(refresh)
         }
-        for _ in 0 ..< 50 {
-            await Task.yield()
-        }
 
         XCTAssertNil(refreshController.layoutState.activeRefresh)
         XCTAssertNil(refreshController.layoutState.activeRefreshTask)
@@ -61,9 +58,6 @@ final class LayoutRefreshSchedulingTests: XCTestCase {
         XCTAssertEqual(lockedMetrics.lockedRefreshDeferrals, 5)
 
         controller.isLockScreenActive = false
-        for _ in 0 ..< 50 {
-            await Task.yield()
-        }
         XCTAssertTrue(refreshController.layoutState.isRefreshSuspendedForLockScreen)
         XCTAssertTrue(refreshController.layoutState.isAwaitingPostUnlockTopologySample)
         XCTAssertEqual(refreshController.performanceSnapshot()?.refreshesStarted, 0)

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import Foundation
 
@@ -29,7 +29,6 @@ extension WorkspaceNavigationHandler {
                 sourceWorkspaceId: first.sourceWorkspaceId,
                 destinationWorkspaceId: targetWorkspaceId,
                 selectedHandle: selected.selectedHandle,
-                movedTokens: mutations.flatMap(\.movedTokens),
                 scrollWorkspaceId: mutations.lazy.compactMap(\.scrollWorkspaceId).first
             ),
             focusPolicy: followsMove ? .configured : .retainCurrent,

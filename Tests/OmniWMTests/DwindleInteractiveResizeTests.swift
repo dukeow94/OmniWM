@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import CoreGraphics
 import Foundation
@@ -14,27 +14,44 @@ final class DwindleInteractiveResizeTests: XCTestCase {
         (DwindleLayoutEngine(), WorkspaceDescriptor.ID())
     }
 
-    func testHorizontalRightEdgeGrowsControllingSplit() {
-        let (engine, ws) = makeEngine()
-        let left = WindowToken(pid: 1, windowId: 1)
-        let right = WindowToken(pid: 2, windowId: 2)
-        _ = engine.addWindow(token: left, to: ws, activeWindowFrame: nil)
-        _ = engine.addWindow(token: right, to: ws, activeWindowFrame: nil)
-        _ = engine.calculateLayout(for: ws, screen: screen)
-        XCTAssertEqual(engine.root(for: ws)?.splitOrientation, .horizontal)
+    func testAxisEdgesGrowControllingSplit() {
+        let cases: [(
+            label: String,
+            vertical: Bool,
+            edges: ResizeEdge,
+            delta: CGPoint,
+            orientation: DwindleOrientation
+        )] = [
+            ("horizontal right", false, [.right], CGPoint(x: 100, y: 0), .horizontal),
+            ("vertical top", true, [.top], CGPoint(x: 0, y: 80), .vertical)
+        ]
+        for row in cases {
+            let (engine, ws) = makeEngine()
+            let first = WindowToken(pid: 1, windowId: 1)
+            let second = WindowToken(pid: 2, windowId: 2)
+            _ = engine.addWindow(token: first, to: ws, activeWindowFrame: nil)
+            if row.vertical {
+                engine.setPreselection(.up, in: ws)
+            }
+            _ = engine.addWindow(token: second, to: ws, activeWindowFrame: nil)
+            _ = engine.calculateLayout(for: ws, screen: screen)
+            XCTAssertEqual(engine.root(for: ws)?.splitOrientation, row.orientation, row.label)
 
-        XCTAssertTrue(
-            engine.interactiveResizeBegin(
-                token: left,
-                edges: [.right],
-                startLocation: start,
-                in: ws,
-                innerGap: engine.settings.innerGap
+            XCTAssertTrue(
+                engine.interactiveResizeBegin(
+                    token: first, edges: row.edges, startLocation: start,
+                    in: ws, innerGap: engine.settings.innerGap
+                ),
+                row.label
             )
-        )
-        XCTAssertTrue(engine.interactiveResizeUpdate(currentLocation: CGPoint(x: start.x + 100, y: start.y)))
-
-        XCTAssertEqual(engine.root(for: ws)?.splitRatio ?? 0, 1.2, accuracy: 1e-6)
+            XCTAssertTrue(
+                engine.interactiveResizeUpdate(
+                    currentLocation: CGPoint(x: start.x + row.delta.x, y: start.y + row.delta.y)
+                ),
+                row.label
+            )
+            XCTAssertEqual(engine.root(for: ws)?.splitRatio ?? 0, 1.2, row.label)
+        }
     }
 
     func testHorizontalRatioClampsAtMax() {
@@ -56,31 +73,7 @@ final class DwindleInteractiveResizeTests: XCTestCase {
         )
         XCTAssertTrue(engine.interactiveResizeUpdate(currentLocation: CGPoint(x: start.x + 5000, y: start.y)))
 
-        XCTAssertEqual(engine.root(for: ws)?.splitRatio ?? 0, 1.9, accuracy: 1e-6)
-    }
-
-    func testVerticalTopEdgeGrowsControllingSplit() {
-        let (engine, ws) = makeEngine()
-        let bottom = WindowToken(pid: 1, windowId: 1)
-        let top = WindowToken(pid: 2, windowId: 2)
-        _ = engine.addWindow(token: bottom, to: ws, activeWindowFrame: nil)
-        engine.setPreselection(.up, in: ws)
-        _ = engine.addWindow(token: top, to: ws, activeWindowFrame: nil)
-        _ = engine.calculateLayout(for: ws, screen: screen)
-        XCTAssertEqual(engine.root(for: ws)?.splitOrientation, .vertical)
-
-        XCTAssertTrue(
-            engine.interactiveResizeBegin(
-                token: bottom,
-                edges: [.top],
-                startLocation: start,
-                in: ws,
-                innerGap: engine.settings.innerGap
-            )
-        )
-        XCTAssertTrue(engine.interactiveResizeUpdate(currentLocation: CGPoint(x: start.x, y: start.y + 80)))
-
-        XCTAssertEqual(engine.root(for: ws)?.splitRatio ?? 0, 1.2, accuracy: 1e-6)
+        XCTAssertEqual(engine.root(for: ws)?.splitRatio ?? 0, 1.9)
     }
 
     func testCornerDragResizesBothAxes() {
@@ -113,8 +106,8 @@ final class DwindleInteractiveResizeTests: XCTestCase {
             engine.interactiveResizeUpdate(currentLocation: CGPoint(x: start.x + 100, y: start.y + 80))
         )
 
-        XCTAssertEqual(horizontalSplit?.splitRatio ?? 0, 1.2, accuracy: 1e-6)
-        XCTAssertEqual(verticalSplit?.splitRatio ?? 0, 1.2, accuracy: 1e-6)
+        XCTAssertEqual(horizontalSplit?.splitRatio ?? 0, 1.2)
+        XCTAssertEqual(verticalSplit?.splitRatio ?? 0, 1.2)
     }
 
     func testEdgeAtScreenBoundaryIsNotResizable() {
@@ -211,7 +204,7 @@ final class DwindleInteractiveResizeTests: XCTestCase {
         XCTAssertEqual(engine.findNode(for: leaf1, in: ws)?.isFirstChild(of: collapsedRoot!), true)
 
         XCTAssertFalse(engine.interactiveResizeUpdate(currentLocation: CGPoint(x: start.x + 100, y: start.y)))
-        XCTAssertEqual(collapsedRoot?.splitRatio ?? 0, 1.0, accuracy: 1e-6)
+        XCTAssertEqual(collapsedRoot?.splitRatio ?? 0, 1.0)
         XCTAssertNotNil(engine.findNode(for: leaf1, in: ws))
     }
 
@@ -239,7 +232,7 @@ final class DwindleInteractiveResizeTests: XCTestCase {
                 let originalRatio = engine.root(for: workspace)?.splitRatio ?? 0
                 let location = CGPoint(x: start.x + (vertical ? 0 : 100), y: start.y + (vertical ? 80 : 0))
                 XCTAssertTrue(engine.interactiveResizeUpdate(currentLocation: location))
-                XCTAssertEqual(engine.root(for: workspace)?.splitRatio ?? 0, originalRatio + 0.2, accuracy: 1e-6)
+                XCTAssertEqual(engine.root(for: workspace)?.splitRatio ?? 0, originalRatio + 0.2)
                 XCTAssertTrue(engine.interactiveResizeEnd())
             }
         }
@@ -262,8 +255,8 @@ final class DwindleInteractiveResizeTests: XCTestCase {
         ))
         XCTAssertEqual(engine.interactiveResize?.edges, [.right, .top])
         XCTAssertTrue(engine.interactiveResizeUpdate(currentLocation: CGPoint(x: start.x + 100, y: start.y + 80)))
-        XCTAssertEqual(engine.root(for: workspace)?.splitRatio ?? 0, 1.2, accuracy: 1e-6)
-        XCTAssertEqual(engine.findNode(for: target, in: workspace)?.parent?.splitRatio ?? 0, 1.2, accuracy: 1e-6)
+        XCTAssertEqual(engine.root(for: workspace)?.splitRatio ?? 0, 1.2)
+        XCTAssertEqual(engine.findNode(for: target, in: workspace)?.parent?.splitRatio ?? 0, 1.2)
     }
 
     func testNearestMovableKeepsRequestedEdgeWhenItCanMove() {
@@ -306,6 +299,6 @@ final class DwindleInteractiveResizeTests: XCTestCase {
         XCTAssertNotNil(engine.interactiveResize?.horizontal)
         XCTAssertNil(engine.interactiveResize?.vertical)
         XCTAssertFalse(engine.interactiveResizeUpdate(currentLocation: CGPoint(x: start.x, y: start.y + 80)))
-        XCTAssertEqual(engine.root(for: workspace)?.splitRatio ?? 0, 1.0, accuracy: 1e-6)
+        XCTAssertEqual(engine.root(for: workspace)?.splitRatio ?? 0, 1.0)
     }
 }

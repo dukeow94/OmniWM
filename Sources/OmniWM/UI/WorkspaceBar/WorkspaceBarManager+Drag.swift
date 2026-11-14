@@ -1,11 +1,14 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 
 extension WorkspaceBarManager {
     func configureDragController(controller: WMController) {
-        dragController.onDraggingChanged = { [weak self] in self?.refreshAutoHide() }
+        dragController.onDraggingChanged = { [weak self] in
+            self?.refreshAutoHide()
+            self?.refreshShellDrag()
+        }
         dragController.geometryProvider = { [weak self] in
             self?.dropGeometry() ?? WorkspaceBarDropGeometry(workspaces: [])
         }
@@ -50,74 +53,151 @@ extension WorkspaceBarManager {
         )
     }
 
-    func dropGeometryVersion() -> UInt64 {
-        barsByMonitor.values.reduce(0) { version, instance in
-            ([instance.primary] + (instance.secondary.map { [$0] } ?? [])).reduce(version) {
-                $0 &+ $1.interaction.generation
+    func shellDragChanged(_ request: ShellDragRequest) {
+        switch request {
+        case let .began(monitor, target, point):
+            guard let controller,
+                  let instance = barsByMonitor[monitor],
+                  case let .window(workspaceId, token)? = Self.shellTarget(
+                      target,
+                      sessionToken: shellSessionToken,
+                      snapshot: instance.model.snapshot,
+                      workspaceId: controller.workspaceManager.workspaceId(named:)
+                  )
+            else {
+                return
             }
+            hoverPreview?.dismiss()
+            beginDrag(workspaceId: workspaceId, token: token, snapshot: instance.model.snapshot, at: point)
+        case let .moved(point):
+            dragController.update(at: point)
+        case let .ended(point):
+            _ = dragController.end(at: point)
+        case .cancelled:
+            dragController.cancel()
         }
+        refreshShellDrag()
+    }
+
+    func refreshShellDrag() {
+        let presentation = dragController.presentation
+        let next = ShellDragState(sources: presentation.sourceTokens, highlights: presentation.highlights)
+        guard next != shellDrag else { return }
+        shellDrag = next
+        shellHost?.updateBars()
+    }
+
+    func dropGeometryVersion() -> UInt64 {
+        shellHost?.layoutGeneration ?? 0
     }
 
     func dropGeometry() -> WorkspaceBarDropGeometry {
         guard let controller else { return WorkspaceBarDropGeometry(workspaces: []) }
         var workspaces: [WorkspaceBarDropGeometry.Workspace] = []
         for instance in barsByMonitor.values {
-            for island in [instance.primary] + (instance.secondary.map { [$0] } ?? []) {
-                workspaces += dropWorkspaces(
-                    in: island,
-                    items: island.slice.items(in: instance.model.snapshot),
-                    orientation: instance.model.snapshot.orientation,
-                    controller: controller
-                )
-            }
+            workspaces += shellDropWorkspaces(of: instance, controller: controller)
         }
         return WorkspaceBarDropGeometry(workspaces: workspaces)
     }
 
-    private func dropWorkspaces(
-        in island: WorkspaceBarIslandPanel,
-        items: [WorkspaceBarItem],
-        orientation: WorkspaceBarOrientation,
+    private func shellDropWorkspaces(
+        of instance: WorkspaceBarInstance,
         controller: WMController
     ) -> [WorkspaceBarDropGeometry.Workspace] {
-        guard island.panel.isVisible else { return [] }
-        let interaction = island.interaction
-        let panelFrame = island.panel.frame
-        return items.compactMap { item in
-            guard let local = interaction.frames[.workspace(item.id)],
-                  let frame = island.hostingView.workspaceBarScreenRect(forLocalRect: local)
+        guard let targets = shellHost?.dropTargets(on: instance.monitor.id), !targets.isEmpty else { return [] }
+        let snapshot = instance.model.snapshot
+        let resolve = { (text: String) in
+            Self.shellTarget(
+                text,
+                sessionToken: self.shellSessionToken,
+                snapshot: snapshot,
+                workspaceId: controller.workspaceManager.workspaceId(named:)
+            )
+        }
+        var iconFrames: [WindowToken: CGRect] = [:]
+        for target in targets where !target.drop {
+            if case let .window(_, token)? = resolve(target.target) {
+                iconFrames[token] = target.frame
+            }
+        }
+        let surroundings = DropSurroundings(
+            iconFrames: iconFrames,
+            panels: ([instance.primary] + (instance.secondary.map { [$0] } ?? [])).map(\.panel).filter(\.isVisible),
+            orientation: snapshot.orientation,
+            controller: controller
+        )
+        return targets.compactMap { target in
+            guard target.drop,
+                  case let .workspace(workspaceId)? = resolve(target.target),
+                  let item = snapshot.items.first(where: { $0.id == workspaceId })
             else {
                 return nil
             }
-            let layout = controller.workspaceBarDropLayout(for: item.id)
-            let icons = item.tiledWindows.compactMap { window -> WorkspaceBarDropGeometry.Icon? in
-                guard let localIcon = interaction.frames[.window(item.id, window.id)],
-                      let iconFrame = island.hostingView.workspaceBarScreenRect(forLocalRect: localIcon)
-                else {
-                    return nil
-                }
-                let isPositional = window.windowCount == 1 && !window.isAppHidden
-                return WorkspaceBarDropGeometry.Icon(
+            return dropWorkspace(item, target: target, surroundings: surroundings)
+        }
+    }
+
+    private struct DropSurroundings {
+        let iconFrames: [WindowToken: CGRect]
+        let panels: [WorkspaceBarPanel]
+        let orientation: WorkspaceBarOrientation
+        let controller: WMController
+    }
+
+    private func dropWorkspace(
+        _ item: WorkspaceBarItem,
+        target: ShellDropTarget,
+        surroundings: DropSurroundings
+    ) -> WorkspaceBarDropGeometry.Workspace? {
+        let center = CGPoint(x: target.frame.midX, y: target.frame.midY)
+        let panel = surroundings.panels.first { $0.frame.contains(center) }
+        guard panel != nil || target.inIsland else { return nil }
+        let layout = surroundings.controller.workspaceBarDropLayout(for: item.id)
+        let orientation = surroundings.orientation
+        let icons = item.tiledWindows.compactMap { window in
+            surroundings.iconFrames[window.id].map { frame in
+                WorkspaceBarDropGeometry.Icon(
                     tokens: window.allWindows.map(\.id),
-                    frame: iconFrame,
+                    frame: frame,
                     appName: window.appName,
-                    placement: isPositional ? layout.placements[window.id] : nil
+                    placement: window.windowCount == 1 && !window.isAppHidden ? layout.placements[window.id] : nil
                 )
             }
-            return WorkspaceBarDropGeometry.Workspace(
-                id: item.id,
-                name: item.name,
-                layout: layout.layout,
-                hitFrame: CGRect(
-                    x: orientation.isVertical ? panelFrame.minX : frame.minX - 4,
-                    y: orientation.isVertical ? frame.minY - 4 : panelFrame.minY,
-                    width: orientation.isVertical ? panelFrame.width : frame.width + 8,
-                    height: orientation.isVertical ? frame.height + 8 : panelFrame.height
-                ).intersection(panelFrame),
-                icons: icons,
-                columnCount: layout.columnCount,
-                orientation: orientation
-            )
         }
+        return WorkspaceBarDropGeometry.Workspace(
+            id: item.id,
+            name: item.name,
+            layout: layout.layout,
+            hitFrame: panel.map {
+                Self.dropHitFrame(target.frame, panelFrame: $0.frame, orientation: orientation)
+            } ?? icons.reduce(target.frame) { $0.union($1.frame) },
+            icons: icons,
+            columnCount: layout.columnCount,
+            orientation: panel == nil
+                ? Self.islandOrientation(mark: target.frame, icons: icons) ?? orientation
+                : orientation
+        )
+    }
+
+    static func islandOrientation(
+        mark: CGRect,
+        icons: [WorkspaceBarDropGeometry.Icon]
+    ) -> WorkspaceBarOrientation? {
+        icons.first.map {
+            abs($0.frame.midY - mark.midY) > abs($0.frame.midX - mark.midX) ? .vertical : .horizontal
+        }
+    }
+
+    static func dropHitFrame(
+        _ frame: CGRect,
+        panelFrame: CGRect,
+        orientation: WorkspaceBarOrientation
+    ) -> CGRect {
+        CGRect(
+            x: orientation.isVertical ? panelFrame.minX : frame.minX - 4,
+            y: orientation.isVertical ? frame.minY - 4 : panelFrame.minY,
+            width: orientation.isVertical ? panelFrame.width : frame.width + 8,
+            height: orientation.isVertical ? frame.height + 8 : panelFrame.height
+        ).intersection(panelFrame)
     }
 }

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import Foundation
@@ -17,7 +17,8 @@ extension NiriLayoutHandler {
             in: pass.wsId,
             selectedNodeId: selectedNodeId,
             focusedToken: preferredFocusToken,
-            containerSizingStates: containerSizingStates
+            containerSizingStates: containerSizingStates,
+            windowSizingStates: windowSizingStatesForUnpositionedWindows(pass: pass)
         )
         for window in pass.windows {
             pass.engine.updateWindowConstraints(
@@ -57,6 +58,24 @@ extension NiriLayoutHandler {
         return states
     }
 
+    private func windowSizingStatesForUnpositionedWindows(
+        pass: NiriLayoutPass
+    ) -> [WindowToken: PersistedNiriWindowState]? {
+        guard let controller else { return nil }
+
+        var states: [WindowToken: PersistedNiriWindowState]?
+        for token in pass.windowTokens where pass.engine.findNode(for: token, in: pass.wsId) == nil {
+            guard let placement = controller.workspaceManager.restoreIntent(for: token)?.niriPlacement,
+                  !placement.hasColumnPosition
+            else { continue }
+            if states == nil {
+                states = [:]
+            }
+            states?[token] = placement.window
+        }
+        return states
+    }
+
     func resolveSelection(
         pass: NiriLayoutPass,
         state: inout ViewportState,
@@ -69,7 +88,10 @@ extension NiriLayoutHandler {
             in: pass.wsId,
             excluding: snapshot.excludedTokens
         ) != nil
-        if usesSingleWindowFit {
+        if usesSingleWindowFit,
+           !state.preservesGestureOffset || removal.removedColumn
+           || pass.engine.effectiveSettings(in: pass.wsId).edgeOverscroll == .disabled
+        {
             resetViewportForSingleWindowFit(state: &state)
         }
 
@@ -98,7 +120,7 @@ extension NiriLayoutHandler {
         snapshot: NiriWorkspaceSnapshot
     ) -> ArrivalContext {
         let wasEmpty = existingHandleIds.subtracting(snapshot.excludedTokens).isEmpty
-        let newTokens = insertion.newTokens
+        let newTokens = insertion.newTokens.filter { !snapshot.quietArrivalTokens.contains($0) }
         let nativeArrival = nativeArrivalToken(in: newTokens)
 
         var arrival = ArrivalContext(
@@ -220,6 +242,7 @@ extension NiriLayoutHandler {
     }
 
     func resetViewportForSingleWindowFit(state: inout ViewportState) {
+        state.preservesGestureOffset = false
         state.activeColumnIndex = 0
         state.jumpOffset(to: 0)
         state.activatePrevColumnOnRemoval = nil
@@ -334,7 +357,11 @@ extension NiriLayoutHandler {
 
         resolvePrimaryContainerSpansIfNeeded(pass: pass)
 
+        let preservesGesture = state.preservesGestureOffset
+            && pass.engine.effectiveSettings(in: pass.wsId).edgeOverscroll != .disabled
+            && !removal.removedColumn && removal.removalResult.removedTokens.isEmpty
         if !usesSingleWindowFit,
+           !preservesGesture,
            !isGestureOrAnimation,
            snapshot.isActiveWorkspace,
            let selectedId = state.selectedNodeId,
@@ -364,6 +391,38 @@ extension NiriLayoutHandler {
             if abs(liveOffsetDelta) > 1 {
                 viewportNeedsRecalc = true
             }
+        }
+
+        let correctionNeedsRecalc = correctViewportAfterSelection(
+            pass: pass, state: &state, removal: removal, snapshot: snapshot,
+            usesSingleWindowFit: usesSingleWindowFit
+        )
+        return viewportNeedsRecalc || correctionNeedsRecalc
+    }
+
+    private func correctViewportAfterSelection(
+        pass: NiriLayoutPass,
+        state: inout ViewportState,
+        removal: RemovalContext,
+        snapshot: NiriWorkspaceSnapshot,
+        usesSingleWindowFit: Bool
+    ) -> Bool {
+        var viewportNeedsRecalc = false
+        if usesSingleWindowFit,
+           pass.engine.correctSingleWindowGestureOffset(
+               context: pass.interactionContext,
+               state: &state,
+               workingArea: WorkingAreaContext(
+                   workingFrame: pass.insetFrame,
+                   singleWindowFrame: snapshot.monitor.workingFrame,
+                   borderSafeFillFrame: snapshot.monitor.borderSafeFillFrame,
+                   fullscreenLayoutFrame: snapshot.fullscreenLayoutFrame,
+                   viewFrame: snapshot.monitor.frame,
+                   scale: snapshot.monitor.scale
+               )
+           )
+        {
+            viewportNeedsRecalc = true
         }
 
         if !usesSingleWindowFit,

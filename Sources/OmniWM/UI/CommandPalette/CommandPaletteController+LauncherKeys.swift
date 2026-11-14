@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import Carbon
@@ -50,7 +50,12 @@ extension CommandPaletteController {
             isLauncherPreviewVisible = false
             return true
         }
-        let commandPreview = modifiers == .command && event.charactersIgnoringModifiers?.lowercased() == "y"
+        let commandPreview = modifiers == .command && KeyEquivalent.matches(
+            "y",
+            ansiKeyCode: kVK_ANSI_Y,
+            keyCode: event.keyCode,
+            charactersIgnoringModifiers: event.charactersIgnoringModifiers
+        )
         let focusedPreview = modifiers.isEmpty && event.keyCode == UInt16(kVK_Space) && launcherResultsFocused
         guard commandPreview || focusedPreview else { return false }
         if isLauncherPreviewVisible || selectedLauncherFileResult != nil {
@@ -62,7 +67,12 @@ extension CommandPaletteController {
     private func handleLauncherRevealKey(_ event: NSEvent, modifiers: NSEvent.ModifierFlags) -> Bool {
         guard modifiers == .command,
               [UInt16(kVK_Return), UInt16(kVK_ANSI_KeypadEnter)].contains(event.keyCode)
-              || event.charactersIgnoringModifiers?.lowercased() == "r"
+              || KeyEquivalent.matches(
+                  "r",
+                  ansiKeyCode: kVK_ANSI_R,
+                  keyCode: event.keyCode,
+                  charactersIgnoringModifiers: event.charactersIgnoringModifiers
+              )
         else {
             return false
         }
@@ -107,7 +117,7 @@ extension CommandPaletteController {
         }
 
         let range = ranges[rangeIndex]
-        let columns = max(1, launcherColumnCount)
+        let columns = launcherViewStyle == .list ? 1 : max(1, launcherColumnCount)
         let localIndex = currentIndex - range.start
         let column = localIndex % columns
         let targetIndex: Int
@@ -137,7 +147,7 @@ extension CommandPaletteController {
         direction: Int
     ) -> Int {
         let range = ranges[rangeIndex]
-        let columns = max(1, launcherColumnCount)
+        let columns = launcherViewStyle == .list ? 1 : max(1, launcherColumnCount)
         let localIndex = currentIndex - range.start
         let row = localIndex / columns
         let column = localIndex % columns
@@ -161,7 +171,9 @@ extension CommandPaletteController {
 
     private func launcherSectionRanges() -> [(start: Int, count: Int)] {
         let counts = selectedMode == .applications
-            ? applicationSections.map(\.items.count)
+            ?
+            (launcherFilter == .cli ? [launcherExecutables.count] : [launcherSavedEntries.count] +
+                displayedApplicationSections.map(\.items.count))
             : fileSections.map(\.items.count)
         var start = 0
         return counts.compactMap { count in

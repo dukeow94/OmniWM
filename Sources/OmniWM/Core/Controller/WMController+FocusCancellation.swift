@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import Foundation
@@ -72,11 +72,15 @@ extension WMController {
         {
             return
         }
+        guard let axRef = sourceEntry.axRef else {
+            _ = shellAppWindowManager.focus(sourceToken)
+            return
+        }
         axEventHandler.noteMouseFocusIntent(token: sourceToken)
         _ = windowFocusOperations.activateAndFocusSameAppWindow(
             sourceEntry.pid,
             UInt32(sourceEntry.windowId),
-            sourceEntry.axRef.element
+            axRef.element
         )
     }
 }

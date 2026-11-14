@@ -1,14 +1,19 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import Foundation
 @testable import OmniWMCtl
 import XCTest
 
 enum NuCompletionTestSupport {
-    static func completions(_ commandLine: String) throws -> [String] {
-        let output = try run("\(literal(commandLine)) | commandline complete | to json")
-        return try JSONDecoder().decode([String].self, from: output)
+    static func completions(_ commandLines: [String]) throws -> [[String]] {
+        let list = try commandLines.map(literal).joined(separator: ", ")
+        let output = try run("[\(list)] | each { |line| $line | commandline complete | default [] } | to json")
+        let results = try JSONDecoder().decode([[String]].self, from: output)
+        guard results.count == commandLines.count else {
+            throw Failure.resultCount(expected: commandLines.count, output: String(decoding: output, as: UTF8.self))
+        }
+        return results
     }
 
     static func run(_ body: String) throws -> Data {
@@ -58,12 +63,13 @@ enum NuCompletionTestSupport {
             .map({ URL(fileURLWithPath: String($0)).appendingPathComponent("nu").path })
             .first(where: { FileManager.default.isExecutableFile(atPath: $0) })
         else {
-            throw XCTSkip("Nushell is not installed")
+            throw MissingTestPrerequisite("Nushell is not installed")
         }
         return executable
     }
 
     private enum Failure: Error {
         case shell(Int32, String)
+        case resultCount(expected: Int, output: String)
     }
 }

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import ApplicationServices
 import Foundation
@@ -74,12 +74,17 @@ final class FactResolver {
 
     var factProvider: ((pid_t) -> FocusedWindowFact?)?
     var deferredFactProvider: ((pid_t) async -> FocusedWindowFact?)?
+    private(set) var deferredFactTask: Task<Void, Never>?
 
     private var resolverThread: Thread?
     private var inFlightActivationPids: Set<pid_t> = []
     private var pendingActivationRequestsByPid: [pid_t: ActivationFactRequest] = [:]
     private var inFlightConstraintTokens: Set<WindowToken> = []
     private var resolverGeneration: UInt64 = 0
+
+    var activationRequestsInFlight: Int {
+        inFlightActivationPids.count
+    }
 
     @discardableResult
     func resolveActivationFacts(
@@ -138,10 +143,14 @@ final class FactResolver {
         }
         inFlightActivationPids.insert(request.pid)
         if let deferredFactProvider {
-            Task { @MainActor in
+            deferredFactTask = Task { @MainActor in
                 let focusedWindow = await deferredFactProvider(request.pid)
                 completeActivationFactRequest(request, focusedWindow: focusedWindow)
             }
+            return true
+        }
+        if request.pid == getpid() {
+            completeActivationFactRequest(request, focusedWindow: Self.readFocusedWindowFact(pid: request.pid))
             return true
         }
         nonisolated(unsafe) let thread = AppAXContextRegistry.contexts[request.pid]?.axThread ?? sharedResolverThread()
@@ -220,6 +229,7 @@ final class FactResolver {
             CFRunLoopRun()
         }
         thread.name = "OmniWM-FactResolver"
+        thread.qualityOfService = .userInitiated
         thread.start()
         resolverThread = thread
         return thread

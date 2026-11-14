@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import Carbon
 import Foundation
@@ -72,15 +72,25 @@ enum ActionCatalog {
     }
 
     static func spec(for id: String) -> ActionSpec? {
-        specsByID[id] ?? workspaceNumberSpec(for: id)
+        specsByID[id] ?? dynamicSpec(for: id)
     }
 
     static func spec(for command: HotkeyCommand) -> ActionSpec? {
-        specsByCommand[command] ?? workspaceNumberSpec(for: command)
+        switch command {
+        case let .shellToggle(name): shellToggleSpec(name: name)
+        case let .openApp(bundleID): openAppSpec(bundleID: bundleID)
+        case let .shellAppOpen(id): shellAppSpec(appID: id)
+        case let .shellAppNewWindow(id): shellAppSpec(appID: id, newWindow: true)
+        default: specsByCommand[command] ?? workspaceNumberSpec(for: command)
+        }
+    }
+
+    static func dynamicSpec(for id: String) -> ActionSpec? {
+        workspaceNumberSpec(for: id) ?? shellToggleSpec(for: id) ?? openAppSpec(for: id) ?? shellAppSpec(for: id)
     }
 
     static func normalizedSearchTerms(for id: String) -> [String]? {
-        normalizedSearchTermsByID[id] ?? workspaceNumberSpec(for: id)?.searchTerms.map(normalizedSearchTerm)
+        normalizedSearchTermsByID[id] ?? dynamicSpec(for: id)?.searchTerms.map(normalizedSearchTerm)
     }
 
     static func title(for command: HotkeyCommand) -> String? {
@@ -92,7 +102,8 @@ enum ActionCatalog {
     }
 
     static func layoutCompatibility(for command: HotkeyCommand) -> LayoutCompatibility? {
-        spec(for: command)?.layoutCompatibility
+        if case .openApp = command { return compatibility(for: command) }
+        return spec(for: command)?.layoutCompatibility
     }
 
     static func category(for id: String) -> HotkeyCategory? {
@@ -180,6 +191,9 @@ enum ActionCatalog {
         appendAxisResizeBindings(&specs)
         appendFocusedResizeBindings(&specs)
         appendPreselectionBindings(&specs)
+        specs.append(contentsOf: IPCMediaCommand.allCases.map { $0.actionSpec() })
+        specs.append(contentsOf: IPCKeyboardModeCommand.allCases.map { $0.actionSpec() })
+        appendShellAppBindings(&specs)
         appendPresentationBindings(&specs)
 
         return specs
@@ -191,9 +205,10 @@ enum ActionCatalog {
         category: HotkeyCategory,
         binding: KeyBinding,
         visibility: HotkeyVisibility = .normal,
-        keywords: [String] = []
+        keywords: [String] = [],
+        title: LocalizedStringResource? = nil
     ) -> ActionSpec {
-        let resource = titleResource(for: command)
+        let resource = title ?? titleResource(for: command)
         let localizedTitle = String(localized: resource)
         let title = canonicalSourceTitle(for: resource)
         return ActionSpec(
@@ -222,13 +237,20 @@ enum ActionCatalog {
              .monitorFocus,
              .fullscreen,
              .openCommandPalette,
+             .openCommandPaletteMode,
              .raiseAllFloatingWindows,
              .toggleFloatingFocus,
              .rescueOffscreenWindows,
              .windowState,
              .openMenuAnywhere,
              .windowMark,
-             .presentation:
+             .presentation,
+             .media,
+             .keyboardMode,
+             .shellToggle,
+             .shellAppOpen,
+             .shellAppNewWindow,
+             .openApp:
             .shared
         case let .focusNavigation(action):
             action.compatibility
@@ -257,6 +279,7 @@ enum ActionCatalog {
         case .openCommandPalette: LocalizedStringResource(
                 "command.palette.toggle", defaultValue: "Toggle Command Palette", table: "Commands", bundle: .omniWM
             )
+        case let .openCommandPaletteMode(mode): mode.actionDisplayName()
         case .raiseAllFloatingWindows: LocalizedStringResource(
                 "command.floating.raiseAll", defaultValue: "Raise All Floating Windows", table: "Commands",
                 bundle: .omniWM
@@ -273,75 +296,73 @@ enum ActionCatalog {
         case .openMenuAnywhere: LocalizedStringResource(
                 "command.menu.openAnywhere", defaultValue: "Open Menu Anywhere", table: "Commands", bundle: .omniWM
             )
-        case .windowMark(.set): LocalizedStringResource(
-                "command.windowMark.set", defaultValue: "Set Mark on Focused Window", table: "Commands",
-                bundle: .omniWM
-            )
-        case .windowMark(.remove): LocalizedStringResource(
-                "command.windowMark.remove", defaultValue: "Remove Mark from Focused Window", table: "Commands",
-                bundle: .omniWM
-            )
+        case let .windowMark(action): action.actionDisplayName()
         case let .presentation(command): command.actionDisplayName()
-        case let .focusNavigation(action):
-            action.actionDisplayName()
-        case let .windowMovement(action):
-            action.actionDisplayName()
-        case let .column(action):
-            action.actionDisplayName()
-        case let .workspace(action):
-            action.actionDisplayName()
-        case let .sizing(action):
-            action.actionDisplayName()
-        case let .dwindle(action):
-            action.actionDisplayName()
-        case let .scratchpad(action):
-            action.actionDisplayName()
+        case let .media(command): command.actionDisplayName()
+        case let .keyboardMode(command): command.actionDisplayName()
+        case let .shellToggle(name): LocalizedStringResource(
+                "command.shell.toggle", defaultValue: "Toggle \(name)", table: "Commands", bundle: .omniWM
+            )
+        case .shellAppOpen: shellAppExampleTitle
+        case .shellAppNewWindow: shellAppNewWindowExampleTitle
+        case let .openApp(bundleID): LocalizedStringResource(
+                "command.app.open", defaultValue: "Open \(appDisplayName(bundleID: bundleID))", table: "Commands",
+                bundle: .omniWM
+            )
+        case let .focusNavigation(action): action.actionDisplayName()
+        case let .windowMovement(action): action.actionDisplayName()
+        case let .column(action): action.actionDisplayName()
+        case let .workspace(action): action.actionDisplayName()
+        case let .sizing(action): action.actionDisplayName()
+        case let .dwindle(action): action.actionDisplayName()
+        case let .scratchpad(action): action.actionDisplayName()
         }
     }
+}
 
-    private static func ipcCommandName(for command: HotkeyCommand) -> IPCCommandName? {
-        switch command {
-        case .focus:
-            .focus(.spatial)
-        case .move:
-            .windowMovement(.spatial)
-        case let .monitorFocus(command):
-            .monitorFocus(command)
-        case .moveColumn:
-            .column(.move)
-        case .openCommandPalette:
-            .openCommandPalette
-        case .raiseAllFloatingWindows:
-            .raiseAllFloatingWindows
-        case .toggleFloatingFocus:
-            .toggleFloatingFocus
-        case .rescueOffscreenWindows:
-            .rescueOffscreenWindows
-        case let .fullscreen(command):
-            .fullscreen(command)
-        case let .presentation(command):
-            .presentation(command)
-        case let .windowState(command):
-            .windowState(command)
-        case .openMenuAnywhere:
-            .openMenuAnywhere
-        case .windowMark:
-            nil
-        case let .focusNavigation(action):
-            action.ipcCommandName()
-        case let .windowMovement(action):
-            action.ipcCommandName()
-        case let .column(action):
-            action.ipcCommandName()
-        case let .workspace(action):
-            action.ipcCommandName()
-        case let .sizing(action):
-            action.ipcCommandName()
-        case let .dwindle(action):
-            action.ipcCommandName()
-        case let .scratchpad(action):
-            action.ipcCommandName()
+struct ActionSearchKeys {
+    let localizedTitle: String
+    let category: HotkeyCategory
+    let layoutCompatibility: LayoutCompatibility
+    let title: String
+    let terms: [String]
+    let categoryTerms: [String]
+    let layoutTerms: [String]
+
+    init(spec: ActionSpec, normalizedTerms: [String]) {
+        localizedTitle = spec.localizedTitle
+        category = spec.category
+        layoutCompatibility = spec.layoutCompatibility
+        title = ActionCatalog.normalizedSearchTerm(spec.localizedTitle)
+        categoryTerms = [spec.category.rawValue, spec.category.localizedDisplayName]
+            .map(ActionCatalog.normalizedSearchTerm)
+        layoutTerms = [spec.layoutCompatibility.rawValue, spec.layoutCompatibility.localizedDisplayName]
+            .map(ActionCatalog.normalizedSearchTerm)
+        let excludedTerms = [title] + categoryTerms + layoutTerms
+        terms = normalizedTerms.filter { !excludedTerms.contains($0) }
+    }
+
+    func matches(_ spec: ActionSpec) -> Bool {
+        spec.localizedTitle == localizedTitle && spec.category == category
+            && spec.layoutCompatibility == layoutCompatibility
+    }
+}
+
+extension ActionCatalog {
+    private static let searchKeysByID = Dictionary(
+        uniqueKeysWithValues: specs.map { spec in
+            (spec.id, ActionSearchKeys(spec: spec, normalizedTerms: normalizedSearchTermsByID[spec.id] ?? []))
         }
+    )
+
+    static func searchKeys(for spec: ActionSpec) -> ActionSearchKeys {
+        if let keys = searchKeysByID[spec.id], keys.matches(spec) {
+            return keys
+        }
+        return ActionSearchKeys(
+            spec: spec,
+            normalizedTerms: normalizedSearchTerms(for: spec.id) ?? spec.searchTerms.map(normalizedSearchTerm)
+        )
     }
 }
 

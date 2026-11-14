@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import Foundation
 
@@ -23,7 +23,9 @@ public enum IPCResultKind: String, Codable, Equatable, Sendable {
     case capabilities
     case subscribed
     case windowMarks = "window-marks"
+    case windowGather = "window-gather"
     case metrics
+    case shellWidgets = "shell-widgets"
 }
 
 public struct IPCPingResult: Codable, Equatable, Sendable {
@@ -77,7 +79,9 @@ public struct IPCResult: Codable, Equatable, Sendable {
         case capabilities(IPCCapabilitiesQueryResult)
         case subscribed(IPCSubscribeResult)
         case windowMarks(IPCWindowMarksResult)
+        case windowGather(IPCWindowGatherResult)
         case metrics(IPCMetricsQueryResult)
+        case shellWidgets(IPCShellWidgetsQueryResult)
     }
 
     public let kind: IPCResultKind
@@ -98,6 +102,10 @@ public struct IPCResult: Codable, Equatable, Sendable {
 
     public init(capture: IPCCaptureResult) {
         self.init(kind: .capture, payload: .capture(capture))
+    }
+
+    public init(shellWidgets: IPCShellWidgetsQueryResult) {
+        self.init(kind: .shellWidgets, payload: .shellWidgets(shellWidgets))
     }
 
     public init(workspaceBar: IPCWorkspaceBarQueryResult) {
@@ -164,6 +172,10 @@ public struct IPCResult: Codable, Equatable, Sendable {
         self.init(kind: .windowMarks, payload: .windowMarks(windowMarks))
     }
 
+    public init(windowGather: IPCWindowGatherResult) {
+        self.init(kind: .windowGather, payload: .windowGather(windowGather))
+    }
+
     public init(metrics: IPCMetricsQueryResult) {
         self.init(kind: .metrics, payload: .metrics(metrics))
     }
@@ -186,6 +198,8 @@ public struct IPCResult: Codable, Equatable, Sendable {
             payload = .capture(try container.decode(IPCCaptureResult.self, forKey: .payload))
         case .workspaceBar:
             payload = .workspaceBar(try container.decode(IPCWorkspaceBarQueryResult.self, forKey: .payload))
+        case .shellWidgets:
+            payload = .shellWidgets(try container.decode(IPCShellWidgetsQueryResult.self, forKey: .payload))
         case .activeWorkspace:
             payload = .activeWorkspace(try container.decode(IPCActiveWorkspaceQueryResult.self, forKey: .payload))
         case .focusedMonitor:
@@ -216,6 +230,8 @@ public struct IPCResult: Codable, Equatable, Sendable {
             payload = .subscribed(try container.decode(IPCSubscribeResult.self, forKey: .payload))
         case .windowMarks:
             payload = .windowMarks(try container.decode(IPCWindowMarksResult.self, forKey: .payload))
+        case .windowGather:
+            payload = .windowGather(try container.decode(IPCWindowGatherResult.self, forKey: .payload))
         case .metrics:
             payload = .metrics(try container.decode(IPCMetricsQueryResult.self, forKey: .payload))
         }
@@ -233,6 +249,8 @@ public struct IPCResult: Codable, Equatable, Sendable {
         case let .capture(payload):
             try container.encode(payload, forKey: .payload)
         case let .workspaceBar(payload):
+            try container.encode(payload, forKey: .payload)
+        case let .shellWidgets(payload):
             try container.encode(payload, forKey: .payload)
         case let .activeWorkspace(payload):
             try container.encode(payload, forKey: .payload)
@@ -263,6 +281,8 @@ public struct IPCResult: Codable, Equatable, Sendable {
         case let .subscribed(payload):
             try container.encode(payload, forKey: .payload)
         case let .windowMarks(payload):
+            try container.encode(payload, forKey: .payload)
+        case let .windowGather(payload):
             try container.encode(payload, forKey: .payload)
         case let .metrics(payload):
             try container.encode(payload, forKey: .payload)

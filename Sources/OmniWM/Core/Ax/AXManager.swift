@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import ApplicationServices
@@ -19,6 +19,7 @@ final class AXManager {
     var onFrameApplyTerminated: ((AXFrameApplyResult) -> Void)?
     var onFrameApplySucceeded: ((AXFrameApplyResult) -> Void)?
     var onStableSizeClamp: ((AXFrameApplyResult) -> Void)?
+    var onParkFrameApplyFailed: ((AXFrameApplyResult) -> Void)?
     var onManagedWindowBindingFailed: ((pid_t) -> Void)? {
         get { managedWindowBindings.onManagedWindowBindingFailed }
         set { managedWindowBindings.onManagedWindowBindingFailed = newValue }
@@ -40,7 +41,10 @@ final class AXManager {
     let frameBatchBuffer = AXFrameBatchBuffer()
     let managedWindowBindings = AXManagedWindowBindings()
     let frameLedger = AXFrameApplicationLedger()
-    var workspaceFrameSettlement: AXFrameSettlement?
+    var workspaceFrameSettlements: [AXFrameSettlement] = []
+    var deferredParkRequests: [AXFrameApplicationRequest] = []
+    var deferredParkAwaitedWindowIds: Set<Int> = []
+    var deferredParkTimeout: Task<Void, Never>?
     private var pendingFrameRetryTasksByWindowId: [Int: Task<Void, Never>] = [:]
     private var pendingFrameRetryGenerationByWindowId: [Int: UInt64] = [:]
     private var pendingFrameRetryRequestsByWindowId: [Int: AXFrameRetryRequest] = [:]
@@ -345,6 +349,21 @@ final class AXManager {
 }
 
 extension AXManager {
+    func isAwaitingFrameWrite(_ windowId: Int) -> Bool {
+        frameLedger.hasPendingFrameWrite(for: windowId) || pendingFrameRetryRequestsByWindowId[windowId] != nil
+    }
+
+    func hasPendingFrameSizeChange(for windowId: Int, comparedTo size: CGSize) -> Bool {
+        let targets = [
+            frameLedger.pendingFrameWrite(for: windowId),
+            pendingFrameRetryRequestsByWindowId[windowId]?.frame
+        ].compactMap { $0 }
+        return targets.contains {
+            abs($0.width - size.width) > FrameTolerance.frameWrite
+                || abs($0.height - size.height) > FrameTolerance.frameWrite
+        }
+    }
+
     func scheduleFrameRetry(_ retry: AXFrameRetryRequest) {
         let pid = retry.pid
         let windowId = retry.windowId

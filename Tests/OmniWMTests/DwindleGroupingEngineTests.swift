@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import CoreGraphics
 @testable import OmniWM
@@ -419,9 +419,9 @@ final class DwindleGroupingEngineTests: XCTestCase {
 
         let frame = engine.calculateLayout(for: workspace, screen: screen)[second]
         let tileFrame = engine.tileFrame(for: second, in: workspace)
-        XCTAssertEqual(frame?.width ?? 0, 600, accuracy: 0.5)
-        XCTAssertEqual(frame?.height ?? 0, 650, accuracy: 0.5)
-        XCTAssertEqual(tileFrame?.width ?? 0, 612, accuracy: 0.5)
+        XCTAssertEqual(frame?.width ?? 0, 600)
+        XCTAssertEqual(frame?.height ?? 0, 650)
+        XCTAssertEqual(tileFrame?.width ?? 0, 612)
 
         XCTAssertEqual(engine.activateWindowOutcome(first, in: workspace), .activated)
         let switchedFrame = engine.calculateLayout(for: workspace, screen: screen)[first]
@@ -452,7 +452,7 @@ final class DwindleGroupingEngineTests: XCTestCase {
         XCTAssertEqual(oldFrames[second], sourceFrame)
         XCTAssertEqual(previousTargets[second], sourceFrame)
         XCTAssertEqual(
-            engine.calculateAnimatedFrames(baseFrames: newFrames, in: workspace, at: 100)[second],
+            engine.presentedFrames(in: workspace, at: 100)[second],
             sourceFrame
         )
     }
@@ -488,7 +488,7 @@ final class DwindleGroupingEngineTests: XCTestCase {
         XCTAssertEqual(oldFrames[second], groupedFrame)
         XCTAssertEqual(previousTargets[second], groupedFrame)
         XCTAssertEqual(
-            engine.calculateAnimatedFrames(baseFrames: newFrames, in: workspace, at: 100)[second],
+            engine.presentedFrames(in: workspace, at: 100)[second],
             groupedFrame
         )
     }

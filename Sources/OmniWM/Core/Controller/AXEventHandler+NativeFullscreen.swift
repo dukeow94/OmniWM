@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import Foundation
 
@@ -84,6 +84,7 @@ extension AXEventHandler {
         if controller.workspaceManager.isWindowOnObservedNativeFullscreenSpace(entry.windowId) {
             return true
         }
-        return AXWindowService.isFullscreenAttributeSet(entry.axRef)
+        guard let axRef = entry.axRef else { return false }
+        return AXWindowService.isFullscreenAttributeSet(axRef)
     }
 }

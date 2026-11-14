@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import Foundation
 @testable import OmniWM
@@ -26,7 +26,10 @@ final class LayoutSectionsSettingsExportTests: XCTestCase {
             "containerPrimarySpanPresets": .array([.float(1.0 / 3), .float(0.5), .float(2.0 / 3)]),
             "defaultContainerPrimarySpan": .float(0.5),
             "edgeGaps": .boolean(true),
-            "resizeStepPercent": .integer(5)
+            "resizeStepPercent": .integer(5),
+            "moveWindowStacksIntoColumn": .boolean(true),
+            "allowOverscroll": .boolean(false),
+            "overscrollVisibleStripPercent": .integer(5)
         ]))
         XCTAssertEqual(tree["dwindle"], .table([
             "smartSplit": .boolean(false),
@@ -116,7 +119,7 @@ final class LayoutSectionsSettingsExportTests: XCTestCase {
         var export = SettingsExport.defaults()
         export.niri = settings.export()
         let ids = ["ContainerPrimary", "WindowPrimary", "WindowSecondary"].flatMap { span in
-            ["decrease", "increase"].map { "set\(span)Span.\($0)10Percent" }
+            ["shrink", "grow"].map { "resize\(span)Span.\($0)" }
         }
         let shortcut = try XCTUnwrap(KeySymbolMapper.fromHumanReadable("Hyper+Minus"))
         for index in export.hotkeyBindings.indices where ids.contains(export.hotkeyBindings[index].id) {

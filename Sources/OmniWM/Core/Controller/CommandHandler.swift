@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import Foundation
@@ -67,31 +67,25 @@ final class CommandHandler {
         switch command {
         case let .focus(direction):
             focusWindow(direction: direction)
-        case let .focusNavigation(action):
-            return perform(action, controller: controller)
+        case let .focusNavigation(action): return perform(action, controller: controller)
         case let .move(direction):
             let outcome = moveWindow(direction: direction)
             if outcome == .atWorkspaceEdge, controller.settings.focus.moveCrossesMonitorAtEdge {
                 controller.workspaceNavigationHandler.moveWindowAcrossMonitorAtEdge(direction: direction)
             }
-        case let .workspace(action):
-            return perform(action, controller: controller)
-        case let .windowMovement(action):
-            return perform(action, controller: controller)
-        case let .column(action):
-            return perform(action, controller: controller)
-        case let .monitorFocus(action):
-            return perform(action, controller: controller)
-        case let .fullscreen(action):
-            return perform(action, controller: controller)
+        case let .workspace(action): return perform(action, controller: controller)
+        case let .windowMovement(action): return perform(action, controller: controller)
+        case let .column(action): return perform(action, controller: controller)
+        case let .monitorFocus(action): return perform(action, controller: controller)
+        case let .fullscreen(action): return perform(action, controller: controller)
         case let .moveColumn(direction):
             moveContainer(direction: direction)
-        case let .sizing(action):
-            return perform(action, controller: controller)
-        case let .dwindle(action):
-            return perform(action, controller: controller)
+        case let .sizing(action): return perform(action, controller: controller)
+        case let .dwindle(action): return perform(action, controller: controller)
         case .openCommandPalette:
             controller.openCommandPalette()
+        case let .openCommandPaletteMode(mode):
+            controller.openCommandPalette(mode: CommandPaletteMode(ipc: mode))
         case .raiseAllFloatingWindows:
             controller.raiseAllFloatingWindows()
         case .toggleFloatingFocus:
@@ -102,20 +96,30 @@ final class CommandHandler {
             return controller.toggleFocusedWindowFloating()
         case .windowState(.close):
             return controller.closeFocusedWindow()
-        case let .scratchpad(action):
-            return perform(action, controller: controller)
+        case let .scratchpad(action): return perform(action, controller: controller)
         case .openMenuAnywhere:
             controller.openMenuAnywhere()
         case let .windowMark(action):
             return performWindowMarkAction(action, for: controller.workspaceManager.nativeManagedFocusToken)
-        case let .presentation(action):
-            return perform(action, controller: controller)
+        case let .presentation(action): return perform(action, controller: controller)
+        case let .media(action): perform(action, controller: controller)
+        case let .keyboardMode(command):
+            return controller.performKeyboardModeCommand(command)
+        case let .shellToggle(name):
+            return controller.workspaceBarManager.toggleShell(name) ? .executed : .notFound
+        case let .shellAppOpen(appID):
+            return controller.shellAppWindowManager.open(appID) ? .executed : .notFound
+        case let .shellAppNewWindow(appID):
+            return controller.shellAppWindowManager.newWindow(appID) ? .executed : .notFound
+        case let .openApp(bundleID): return openApp(bundleID, controller: controller)
         }
         return .executed
     }
 
     static func shouldIgnoreCommand(_ command: HotkeyCommand, isOverviewOpen: Bool) -> Bool {
-        isOverviewOpen && command != .presentation(.overview)
+        guard isOverviewOpen else { return false }
+        if case .keyboardMode = command { return false }
+        return command != .presentation(.overview)
     }
 
     func layoutHandler<T>(as capability: T.Type) -> T? {
@@ -225,21 +229,16 @@ final class CommandHandler {
            let entry = controller.workspaceManager.entry(for: token),
            !controller.workspaceManager.isWindowSuppressedByMacOS(entry.token)
         {
-            let currentState = isFullscreen(entry.axRef)
-            if currentState {
-                applyNativeFullscreenExit(
-                    token,
-                    axRef: entry.axRef,
-                    controller: controller,
-                    setter: setFullscreen
-                )
+            guard let axRef = entry.axRef else { return }
+            if isFullscreen(axRef) {
+                applyNativeFullscreenExit(token, axRef: axRef, controller: controller, setter: setFullscreen)
                 return
             }
 
             guard controller.workspaceManager.requestNativeFullscreenEnter(token, in: entry.workspaceId) else {
                 return
             }
-            guard setFullscreen(entry.axRef, true) else {
+            guard setFullscreen(axRef, true) else {
                 controller.workspaceManager.restoreNativeFullscreenRecord(for: token)
                 return
             }
@@ -257,6 +256,7 @@ final class CommandHandler {
             ?? frontmostPid.flatMap { controller.axEventHandler.focusedWindowToken(for: $0) }
         guard let token = controller.workspaceManager.nativeFullscreenCommandTarget(frontmostToken: frontmostToken),
               let entry = controller.workspaceManager.entry(for: token),
+              let axRef = entry.axRef,
               !controller.workspaceManager.isWindowSuppressedByMacOS(entry.token)
         else {
             return
@@ -264,7 +264,7 @@ final class CommandHandler {
 
         applyNativeFullscreenExit(
             token,
-            axRef: entry.axRef,
+            axRef: axRef,
             controller: controller,
             setter: setFullscreen
         )
@@ -371,5 +371,21 @@ extension CommandHandler {
              .staleMark:
             .windowActionFailed
         }
+    }
+
+    private func openApp(_ bundleID: String, controller: WMController) -> ExternalCommandResult {
+        guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) else {
+            return .notFound
+        }
+        controller.commandPaletteController.actionExecutor.perform(.openApplication(
+            controller,
+            LauncherApplicationResult(
+                bundleURL: url,
+                bundleIdentifier: bundleID,
+                displayName: FileManager.default.displayName(atPath: url.path)
+            ),
+            ""
+        ))
+        return .executed
     }
 }

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import Foundation
 
@@ -189,10 +189,9 @@ enum RefreshReason: String, Sendable {
              .windowReopened,
              .appHidden,
              .appUnhidden,
-             .overviewMutation:
+             .overviewMutation,
+             .axWindowCreated:
             .plain
-        case .axWindowCreated:
-            .debounced(nanoseconds: 4_000_000, dropWhileBusy: false)
         case .axWindowChanged:
             .debounced(nanoseconds: 8_000_000, dropWhileBusy: true)
         case .staleLayoutPlan:

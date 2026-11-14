@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import SwiftUI
 
 struct MenuHeader: View {
     private var appVersion: String {
-        Bundle.main.appVersion ?? "0.3.1"
+        Bundle.main.appDisplayVersion ?? "0.3.1"
     }
 
     var body: some View {

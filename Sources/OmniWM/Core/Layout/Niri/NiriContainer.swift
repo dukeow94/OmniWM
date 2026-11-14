@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import CoreGraphics
 import Foundation
@@ -37,16 +37,24 @@ class NiriContainer: NiriNode {
 
     var widthAnimation: SpringAnimation?
     var targetWidth: CGFloat?
+    var heightAnimation: SpringAnimation?
+    var targetHeight: CGFloat?
     var fittedWidth: CGFloat?
     var fittedHeight: CGFloat?
+    var edgeHiddenFrame: CGRect?
 
     var settledWidth: CGFloat {
         targetWidth ?? cachedWidth
     }
 
+    var settledHeight: CGFloat {
+        targetHeight ?? cachedHeight
+    }
+
     private var _cachedWindowNodes: [NiriWindow]?
 
     private(set) var axisSolveRevision: UInt64 = 0
+    var axisSolveMemo: (key: NiriAxisSolveKey, outputs: [NiriAxisSolver.Output])?
 
     override init() {
         super.init()
@@ -67,7 +75,8 @@ class NiriContainer: NiriNode {
         orientation: Monitor.Orientation,
         availableSpace: CGFloat,
         gaps: CGFloat,
-        contentInset: CGFloat = 0
+        contentInset: CGFloat = 0,
+        applyingPackingHints: Bool = true
     ) -> CGFloat {
         let bounds = orientation == .horizontal ? widthBounds(contentInset: contentInset) : heightBounds()
         var result: CGFloat = switch spec {
@@ -78,12 +87,14 @@ class NiriContainer: NiriNode {
         }
         let effectiveMaxConstraint = bounds.max.map { max($0, bounds.min) }
         if result < bounds.min { result = bounds.min }
-        result = packedPrimarySpan(
-            result,
-            orientation: orientation,
-            limit: availableSpace - gaps * 2,
-            contentInset: contentInset
-        )
+        if applyingPackingHints {
+            result = packedPrimarySpan(
+                result,
+                orientation: orientation,
+                limit: availableSpace - gaps * 2,
+                contentInset: contentInset
+            )
+        }
         if let effectiveMaxConstraint, result > effectiveMaxConstraint { result = effectiveMaxConstraint }
         return result
     }
@@ -120,7 +131,9 @@ class NiriContainer: NiriNode {
         if targetWidth == nil {
             cachedWidth = 0
         }
-        cachedHeight = 0
+        if targetHeight == nil {
+            cachedHeight = 0
+        }
     }
 
     func widthBounds(contentInset: CGFloat = 0) -> (min: CGFloat, max: CGFloat?) {
@@ -201,6 +214,8 @@ class NiriContainer: NiriNode {
             targetWidth = nil
         case .vertical:
             cachedHeight = 0
+            heightAnimation = nil
+            targetHeight = nil
         }
     }
 
@@ -360,58 +375,6 @@ extension NiriContainer {
         return true
     }
 
-    @discardableResult
-    func animateWidthTo(
-        newWidth: CGFloat,
-        clock: AnimationClock?,
-        config: SpringConfig,
-        displayRefreshRate: Double = 60.0,
-        animated: Bool
-    ) -> Bool {
-        guard animated else {
-            cachedWidth = newWidth
-            widthAnimation = nil
-            targetWidth = nil
-            return false
-        }
-
-        let now = clock?.now() ?? CACurrentMediaTime()
-        let currentWidth = cachedWidth > 0 ? cachedWidth : newWidth
-        let currentVel = widthAnimation?.velocity(at: now) ?? 0
-
-        widthAnimation = SpringAnimation(
-            from: Double(currentWidth),
-            to: Double(newWidth),
-            initialVelocity: currentVel,
-            startTime: now,
-            config: config,
-            displayRefreshRate: displayRefreshRate
-        )
-        targetWidth = newWidth
-        return true
-    }
-
-    func tickWidthAnimation(at time: TimeInterval) -> Bool {
-        guard let anim = widthAnimation else { return false }
-
-        let lowerEndpoint = min(CGFloat(anim.from), targetWidth ?? CGFloat(anim.from))
-        cachedWidth = max(CGFloat(anim.value(at: time)), lowerEndpoint)
-
-        if anim.isComplete(at: time) {
-            if let target = targetWidth {
-                cachedWidth = target
-            }
-            widthAnimation = nil
-            targetWidth = nil
-            return false
-        }
-        return true
-    }
-
-    var hasWidthAnimationRunning: Bool {
-        widthAnimation != nil
-    }
-
     func stopAnimations() {
         moveAnimation = nil
         moveAnimationOrientation = nil
@@ -420,5 +383,10 @@ extension NiriContainer {
         }
         widthAnimation = nil
         targetWidth = nil
+        if let targetHeight {
+            cachedHeight = targetHeight
+        }
+        heightAnimation = nil
+        targetHeight = nil
     }
 }

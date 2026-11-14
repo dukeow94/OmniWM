@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 
@@ -44,14 +44,32 @@ enum TabRailMetrics {
     }
 }
 
+@MainActor
+enum TabRailPlacement {
+    static func frame(
+        for visibleTileFrame: CGRect, tabCount: Int, style: TabRailStyle, displayFrame: CGRect? = nil
+    ) -> CGRect {
+        guard tabCount > 0,
+              TabRailManager.isRenderable(visibleTileFrame: visibleTileFrame)
+        else { return .zero }
+        let width = style.hitWidth
+        let height = style.fittedHeight(tabCount: tabCount, availableHeight: visibleTileFrame.height)
+        guard height > 1 else { return .zero }
+        let x = visibleTileFrame.minX - (width - style.reservedWidth)
+        let y = visibleTileFrame.minY + (visibleTileFrame.height - height) / 2
+        let frame = CGRect(x: x, y: y, width: width, height: height)
+        return displayFrame.map { frame.intersection($0) } ?? frame
+    }
+}
+
 enum TabRailOrderingPolicy {
-    static func shouldOrderFront(
+    static func shouldReorder(
         forceOrdering: Bool,
-        wasVisible: Bool,
+        wasOrderedIn: Bool,
         lastActiveWindowId: Int?,
         activeWindowId: Int?
     ) -> Bool {
-        forceOrdering || !wasVisible || lastActiveWindowId != activeWindowId
+        forceOrdering || !wasOrderedIn || lastActiveWindowId != activeWindowId
     }
 }
 

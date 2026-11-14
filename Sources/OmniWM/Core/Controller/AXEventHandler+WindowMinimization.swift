@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import ApplicationServices
 import Foundation
@@ -18,7 +18,7 @@ extension AXEventHandler {
             }
             return
         }
-        guard CFEqual(entry.axRef.element, axRef.element) else { return }
+        guard let entryAXRef = entry.axRef, CFEqual(entryAXRef.element, axRef.element) else { return }
         updateWindowMinimizedState(minimized, token: token)
         if !minimized, frontmostApplicationPIDProvider() == pid {
             handleAppActivation(pid: pid, source: .focusedWindowChanged)
@@ -80,7 +80,7 @@ extension AXEventHandler {
             controller.intentLedger.discardPendingFocus(token)
             controller.layoutRefreshController.cancelActiveAnimations(for: entry.workspaceId)
         }
-        controller.axManager.setWindowNativeSuppressed(suppressed, token: token)
+        if entry.axRef != nil { controller.axManager.setWindowNativeSuppressed(suppressed, token: token) }
         controller.mouseEventHandler.handleAppVisibilityChanged()
         controller.windowActionHandler.refreshOverviewProjection(affectedWorkspaceIds: [entry.workspaceId])
         if requestRefresh {
@@ -90,5 +90,6 @@ extension AXEventHandler {
             )
         }
         controller.surfaceReconciler.noteWorldChanged()
+        controller.windowSwitcherControllerStorage?.refreshWindows()
     }
 }

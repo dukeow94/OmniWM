@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import ApplicationServices
 @testable import OmniWM
@@ -26,6 +26,7 @@ final class FocusWithoutRaiseTests: XCTestCase {
         var workerAvailable = true
         var coverage: Bool?
         var coverageQueries: [(windowId: UInt32, candidates: Set<UInt32>)] = []
+        var heldFocusCompletions: [@MainActor () -> Void]?
     }
 
     func testCoveredTiledMouseFocusRechecksCoverageOnRetry() throws {
@@ -54,7 +55,7 @@ final class FocusWithoutRaiseTests: XCTestCase {
             fixture.recorder.coverage = coverage
             fixture.recorder.operations.removeAll()
             fixture.controller.retryManagedFocusFronting(request)
-            XCTAssertEqual(fixture.recorder.operations, [.activate(target.pid), .focus(target), .raise])
+            XCTAssertEqual(fixture.recorder.operations, [.focus(target), .raise])
         }
     }
 
@@ -86,7 +87,7 @@ final class FocusWithoutRaiseTests: XCTestCase {
             XCTAssertEqual(
                 fixture.recorder.operations,
                 origin == .focusFollowsMouse && !raiseOnMouseFocus
-                    ? [.focus(target)] : [.activate(target.pid), .focus(target), .raise]
+                    ? [.focus(target)] : [.focus(target), .raise]
             )
         }
     }
@@ -110,7 +111,7 @@ final class FocusWithoutRaiseTests: XCTestCase {
         fixture.controller.focusWindow(target, origin: .focusFollowsMouse)
 
         XCTAssertTrue(fixture.recorder.coverageQueries.isEmpty)
-        XCTAssertEqual(fixture.recorder.operations, [.activate(target.pid), .focus(target), .raise])
+        XCTAssertEqual(fixture.recorder.operations, [.focus(target), .raise])
     }
 
     func testCoveredMouseFocusPromotionRetainsKeyboardAndClickRaising() throws {
@@ -131,7 +132,7 @@ final class FocusWithoutRaiseTests: XCTestCase {
             fixture.controller.focusWindow(target, origin: .focusFollowsMouse)
             fixture.controller.focusWindow(target, origin: origin)
 
-            XCTAssertEqual(fixture.recorder.operations, [.focus(target), .activate(target.pid), .focus(target), .raise])
+            XCTAssertEqual(fixture.recorder.operations, [.focus(target), .focus(target), .raise])
             XCTAssertEqual(fixture.recorder.coverageQueries.count, 1)
             XCTAssertEqual(fixture.controller.intentLedger.activeManagedRequest?.origin, origin)
         }
@@ -366,7 +367,7 @@ final class FocusWithoutRaiseTests: XCTestCase {
 
         XCTAssertEqual(
             fixture.recorder.operations,
-            [.deactivate(source), .activate(target.pid), .focus(target), .raise]
+            [.deactivate(source), .focus(target), .raise]
         )
         XCTAssertEqual(fixture.controller.intentLedger.activeManagedRequest?.origin, .pointerHover)
         XCTAssertEqual(fixture.controller.intentLedger.activeManagedRequest?.phase, .awaitingConfirmation)
@@ -416,6 +417,7 @@ final class FocusWithoutRaiseTests: XCTestCase {
         XCTAssertEqual(fixture.controller.intentLedger.intent(id: supersededRequestId)?.phase, .cancelled)
         XCTAssertEqual(fixture.controller.workspaceManager.pendingFocusedToken, replacementTarget)
 
+        let sourceReference = try XCTUnwrap(sourceEntry.axRef)
         fixture.controller.hasStartedServices = true
         fixture.controller.axEventHandler.handleActivationFactsResolved(
             ActivationFacts(
@@ -425,7 +427,7 @@ final class FocusWithoutRaiseTests: XCTestCase {
                 observationGeneration: 0,
                 requestedAtSeq: 0,
                 focusedWindow: FocusedWindowFact(
-                    axRef: sourceEntry.axRef,
+                    axRef: sourceReference,
                     isFullscreen: false,
                     isSystemModalSurface: false
                 )
@@ -579,7 +581,7 @@ final class FocusWithoutRaiseTests: XCTestCase {
 
             XCTAssertEqual(
                 fixture.recorder.operations,
-                [.activate(target.pid), .focus(target), .raise],
+                [.focus(target), .raise],
                 "origin=\(origin), raiseOnMouseFocus=\(raiseOnMouseFocus)"
             )
         }
@@ -606,7 +608,7 @@ final class FocusWithoutRaiseTests: XCTestCase {
 
         XCTAssertEqual(
             fixture.recorder.operations,
-            [.activate(target.pid), .focus(target), .raise]
+            [.focus(target), .raise]
         )
         XCTAssertEqual(fixture.controller.intentLedger.activeManagedRequest?.phase, .awaitingConfirmation)
     }
@@ -836,7 +838,7 @@ final class FocusWithoutRaiseTests: XCTestCase {
 
             fixture.controller.axEventHandler.handleIntentExpired(request.requestId)
 
-            XCTAssertEqual(fixture.recorder.operations, [.activate(target.pid), .focus(target), .raise])
+            XCTAssertEqual(fixture.recorder.operations, [.focus(target), .raise])
         }
     }
 
@@ -968,7 +970,7 @@ final class FocusWithoutRaiseTests: XCTestCase {
 
         XCTAssertEqual(
             fixture.recorder.operations,
-            [.focus(target), .activate(target.pid), .focus(target), .raise]
+            [.focus(target), .focus(target), .raise]
         )
         XCTAssertEqual(fixture.controller.intentLedger.activeManagedRequest?.origin, .pointerHover)
     }
@@ -1420,6 +1422,80 @@ final class FocusWithoutRaiseTests: XCTestCase {
         XCTAssertNil(fixture.controller.workspaceManager.pendingFocusedToken)
     }
 
+    func testMatchingPointerSampleChecksScreenshotSelectionOnceWhenCompletingSameAppHandoff() throws {
+        for selectionActive in [false, true] {
+            let fixture = try makeFixture()
+            let source = addWindow(
+                pid: 820_070,
+                windowId: 820_170,
+                to: fixture.workspaceId,
+                controller: fixture.controller
+            )
+            let target = addWindow(
+                pid: source.pid,
+                windowId: 820_171,
+                to: fixture.workspaceId,
+                controller: fixture.controller,
+                mode: .floating
+            )
+            setFocused(source, in: fixture.workspaceId, controller: fixture.controller)
+            fixture.recorder.operations.removeAll()
+            let request = try hoverFloatingTarget(target, in: fixture.workspaceId, controller: fixture.controller)
+            XCTAssertEqual(fixture.recorder.operations, [.deactivate(source)])
+            var selectionChecks = 0
+            fixture.controller.focusPolicyEngine.screenshotSelectionActiveProvider = {
+                selectionChecks += 1
+                return selectionActive
+            }
+
+            fixture.controller.axEventHandler.handleIntentExpired(request.requestId)
+
+            if selectionActive {
+                XCTAssertFalse(fixture.recorder.operations.contains(.activateSameApp(target)))
+                XCTAssertNil(fixture.controller.intentLedger.activeManagedRequest)
+                XCTAssertNil(fixture.controller.workspaceManager.pendingFocusedToken)
+            } else {
+                XCTAssertEqual(selectionChecks, 1)
+                XCTAssertEqual(fixture.recorder.operations, [.deactivate(source), .activateSameApp(target)])
+                XCTAssertEqual(fixture.controller.intentLedger.activeManagedRequest?.phase, .awaitingConfirmation)
+            }
+        }
+    }
+
+    func testMatchingPointerSampleChecksScreenshotSelectionOnceWhenRetryingMouseFocus() throws {
+        for selectionActive in [false, true] {
+            let fixture = try makeFixture()
+            let target = addWindow(
+                pid: 820_071,
+                windowId: 820_172,
+                to: fixture.workspaceId,
+                controller: fixture.controller,
+                mode: .floating
+            )
+            let request = try hoverFloatingTarget(target, in: fixture.workspaceId, controller: fixture.controller)
+            XCTAssertEqual(fixture.recorder.operations, [.focus(target)])
+            var selectionChecks = 0
+            fixture.controller.focusPolicyEngine.screenshotSelectionActiveProvider = {
+                selectionChecks += 1
+                return selectionActive
+            }
+
+            fixture.controller.retryManagedFocusFronting(request)
+
+            XCTAssertEqual(selectionChecks, 1, "selectionActive=\(selectionActive)")
+            XCTAssertEqual(
+                fixture.recorder.operations,
+                selectionActive ? [.focus(target)] : [.focus(target), .focus(target)],
+                "selectionActive=\(selectionActive)"
+            )
+            XCTAssertEqual(
+                fixture.controller.intentLedger.activeManagedRequest?.token,
+                selectionActive ? nil : target,
+                "selectionActive=\(selectionActive)"
+            )
+        }
+    }
+
     func testRetiringPendingTargetRestoresSourceBeforeRemoval() throws {
         let fixture = try makeFixture()
         let source = addWindow(
@@ -1505,9 +1581,10 @@ final class FocusWithoutRaiseTests: XCTestCase {
         rebindState.executionPhase = .running(executionOwner)
         fixture.controller.axEventHandler.admissionRetryStateByWindowId[UInt32(replacement.windowId)] = rebindState
 
+        let targetReference = try XCTUnwrap(targetEntry.axRef)
         await fixture.controller.axEventHandler.completeManagedWindowIdentityRebind(
             rebind: .init(
-                oldWindow: AXManagedWindowIdentity(token: target, axRef: targetEntry.axRef),
+                oldWindow: AXManagedWindowIdentity(token: target, axRef: targetReference),
                 newWindow: AXManagedWindowIdentity(
                     token: replacement,
                     axRef: replacementRef
@@ -1565,7 +1642,7 @@ final class FocusWithoutRaiseTests: XCTestCase {
         XCTAssertNil(fixture.controller.workspaceManager.pendingFocusedToken)
     }
 
-    func testDisabledFocusFollowsMouseRejectsRequestBeforeFocusOrProbe() async throws {
+    func testDisabledFocusFollowsMouseRejectsRequestBeforeFocusOrProbe() throws {
         let fixture = try makeFixture(focusFollowsMouseEnabled: false)
         let target = addWindow(
             pid: 820_018,
@@ -1580,10 +1657,11 @@ final class FocusWithoutRaiseTests: XCTestCase {
             return nil
         }
 
-        fixture.controller.focusWindow(target, origin: .focusFollowsMouse)
-        await Task.yield()
+        fixture.recorder.heldFocusCompletions = []
+        XCTAssertNil(fixture.controller.focusWindow(target, origin: .focusFollowsMouse))
 
         XCTAssertTrue(fixture.recorder.operations.isEmpty)
+        XCTAssertEqual(fixture.recorder.heldFocusCompletions?.count, 0)
         XCTAssertEqual(factRequestCount, 0)
         XCTAssertNil(fixture.controller.intentLedger.activeManagedRequest)
         XCTAssertNil(fixture.controller.workspaceManager.pendingFocusedToken)
@@ -1598,22 +1676,28 @@ final class FocusWithoutRaiseTests: XCTestCase {
             controller: fixture.controller
         )
         var factRequestCount = 0
+        var initialProbe: CheckedContinuation<Void, Never>?
         fixture.controller.hasStartedServices = true
         fixture.controller.factResolver.factProvider = { _ in
             factRequestCount += 1
+            initialProbe?.resume()
+            initialProbe = nil
             return nil
         }
+        fixture.recorder.heldFocusCompletions = []
         fixture.controller.focusWindow(target, origin: .focusFollowsMouse)
         let requestId = try XCTUnwrap(fixture.controller.intentLedger.activeManagedRequest?.requestId)
-        await Task.yield()
-        await Task.yield()
+        let completeFocus = try XCTUnwrap(fixture.recorder.heldFocusCompletions?.first)
+        await withCheckedContinuation { continuation in
+            initialProbe = continuation
+            completeFocus()
+        }
         let initialFactRequestCount = factRequestCount
         fixture.recorder.operations.removeAll()
 
         fixture.controller.setFocusFollowsMouse(false)
         fixture.controller.axEventHandler.handleIntentExpired(requestId)
-        await Task.yield()
-        await Task.yield()
+        completeFocus()
 
         XCTAssertTrue(fixture.recorder.operations.isEmpty)
         XCTAssertEqual(factRequestCount, initialFactRequestCount)
@@ -1640,7 +1724,7 @@ final class FocusWithoutRaiseTests: XCTestCase {
 
         XCTAssertEqual(
             fixture.recorder.operations,
-            [.activate(target.pid), .focus(target), .raise, .focus(target)]
+            [.focus(target), .raise, .focus(target)]
         )
     }
 
@@ -1698,6 +1782,13 @@ final class FocusWithoutRaiseTests: XCTestCase {
                 submitFocusSpecificWindow: { pid, windowId, _ in
                     recorder.operations.append(.submittedFocus(WindowToken(pid: pid, windowId: Int(windowId))))
                 },
+                afterSubmittedFocus: { work in
+                    if recorder.heldFocusCompletions != nil {
+                        recorder.heldFocusCompletions?.append(work)
+                    } else {
+                        work()
+                    }
+                },
                 deactivateSameAppWindow: { pid, windowId in
                     recorder.operations.append(.deactivate(WindowToken(pid: pid, windowId: Int(windowId))))
                     return recorder.deactivateSucceeds
@@ -1714,7 +1805,7 @@ final class FocusWithoutRaiseTests: XCTestCase {
                     recorder.coverageQueries.append((windowId, candidates))
                     return recorder.coverage
                 },
-                enqueueRetryRaise: { _, _, job, completion in
+                enqueueRetryRaise: { _, _, job, _, completion in
                     guard recorder.workerAvailable else { return false }
                     recorder.queuedRaises.append((job, completion))
                     return true
@@ -1744,6 +1835,27 @@ final class FocusWithoutRaiseTests: XCTestCase {
             to: workspaceId,
             mode: mode
         )
+    }
+
+    private func hoverFloatingTarget(
+        _ target: WindowToken,
+        in workspaceId: WorkspaceDescriptor.ID,
+        controller: WMController
+    ) throws -> ManagedFocusRequest {
+        let monitor = try XCTUnwrap(controller.workspaceManager.monitor(for: workspaceId))
+        let targetFrame = CGRect(
+            x: monitor.visibleFrame.minX + 40,
+            y: monitor.visibleFrame.minY + 40,
+            width: 240,
+            height: 160
+        )
+        controller.workspaceManager.updateFloatingGeometry(frame: targetFrame, for: target)
+        controller.focusPolicyEngine.screenshotSelectionActiveProvider = { false }
+        controller.mouseEventHandler.dispatchMouseMoved(
+            at: targetFrame.center,
+            windowIdUnderPointer: target.windowId
+        )
+        return try XCTUnwrap(controller.intentLedger.activeManagedRequest)
     }
 
     private func setFocused(

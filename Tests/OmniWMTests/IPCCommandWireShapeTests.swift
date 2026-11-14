@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import Foundation
 import OmniWMIPC
@@ -33,6 +33,8 @@ final class IPCCommandWireShapeTests: XCTestCase {
 
     private func argument(_ kind: IPCCommandArgumentKind) -> IPCCommandArgumentValue {
         switch kind {
+        case .appID:
+            .appID("example")
         case .direction:
             .direction(.left)
         case .workspaceNumber,
@@ -137,10 +139,22 @@ final class IPCCommandWireShapeTests: XCTestCase {
         #"{"name":"toggle-quake-terminal"}"#,
         #"{"name":"toggle-workspace-bar"}"#,
         #"{"name":"hidden-bar-panel"}"#,
+        #"{"name":"volume-up"}"#,
+        #"{"name":"volume-down"}"#,
+        #"{"name":"volume-mute"}"#,
+        #"{"name":"media-play-pause"}"#,
+        #"{"name":"media-next"}"#,
+        #"{"name":"media-previous"}"#,
+        #"{"name":"toggle-shortcut-pause"}"#,
+        #"{"name":"begin-prefix"}"#,
+        #"{"name":"toggle-window-mode"}"#,
+        #"{"name":"exit-keyboard-mode"}"#,
         #"{"name":"toggle-focused-window-floating"}"#,
         #"{"name":"close-focused-window"}"#,
         #"{"arguments":{"scratchpadIndex":2},"name":"scratchpad-assign"}"#,
         #"{"arguments":{"scratchpadIndex":2},"name":"scratchpad-toggle"}"#,
-        #"{"name":"open-menu-anywhere"}"#
+        #"{"name":"open-menu-anywhere"}"#,
+        #"{"arguments":{"appId":"example"},"name":"app-open"}"#,
+        #"{"arguments":{"appId":"example"},"name":"app-new-window"}"#
     ]
 }

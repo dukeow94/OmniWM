@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import CoreGraphics
 import Foundation
@@ -104,7 +104,7 @@ final class EventTapTeardownTests: XCTestCase {
                 return Thread.isMainThread
             }
         }.value
-        await fulfillment(of: [destruction.completed], timeout: 5)
+        await fulfillment(of: [destruction.completed], timeout: failureBound)
 
         XCTAssertFalse(releasedOnMainThread)
         XCTAssertTrue(destruction.wasOnMainThread.withLock { $0 })
@@ -131,7 +131,7 @@ final class EventTapTeardownTests: XCTestCase {
                 return Thread.isMainThread
             }
         }.value
-        await fulfillment(of: [destruction.completed], timeout: 5)
+        await fulfillment(of: [destruction.completed], timeout: failureBound)
 
         XCTAssertFalse(releasedOnMainThread)
         XCTAssertTrue(destruction.wasOnMainThread.withLock { $0 })

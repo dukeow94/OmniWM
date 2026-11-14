@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import Foundation
@@ -18,16 +18,16 @@ extension MouseEventHandler {
             config.workspaceSwipeAxis = axis
         }
         config.overviewAction = controller.settings.overview.enabled ? lockedContext.overviewAction : nil
+        let translation = CGVector(dx: metrics.cumulativeX, dy: metrics.cumulativeY)
         guard let mode = TrackpadGestureIntent.resolveMode(
             config,
             fingerCount: lockedContext.fingerCount,
-            cumulativeTranslation: CGVector(dx: metrics.cumulativeX, dy: metrics.cumulativeY),
+            cumulativeTranslation: translation,
             columnScrollAxis: lockedContext.columnScrollAxis,
             columnContextAvailable: lockedContext.columnScrollCandidate && controller.niriEngine != nil,
             windowContextAvailable: lockedContext.windowGestureTarget != nil
         ) else {
-            state.suppressGestureStartUntilAllTouchesLift = true
-            resetGestureState()
+            dropGestureUnlessDirectionMayResolve(config, lockedContext: lockedContext, translation: translation)
             return false
         }
         if case .overview = mode, overviewGestureInteractive,
@@ -47,19 +47,36 @@ extension MouseEventHandler {
         state.activeGestureMode = mode
         state.gesturePhase = .committed
         if case let .workspaceSwitch(axis) = mode {
-            controller.layoutRefreshController.workspaceSwipe.begin(
+            if controller.layoutRefreshController.workspaceSwipe.begin(
                 axis: axis, cumulative: axis == .horizontal ? metrics.cumulativeX : metrics.cumulativeY,
                 timestamp: timestamp,
                 recognitionMovement: SwipeEvent(
                     delta: Double(axis == .horizontal ? metrics.rawDeltaX : metrics.rawDeltaY),
                     timestamp: metrics.previousTimestamp
                 )
-            )
-            if controller.layoutRefreshController.workspaceSwipe.hasPresentation { state.workspaceSwipeFired = true }
+            ) { state.workspaceSwipeFired = true }
         } else {
-            controller.layoutRefreshController.workspaceSwipe.cancel(reason: "other-gesture")
+            controller.layoutRefreshController.workspaceSwipe.otherGestureRecognized(on: lockedContext.monitorId)
         }
         return true
+    }
+
+    private func dropGestureUnlessDirectionMayResolve(
+        _ config: TrackpadGestureIntent.Config,
+        lockedContext: MouseInputState.LockedGestureContext,
+        translation: CGVector
+    ) {
+        if lockedContext.windowGestureTarget == nil,
+           TrackpadGestureIntent.directionMayStillResolve(
+               config,
+               fingerCount: lockedContext.fingerCount,
+               cumulativeTranslation: translation
+           )
+        {
+            return
+        }
+        state.suppressGestureStartUntilAllTouchesLift = true
+        resetGestureState()
     }
 
     func dispatchCommittedGestureFrame(
@@ -189,7 +206,7 @@ extension MouseEventHandler {
               )
         else { return }
         state.workspaceSwipeFired = true
-        controller?.workspaceNavigationHandler.switchWorkspaceRelative(isNext: isNext, monitorId: monitorId)
+        controller?.workspaceNavigationHandler.switchWorkspaceBySwipe(isNext: isNext, monitorId: monitorId)
     }
 
     func finishCommittedGestureOnRelease(timestamp: TimeInterval, allowFlick: Bool) {
@@ -258,17 +275,17 @@ extension MouseEventHandler {
             : state.gestureLastAverageY - state.gestureStartY)
             * GestureEventSnapshot.normalizedPositionToGestureUnits
         guard let displacement = TrackpadGestureIntent.releaseFlickDisplacement(
-            cumulativeAxisUnits: cumulative,
-            velocity: state.workspaceSwipeTracker.velocity()
-        ),
-            let isNext = TrackpadGestureIntent.isNextWorkspace(
-                axis: axis,
-                displacement: displacement,
-                naturalDirection: controller?.settings.gestures.invertDirection ?? true
-            )
+                  cumulativeAxisUnits: cumulative,
+                  velocity: state.workspaceSwipeTracker.velocity()
+              ),
+              let isNext = TrackpadGestureIntent.isNextWorkspace(
+                  axis: axis,
+                  displacement: displacement,
+                  naturalDirection: controller?.settings.gestures.invertDirection ?? true
+              )
         else { return }
         state.workspaceSwipeFired = true
-        controller?.workspaceNavigationHandler.switchWorkspaceRelative(isNext: isNext, monitorId: monitorId)
+        controller?.workspaceNavigationHandler.switchWorkspaceBySwipe(isNext: isNext, monitorId: monitorId)
     }
 
     func finalizeOrCancelCommittedGesture(
@@ -300,6 +317,7 @@ extension MouseEventHandler {
         ) else { return }
 
         let baseOffset = Double(controller.workspaceManager.niriViewportState(for: wsId).viewOffset)
+        let settings = engine.effectiveSettings(in: wsId)
 
         var selectedWindow: NiriWindow?
         controller.workspaceManager.withNiriViewportState(for: wsId) { endState in
@@ -315,8 +333,8 @@ extension MouseEventHandler {
                 currentOffset: baseOffset + sample.relativeOffset,
                 projectedOffset: baseOffset + sample.relativeProjectedOffset,
                 snapToColumn: controller.settings.gestures.trackpadScrollStyle == .snap,
-                centerMode: engine.centerFocusedColumn,
-                alwaysCenterSingleColumn: engine.alwaysCenterSingleColumn,
+                centerMode: settings.centerFocusedColumn,
+                alwaysCenterSingleColumn: settings.alwaysCenterSingleColumn,
                 viewFrame: monitor.frame,
                 scale: geometry.scale
             )

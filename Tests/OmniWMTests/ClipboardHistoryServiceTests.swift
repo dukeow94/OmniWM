@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import Foundation
@@ -11,7 +11,7 @@ import XCTest
 final class ClipboardHistoryServiceTests: XCTestCase {
     func testRTFOnlyPlainTextCopyPreservesTextBeyondSearchLimit() async throws {
         let tail = "RTF complete tail"
-        let text = String(repeating: "R", count: 10_200) + tail
+        let text = String(repeating: "R", count: ClipboardHistoryStore.searchTextLimit) + tail
         let attributed = NSAttributedString(string: text)
         let data = try XCTUnwrap(attributed.rtf(from: NSRange(location: 0, length: attributed.length)))
 
@@ -20,7 +20,7 @@ final class ClipboardHistoryServiceTests: XCTestCase {
 
     func testHTMLOnlyPlainTextCopyPreservesTextBeyondSearchLimit() async throws {
         let tail = "HTML complete tail"
-        let text = String(repeating: "H", count: 10_200) + tail
+        let text = String(repeating: "H", count: ClipboardHistoryStore.searchTextLimit) + tail
         let data = Data("<html><body><p>\(text)</p></body></html>".utf8)
 
         try await assertFullPlainTextCopy(data: data, kind: .html, tail: tail)
@@ -59,10 +59,10 @@ final class ClipboardHistoryServiceTests: XCTestCase {
         service.start()
         changeCount.value = 1
         timer.fire()
-        await fulfillment(of: [readStarted], timeout: 2)
+        await fulfillment(of: [readStarted], timeout: failureBound)
         try FileManager.default.createDirectory(at: configuration.storageURL, withIntermediateDirectories: false)
         let clear = Task { @MainActor in try await service.clearHistory() }
-        await fulfillment(of: [clearPausedPolling], timeout: 2)
+        await fulfillment(of: [clearPausedPolling], timeout: failureBound)
         readerGate.signal()
         do {
             _ = try await clear.value
@@ -123,17 +123,15 @@ final class ClipboardHistoryServiceTests: XCTestCase {
         service.start()
         changeCount.value = 1
         timer.fire()
-        await fulfillment(of: [readStarted], timeout: 2)
+        await fulfillment(of: [readStarted], timeout: failureBound)
         let quit = Task { @MainActor in
             defer { quitState.didFinish = true }
             try await service.flushForQuit()
         }
-        await fulfillment(of: [timerInvalidated], timeout: 2)
-        await Task.yield()
+        await fulfillment(of: [timerInvalidated], timeout: failureBound)
         XCTAssertFalse(quitState.didFinish)
         readerGate.signal()
-        await fulfillment(of: [recognitionStarted], timeout: 2)
-        await Task.yield()
+        await fulfillment(of: [recognitionStarted], timeout: failureBound)
         XCTAssertFalse(quitState.didFinish)
         recognitionGate.signal()
         try await quit.value
@@ -181,21 +179,21 @@ final class ClipboardHistoryServiceTests: XCTestCase {
         service.start()
         changeCount.value = 1
         timer.fire()
-        await fulfillment(of: [captured], timeout: 2)
+        await fulfillment(of: [captured], timeout: failureBound)
         service.onPaletteItemsChanged = nil
         let id = try XCTUnwrap(service.paletteItems.first?.id)
 
         let didCopy = await service.copyItemToPasteboard(id: id)
         XCTAssertTrue(didCopy)
         XCTAssertTrue(service.paletteItems.isEmpty)
-        await fulfillment(of: [disabledStoreSettled], timeout: 2)
+        await fulfillment(of: [disabledStoreSettled], timeout: failureBound)
     }
 
     private func assertFullPlainTextCopy(data: Data, kind: ClipboardContentKind, tail: String) async throws {
-        let configuration = try makeConfiguration(maxItemBytes: 131_072)
+        let configuration = try makeConfiguration(maxItemBytes: data.count)
         let timer = ManualClipboardHistoryTimer()
         let changeCount = ClipboardChangeCount()
-        let captured = expectation(description: "Rich-only item captured")
+        let captureState = ClipboardCaptureCheckState()
         var copiedText: String?
         var environment = ClipboardHistoryServiceEnvironment()
         environment.pasteboardChangeCount = { changeCount.value }
@@ -221,19 +219,20 @@ final class ClipboardHistoryServiceTests: XCTestCase {
         }
         let service = ClipboardHistoryService(configuration: configuration, environment: environment)
         service.onPaletteItemsChanged = { items in
-            if items.first?.kind == kind { captured.fulfill() }
+            if items.first?.kind == kind { captureState.didCapture = true }
         }
 
         service.start()
         changeCount.value = 1
         timer.fire()
-        await fulfillment(of: [captured], timeout: 2)
+        try await service.flushForQuit()
+        XCTAssertTrue(captureState.didCapture, "Rich-only item captured")
         service.onPaletteItemsChanged = nil
         guard let item = service.paletteItems.first else {
             XCTFail("Rich-only item was not captured")
             return
         }
-        XCTAssertEqual(item.searchText.count, 10_000)
+        XCTAssertEqual(item.searchText.count, ClipboardHistoryStore.searchTextLimit)
         XCTAssertFalse(item.searchText.contains(tail))
         XCTAssertTrue(item.canPastePlainText)
 
@@ -243,7 +242,7 @@ final class ClipboardHistoryServiceTests: XCTestCase {
             XCTFail("Plain-text pasteboard write did not run")
             return
         }
-        XCTAssertGreaterThan(copied.count, 10_000)
+        XCTAssertGreaterThan(copied.count, ClipboardHistoryStore.searchTextLimit)
         XCTAssertTrue(copied.contains(tail))
     }
 
@@ -298,4 +297,9 @@ private final class ClipboardChangeCount {
 @MainActor
 private final class ClipboardQuitCheckState {
     var didFinish = false
+}
+
+@MainActor
+private final class ClipboardCaptureCheckState {
+    var didCapture = false
 }

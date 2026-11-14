@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import CoreGraphics
 @testable import OmniWM
@@ -113,12 +113,12 @@ final class NiriResizeIncrementTests: XCTestCase {
             guard case let .proportion(value) = fixture.column.width else {
                 return XCTFail("Expected proportional container span")
             }
-            XCTAssertEqual(value, expected, accuracy: 0.000001)
+            XCTAssertEqual(value, expected)
         } else {
             guard case let .fixed(value) = fixture.window.height else {
                 return XCTFail("Expected fixed window span")
             }
-            XCTAssertEqual(value, expected, accuracy: 0.000001)
+            XCTAssertEqual(value, expected, accuracy: CGFloat.rounding(operations: 20, at: fixture.secondarySpan))
         }
     }
 

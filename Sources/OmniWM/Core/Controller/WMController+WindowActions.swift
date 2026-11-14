@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import Foundation
@@ -19,8 +19,13 @@ extension WMController {
     }
 
     @discardableResult
-    func toggleWindowFloating(_ token: WindowToken, preferredMonitor: Monitor? = nil) -> ExternalCommandResult {
+    func toggleWindowFloating(
+        _ token: WindowToken,
+        preferredMonitor: Monitor? = nil,
+        arrivesQuietly: Bool = false
+    ) -> ExternalCommandResult {
         guard let entry = workspaceManager.entry(for: token) else { return .notFound }
+        guard entry.target.hostedMetadata?.role.parent == nil else { return .attachedWindow }
 
         let nextOverride: ManualWindowOverride?
         if workspaceManager.manualLayoutOverride(for: token) != nil {
@@ -29,7 +34,13 @@ extension WMController {
             nextOverride = entry.mode == .tiling ? .forceFloat : .forceTile
         }
 
-        applyManagedWindowOverride(nextOverride, for: token, entry: entry, preferredMonitor: preferredMonitor)
+        applyManagedWindowOverride(
+            nextOverride,
+            for: token,
+            entry: entry,
+            preferredMonitor: preferredMonitor,
+            arrivesQuietly: arrivesQuietly
+        )
         return .executed
     }
 
@@ -37,21 +48,34 @@ extension WMController {
         _ override: ManualWindowOverride?,
         for token: WindowToken,
         entry: WindowState,
-        preferredMonitor: Monitor? = nil
+        preferredMonitor: Monitor? = nil,
+        arrivesQuietly: Bool = false
     ) {
+        guard entry.target.hostedMetadata?.role.parent == nil else { return }
         workspaceManager.setManualLayoutOverride(override, for: token)
         let entry = workspaceManager.entry(for: token) ?? entry
+        guard let axRef = entry.axRef else {
+            applyHostedWindowOverride(override, entry: entry, preferredMonitor: preferredMonitor)
+            return
+        }
         let evaluation = evaluateWindowDisposition(
-            axRef: entry.axRef,
+            axRef: axRef,
             pid: token.pid
         )
         guard let trackedMode = trackedModeForLifecycle(
             decision: evaluation.decision,
             existingEntry: entry
         ) else {
+            workspaceManager.quietArrivalTokens.remove(token)
             axEventHandler.cancelTrackedTilingPromotionRetry(windowId: token.windowId)
             axEventHandler.retireManagedWindowAfterDecisionRejection(entry)
             return
+        }
+        let isNiriWorkspace = workspaceManager.activeLayoutKind(for: entry.workspaceId) == .niri
+        if trackedMode == .tiling, arrivesQuietly, entry.mode != .tiling, isNiriWorkspace {
+            workspaceManager.quietArrivalTokens.insert(token)
+        } else {
+            workspaceManager.quietArrivalTokens.remove(token)
         }
         if trackedMode != .tiling {
             axEventHandler.cancelTrackedTilingPromotionRetry(windowId: token.windowId)
@@ -59,7 +83,7 @@ extension WMController {
 
         if axEventHandler.deferAdmissionIfNeeded(
             evaluation: evaluation,
-            axRef: entry.axRef,
+            axRef: axRef,
             token: token,
             mode: trackedMode,
             existingEntry: entry
@@ -73,9 +97,31 @@ extension WMController {
             preferredMonitor: preferredMonitor ?? monitorForInteraction(),
             applyFloatingFrame: true
         )
+        finishWindowOverrideTracking(token)
+        layoutRefreshController.requestRelayout(
+            reason: .windowRuleReevaluation,
+            affectedWorkspaceIds: [entry.workspaceId],
+            suppressWindowActivation: arrivesQuietly && !isNiriWorkspace
+        )
+    }
+
+    private func finishWindowOverrideTracking(_ token: WindowToken) {
         if let windowId = UInt32(exactly: token.windowId) {
             axEventHandler.finishAdmissionRetryAfterTracking(windowId: windowId)
         }
+    }
+
+    private func applyHostedWindowOverride(
+        _ override: ManualWindowOverride?,
+        entry: WindowState,
+        preferredMonitor: Monitor?
+    ) {
+        _ = transitionWindowMode(
+            for: entry.token,
+            to: override == .forceFloat ? .floating : .tiling,
+            preferredMonitor: preferredMonitor ?? monitorForInteraction(),
+            applyFloatingFrame: true
+        )
         layoutRefreshController.requestRelayout(
             reason: .windowRuleReevaluation,
             affectedWorkspaceIds: [entry.workspaceId]
@@ -125,6 +171,12 @@ extension WMController {
                     restoreToFloating: true
                 )
             }
+            guard let axRef = entry.axRef else {
+                workspaceManager.setHiddenState(nil, for: operation.token)
+                _ = shellAppWindowManager.setFrame(operation.targetFrame, for: operation.token)
+                _ = shellAppWindowManager.orderFront(operation.token)
+                continue
+            }
             if wasWorkspaceInactiveHidden {
                 workspaceManager.setHiddenState(nil, for: operation.token)
                 visibleJobs.append((operation.pid, operation.windowId))
@@ -132,7 +184,7 @@ extension WMController {
             }
             axManager.forceApplyNextFrame(for: operation.windowId)
             frameUpdates.append(
-                .init(pid: entry.pid, window: entry.axRef, frame: operation.targetFrame)
+                .init(pid: entry.pid, window: axRef, frame: operation.targetFrame)
             )
             rescuedEntries.append(entry)
         }
@@ -143,7 +195,9 @@ extension WMController {
             }
             axManager.applyFramesParallel(frameUpdates)
             for entry in rescuedEntries {
-                windowFocusOperations.raiseWindow(entry.axRef.element)
+                if let axRef = entry.axRef {
+                    windowFocusOperations.raiseWindow(axRef.element)
+                }
             }
         }
 

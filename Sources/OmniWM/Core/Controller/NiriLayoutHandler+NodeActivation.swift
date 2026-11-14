@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import Foundation
@@ -29,7 +29,10 @@ extension NiriLayoutHandler {
 
         state.selectedNodeId = node.id
         let usesSingleWindowFit = engine.singleWindowLayoutContext(in: workspaceId) != nil
-        if usesSingleWindowFit {
+        if usesSingleWindowFit,
+           engine.effectiveSettings(in: workspaceId).edgeOverscroll == .disabled
+           || (options.ensureVisible && !options.preserveViewportAnchor)
+        {
             if state.activeColumnIndex != 0 || state.viewOffset != 0
                 || state.activatePrevColumnOnRemoval != nil || state.viewOffsetToRestore != nil
             {

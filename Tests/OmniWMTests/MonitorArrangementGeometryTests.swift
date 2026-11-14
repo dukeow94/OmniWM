@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import CoreGraphics
 import Foundation
@@ -7,8 +7,6 @@ import Foundation
 import XCTest
 
 final class MonitorArrangementGeometryTests: XCTestCase {
-    private let accuracy: CGFloat = 1e-6
-
     func testEmptyInputReturnsEmpty() {
         let rects = MonitorArrangementGeometry.canvasRects(
             forFramesYUp: [],
@@ -18,34 +16,28 @@ final class MonitorArrangementGeometryTests: XCTestCase {
         XCTAssertTrue(rects.isEmpty)
     }
 
-    func testSideBySidePreservesAspectAndUniformScale() {
-        let frames = [
-            CGRect(x: 0, y: 0, width: 1920, height: 1080),
-            CGRect(x: 1920, y: 0, width: 1280, height: 1024)
+    func testMonitorArrangementsPreserveAspectAndUniformScale() {
+        let cases: [(label: String, frames: [CGRect], canvas: CGSize, padding: CGFloat)] = [
+            (
+                "side by side",
+                [CGRect(x: 0, y: 0, width: 1920, height: 1080), CGRect(x: 1920, y: 0, width: 1280, height: 1024)],
+                CGSize(width: 400, height: 240),
+                10
+            ),
+            (
+                "stacked",
+                [CGRect(x: 0, y: 0, width: 1600, height: 900), CGRect(x: 0, y: 900, width: 1600, height: 1200)],
+                CGSize(width: 320, height: 480),
+                6
+            )
         ]
-        let rects = MonitorArrangementGeometry.canvasRects(
-            forFramesYUp: frames,
-            in: CGSize(width: 400, height: 240),
-            padding: 10
-        )
-
-        XCTAssertEqual(rects.count, frames.count)
-        assertAspectAndUniformScale(frames: frames, rects: rects)
-    }
-
-    func testStackedPreservesAspectAndUniformScale() {
-        let frames = [
-            CGRect(x: 0, y: 0, width: 1600, height: 900),
-            CGRect(x: 0, y: 900, width: 1600, height: 1200)
-        ]
-        let rects = MonitorArrangementGeometry.canvasRects(
-            forFramesYUp: frames,
-            in: CGSize(width: 320, height: 480),
-            padding: 6
-        )
-
-        XCTAssertEqual(rects.count, frames.count)
-        assertAspectAndUniformScale(frames: frames, rects: rects)
+        for row in cases {
+            let rects = MonitorArrangementGeometry.canvasRects(
+                forFramesYUp: row.frames, in: row.canvas, padding: row.padding
+            )
+            XCTAssertEqual(rects.count, row.frames.count, row.label)
+            assertAspectAndUniformScale(frames: row.frames, rects: rects)
+        }
     }
 
     func testHigherYUpMonitorAppearsAtTop() {
@@ -78,20 +70,20 @@ final class MonitorArrangementGeometryTests: XCTestCase {
         let unionMinY = rects.map(\.minY).min() ?? 0
         let unionMaxY = rects.map(\.maxY).max() ?? 0
 
-        XCTAssertGreaterThanOrEqual(unionMinX, padding - accuracy)
-        XCTAssertLessThanOrEqual(unionMaxX, canvas.width - padding + accuracy)
-        XCTAssertGreaterThanOrEqual(unionMinY, padding - accuracy)
-        XCTAssertLessThanOrEqual(unionMaxY, canvas.height - padding + accuracy)
+        XCTAssertGreaterThanOrEqual(unionMinX, padding)
+        XCTAssertLessThanOrEqual(unionMaxX, canvas.width - padding)
+        XCTAssertGreaterThanOrEqual(unionMinY, padding)
+        XCTAssertLessThanOrEqual(unionMaxY, canvas.height - padding)
 
         let leftGap = unionMinX
         let rightGap = canvas.width - unionMaxX
         let topGap = unionMinY
         let bottomGap = canvas.height - unionMaxY
-        XCTAssertEqual(leftGap, rightGap, accuracy: 1e-4)
-        XCTAssertEqual(topGap, bottomGap, accuracy: 1e-4)
+        XCTAssertEqual(leftGap, rightGap)
+        XCTAssertEqual(topGap, bottomGap)
     }
 
-    func testYFlipRoundTripThroughNegativeAndPositiveOrigins() {
+    func testForwardRectsThroughNegativeAndPositiveOrigins() {
         let canvas = CGSize(width: 360, height: 240)
         let padding: CGFloat = 14
         let frames = [
@@ -104,31 +96,34 @@ final class MonitorArrangementGeometryTests: XCTestCase {
             padding: padding
         )
 
-        for index in frames.indices {
-            let logicalCenter = CGPoint(x: frames[index].midX, y: frames[index].midY)
-            let canvasCenter = CGPoint(x: rects[index].midX, y: rects[index].midY)
-            let restored = MonitorArrangementGeometry.logicalPointYUp(
-                forCanvasPoint: canvasCenter,
-                framesYUp: frames,
-                in: canvas,
-                padding: padding
-            )
-            XCTAssertEqual(restored.x, logicalCenter.x, accuracy: accuracy)
-            XCTAssertEqual(restored.y, logicalCenter.y, accuracy: accuracy)
+        let scale = (canvas.width - padding * 2) / (frames[0].width + frames[1].width)
+        let expected = [
+            CGRect(x: 14, y: 75.3875, width: frames[0].width * scale, height: frames[0].height * scale),
+            CGRect(x: 213.2, y: 52.5625, width: frames[1].width * scale, height: frames[1].height * scale)
+        ]
+        XCTAssertEqual(rects.count, 2)
+        for (actual, expected) in zip(rects, expected) {
+            XCTAssertEqual(actual.minX, expected.minX)
+            XCTAssertEqual(actual.minY, expected.minY)
+            XCTAssertEqual(actual.width, expected.width)
+            XCTAssertEqual(actual.height, expected.height)
         }
     }
 
     private func assertAspectAndUniformScale(frames: [CGRect], rects: [CGRect]) {
+        let commonScale = rects[0].width / frames[0].width
         for index in frames.indices {
             let frame = frames[index]
             let rect = rects[index]
             let inputRatio = frame.width / frame.height
             let outputRatio = rect.width / rect.height
-            XCTAssertEqual(outputRatio, inputRatio, accuracy: 1e-4)
+            XCTAssertEqual(outputRatio, inputRatio)
 
             let scaleX = rect.width / frame.width
             let scaleY = rect.height / frame.height
-            XCTAssertEqual(scaleX, scaleY, accuracy: 1e-4)
+            XCTAssertEqual(scaleX, scaleY)
+            XCTAssertEqual(scaleX, commonScale)
+            XCTAssertEqual(scaleY, commonScale)
         }
     }
 }

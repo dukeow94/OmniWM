@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import GhosttyKit
@@ -57,16 +57,16 @@ final class QuakeGhosttyRuntime {
     }
 
     private func makeRuntimeConfiguration(userdata: UnsafeMutableRawPointer) -> ghostty_runtime_config_s {
-        var runtimeConfig = ghostty_runtime_config_s()
-        runtimeConfig.userdata = userdata
-        runtimeConfig.supports_selection_clipboard = true
-        GhosttyAppCallbackContext.installWakeupCallback(in: &runtimeConfig)
-        GhosttyAppCallbackContext.installActionCallback(in: &runtimeConfig)
-        QuakeClipboardPromptCoordinator.installReadCallback(in: &runtimeConfig)
-        QuakeClipboardPromptCoordinator.installConfirmationCallback(in: &runtimeConfig)
-        QuakeClipboardPromptCoordinator.installWriteCallback(in: &runtimeConfig)
-        GhosttySurfaceCallbackContext.installCloseCallback(in: &runtimeConfig)
-        return runtimeConfig
+        ghostty_runtime_config_s(
+            userdata: userdata,
+            supports_selection_clipboard: true,
+            wakeup_cb: GhosttyAppCallbackContext.wakeupCallback,
+            action_cb: GhosttyAppCallbackContext.actionCallback,
+            read_clipboard_cb: QuakeClipboardPromptCoordinator.readCallback,
+            confirm_read_clipboard_cb: QuakeClipboardPromptCoordinator.confirmationCallback,
+            write_clipboard_cb: QuakeClipboardPromptCoordinator.writeCallback,
+            close_surface_cb: GhosttySurfaceCallbackContext.closeCallback
+        )
     }
 
     func releaseAppAndConfiguration() {
@@ -86,7 +86,8 @@ final class QuakeGhosttyRuntime {
 
     private func initializeGhosttyIfNeeded() {
         guard !Self.ghosttyInitialized else { return }
-        let result = ghostty_init(0, nil)
+        var arguments: UnsafeMutablePointer<CChar>?
+        let result = ghostty_init(0, &arguments)
         Self.restoreCNumericLocale()
         if result == GHOSTTY_SUCCESS {
             Self.ghosttyInitialized = true
@@ -99,10 +100,11 @@ final class QuakeGhosttyRuntime {
         _ = setlocale(LC_NUMERIC, "C")
     }
 
-    private func makeGhosttyConfig() -> ghostty_config_t? {
+    private func makeGhosttyConfig(explicitCommand: Bool = false) -> ghostty_config_t? {
         ghosttyConfigBuilder.build(
             opacity: settings.quakeTerminal.opacity,
-            backgroundEffect: settings.quakeTerminal.backgroundEffect
+            backgroundEffect: settings.quakeTerminal.backgroundEffect,
+            explicitCommand: explicitCommand
         )
     }
 
@@ -111,7 +113,10 @@ final class QuakeGhosttyRuntime {
         guard let newConfig = makeGhosttyConfig() else { return }
 
         controller.prepareForGhosttyConfigurationUpdate()
-        ghostty_app_update_config(ghosttyApp, newConfig)
+        guard applyConfiguration(newConfig, app: ghosttyApp, controller: controller) else {
+            ghostty_config_free(newConfig)
+            return
+        }
         if let ghosttyConfig {
             ghostty_config_free(ghosttyConfig)
         }
@@ -125,7 +130,24 @@ final class QuakeGhosttyRuntime {
             reloadConfiguration(for: controller)
             return
         }
-        ghostty_app_update_config(ghosttyApp, ghosttyConfig)
+        _ = applyConfiguration(ghosttyConfig, app: ghosttyApp, controller: controller)
+    }
+
+    private func applyConfiguration(
+        _ config: ghostty_config_t, app: ghostty_app_t, controller: QuakeTerminalController
+    ) -> Bool {
+        let surfaces = controller.launcherSurfaces
+        if surfaces.isEmpty {
+            ghostty_app_update_config(app, config)
+            return true
+        }
+        guard let held = ghosttyConfigBuilder.keepingCommandOutput(in: config) else { return false }
+        defer { ghostty_config_free(held) }
+        ghostty_app_update_config(app, config)
+        for view in surfaces {
+            if let surface = view.ghosttySurface { ghostty_surface_update_config(surface, held) }
+        }
+        return true
     }
 
     func receiveAppearance(_ appearance: QuakeGhosttyAppearance, for controller: QuakeTerminalController) {
@@ -174,11 +196,32 @@ final class QuakeGhosttyRuntime {
         ghostty_app_tick(ghosttyApp)
     }
 
-    func makeSurfaceView(for controller: QuakeTerminalController) -> GhosttySurfaceView? {
+    func makeSurfaceView(
+        for controller: QuakeTerminalController,
+        launch: LauncherLaunchRequest? = nil,
+        hasSurfaces: Bool = true
+    ) -> GhosttySurfaceView? {
         guard let ghosttyApp else { return nil }
+        let previousConfig = ghosttyConfig
+        var launchConfig: ghostty_config_t?
+        if launch != nil, !hasSurfaces {
+            guard let config = makeGhosttyConfig(explicitCommand: true) else { return nil }
+            launchConfig = config
+            ghostty_app_update_config(ghosttyApp, config)
+        }
         let context = GhosttySurfaceCallbackContext(controller: controller)
-        let view = GhosttySurfaceView(ghosttyApp: ghosttyApp, callbackContext: context)
-        guard view.ghosttySurface != nil else { return nil }
+        let view = GhosttySurfaceView(ghosttyApp: ghosttyApp, callbackContext: context, launch: launch)
+        guard view.ghosttySurface != nil else {
+            if let launchConfig {
+                if let previousConfig { ghostty_app_update_config(ghosttyApp, previousConfig) }
+                ghostty_config_free(launchConfig)
+            }
+            return nil
+        }
+        if let launchConfig {
+            ghosttyConfig = launchConfig
+            if let previousConfig { ghostty_config_free(previousConfig) }
+        }
         return view
     }
 }

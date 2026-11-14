@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import Carbon
@@ -32,16 +32,16 @@ final class FocusLockModifierTests: XCTestCase {
         XCTAssertTrue(FocusLockModifier.option.isHeld(inRawFlags: leftOption | rightOption))
     }
 
-    func testLeftRequiresLeftOnly() {
-        XCTAssertTrue(FocusLockModifier.leftOption.isHeld(inRawFlags: leftOption))
-        XCTAssertFalse(FocusLockModifier.leftOption.isHeld(inRawFlags: rightOption))
-        XCTAssertFalse(FocusLockModifier.leftOption.isHeld(inRawFlags: leftOption | rightOption))
-    }
-
-    func testRightRequiresRightOnly() {
-        XCTAssertTrue(FocusLockModifier.rightOption.isHeld(inRawFlags: rightOption))
-        XCTAssertFalse(FocusLockModifier.rightOption.isHeld(inRawFlags: leftOption))
-        XCTAssertFalse(FocusLockModifier.rightOption.isHeld(inRawFlags: leftOption | rightOption))
+    func testSidedOptionRequiresItsOwnSideOnly() {
+        let cases: [(modifier: FocusLockModifier, own: UInt64, other: UInt64)] = [
+            (.leftOption, leftOption, rightOption),
+            (.rightOption, rightOption, leftOption)
+        ]
+        for (modifier, own, other) in cases {
+            XCTAssertTrue(modifier.isHeld(inRawFlags: own), "\(modifier)")
+            XCTAssertFalse(modifier.isHeld(inRawFlags: other), "\(modifier)")
+            XCTAssertFalse(modifier.isHeld(inRawFlags: own | other), "\(modifier)")
+        }
     }
 
     func testDifferentModifierFamiliesAreIndependent() {

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import Foundation
 import os
@@ -48,4 +48,6 @@ enum Log {
     static let reconcile = LogChannel(category: "reconcile")
     static let ipc = LogChannel(category: "ipc")
     static let diagnostics = LogChannel(category: "diagnostics")
+    static let shell = LogChannel(category: "shell")
+    static let hiddenBar = LogChannel(category: "HiddenBar")
 }

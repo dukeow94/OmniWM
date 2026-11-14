@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import ApplicationServices
 import Foundation
@@ -116,7 +116,8 @@ final class ObservedMinimumSizeClampTests: XCTestCase {
         fixture.controller.adoptObservedMinimumAfterStableSizeClamp(originalResult)
 
         XCTAssertNil(manager.observedSizeEvidence(for: replacementToken)?.minSize)
-        XCTAssertTrue(sameAXWindowIdentity(try XCTUnwrap(manager.entry(for: replacementToken)).axRef, replacement))
+        let replacementReference = try XCTUnwrap(manager.entry(for: replacementToken)?.axRef)
+        XCTAssertTrue(sameAXWindowIdentity(replacementReference, replacement))
 
         fixture.controller.adoptObservedMinimumAfterStableSizeClamp(
             clampResult(fixture, target: target, observed: observed, window: replacement)
@@ -176,6 +177,8 @@ final class ObservedMinimumSizeClampTests: XCTestCase {
         controller.settings.gaps.outerGapRight = 0
         controller.settings.gaps.outerGapTop = 0
         controller.settings.gaps.outerGapBottom = 0
+        controller.settings.niri.defaultContainerPrimarySpan = 1.0 / 3.0
+        controller.settings.niri.visibleContainerCount = 3
         controller.niriLayoutHandler.enableNiriLayout()
         let engine = try XCTUnwrap(controller.niriEngine)
         engine.defaultContainerPrimarySpan = 1.0 / 3.0
@@ -210,19 +213,18 @@ final class ObservedMinimumSizeClampTests: XCTestCase {
         let frames = Dictionary(uniqueKeysWithValues: plan.diff.frameChanges.map { ($0.token, $0.frame) })
         XCTAssertEqual(frames.count, 3)
         let first = try XCTUnwrap(frames[fixture.token])
-        XCTAssertEqual(first.width, accepted.width, accuracy: 0.5)
+        XCTAssertEqual(first.width, accepted.width)
         let orderedFrames = frames.values.sorted { $0.minX < $1.minX }
         XCTAssertGreaterThan(
             try XCTUnwrap(orderedFrames.last).maxX - XCTUnwrap(orderedFrames.first).minX,
             monitor.visibleFrame.width
         )
         for index in 1 ..< orderedFrames.count {
-            XCTAssertEqual(orderedFrames[index].minX - orderedFrames[index - 1].maxX, 12, accuracy: 0.5)
+            XCTAssertEqual(orderedFrames[index].minX - orderedFrames[index - 1].maxX, 12)
         }
         XCTAssertEqual(
             try XCTUnwrap(engine.findNode(for: fixture.token, in: fixture.workspaceId)).constraints.minSize.width,
-            accepted.width,
-            accuracy: 0.5
+            accepted.width
         )
 
         controller.axManager.confirmFrameWrite(for: fixture.token.windowId, frame: first)

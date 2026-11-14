@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import Foundation
@@ -22,7 +22,12 @@ extension AXEventHandler {
                 finishFocusedAdmissionRetryExecution(execution)
             }
         }
-        defer { rescanAppThatLostFocus() }
+        let newFocusWindowId = untrackedFocusWindowId(facts)
+        defer { rescanAppThatLostFocus(newFocusWindowId: newFocusWindowId) }
+        applyResolvedActivationFacts(facts)
+    }
+
+    private func applyResolvedActivationFacts(_ facts: ActivationFacts) {
         guard let controller, controller.hasStartedServices else { return }
         guard isCurrentActivationFacts(facts, controller: controller) else { return }
 

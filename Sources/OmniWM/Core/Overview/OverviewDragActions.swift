@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import Carbon
@@ -94,7 +94,6 @@ extension OverviewStructuralActions {
                     sourceWorkspaceId: session.workspaceId,
                     destinationWorkspaceId: workspaceId,
                     selectedHandle: session.handle,
-                    movedTokens: [session.handle.id],
                     scrollWorkspaceId: nil
                 )
             } else {
@@ -187,7 +186,6 @@ extension OverviewStructuralActions {
             sourceWorkspaceId: session.workspaceId,
             destinationWorkspaceId: destination,
             selectedHandle: session.handle,
-            movedTokens: [session.handle.id],
             scrollWorkspaceId: destination
         )
     }

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import Foundation
@@ -46,9 +46,36 @@ struct MouseInputState {
     struct NativeTitleBarDrag {
         let token: WindowToken
         var phase: NativeTitleBarDragPhase = .armed
+        var targetWasRejected = false
         var receivedFrameChange = false
+        var pendingExcludedCorrection = false
         var issuedUnreadableCorrection = false
         var terminalFailureRetryRequestId: AXFrameRequestId?
+        var adoptionStartFrame: CGRect?
+        var dwindleResizeWorkspaceId: WorkspaceDescriptor.ID?
+    }
+
+    struct NativeResizeStart {
+        let token: WindowToken
+        let frame: CGRect
+        let location: CGPoint
+        var wasDragged = false
+        var hasDeferredFrameChange = false
+    }
+
+    struct NativeResizeCorrection {
+        let token: WindowToken
+        var issuedUnreadableCorrection = false
+        var needsFrameWriteRecheck = false
+        var issuedTerminalFailureCorrection = false
+    }
+
+    struct NativeCrossDisplayMove {
+        let token: WindowToken
+        let workspaceId: WorkspaceDescriptor.ID
+        let startFrame: CGRect
+        var wasDragged = false
+        var releaseLocation: CGPoint?
     }
 
     struct FocusFollowsMouseSample {
@@ -59,6 +86,7 @@ struct MouseInputState {
 
     var eventTap: CFMachPort?
     var runLoopSource: CFRunLoopSource?
+    var eventTapRunLoop: CFRunLoop?
     var moveTap: CFMachPort?
     var moveTapRunLoopSource: CFRunLoopSource?
     var moveTapDeliversMouseMoved = false
@@ -77,12 +105,16 @@ struct MouseInputState {
 
     var capturedInteractionButton: MouseEventHandler.MouseButton?
     var capturedOtherMouseButton: Int64?
+    var parkingEdgePressButton: MouseEventHandler.MouseButton?
     var resizeLayout: LayoutType?
     var moveLayout: LayoutType?
     var awaitsNativeTitleBarDragTarget = false
     var nativeTitleBarDragFallbackToken: WindowToken?
     var nativeTitleBarDragFallbackReleased = false
     var nativeTitleBarDrag: NativeTitleBarDrag?
+    var nativeResizeStart: NativeResizeStart?
+    var nativeResizeCorrectionsByWindowId: [Int: NativeResizeCorrection] = [:]
+    var nativeCrossDisplayMove: NativeCrossDisplayMove?
 
     var lastFocusFollowsMouseTime: Date = .distantPast
     var latestFocusFollowsMouseSample: FocusFollowsMouseSample?

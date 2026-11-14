@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import ApplicationServices
@@ -22,7 +22,7 @@ final class CommandPaletteController: NSObject, NSWindowDelegate {
                 if selectedMode == .windows, searchText != oldValue {
                     selectedItemID = nil
                 }
-                updateSelectionAfterFilterChange()
+                filterInputDidChange()
             }
             if !searchText.isEmpty {
                 expandResults()
@@ -44,21 +44,23 @@ final class CommandPaletteController: NSObject, NSWindowDelegate {
     }
 
     var windows: [CommandPaletteWindowItem] = [] {
-        didSet { updateSelectionAfterFilterChange() }
+        didSet { filterInputDidChange() }
     }
 
     private(set) var menuItems: [MenuItemModel] = [] {
-        didSet { updateSelectionAfterFilterChange() }
+        didSet { filterInputDidChange() }
     }
 
     private(set) var isMenuLoading = false
     private(set) var clipboardItems: [ClipboardPaletteItem] = [] {
-        didSet { updateSelectionAfterFilterChange() }
+        didSet { filterInputDidChange() }
     }
 
     private(set) var commandItems: [CommandPaletteCommandItem] = [] {
-        didSet { updateSelectionAfterFilterChange() }
+        didSet { filterInputDidChange() }
     }
+
+    private(set) var filteredItems = CommandPaletteFilteredItems.windows([])
 
     private(set) var isClipboardHistoryEnabled = false
     private(set) var clipboardPreview: ClipboardPalettePreview?
@@ -68,6 +70,8 @@ final class CommandPaletteController: NSObject, NSWindowDelegate {
     var selectionScrollRequest = 0
 
     var applicationSections: [LauncherSection<LauncherApplicationResult>] = []
+    var launcherFilter: LauncherFilter = .all
+    var savedApplicationIdentifiers: [UUID: String] = [:]
     var fileSections: [LauncherSection<LauncherFileResult>] = []
     var applicationChips: [LauncherChip] = []
     var fileChips: [LauncherChip] = []
@@ -96,7 +100,7 @@ final class CommandPaletteController: NSObject, NSWindowDelegate {
     private let menuSession: CommandPaletteMenuSession
     private var isProgrammaticDismiss = false
     private var isConfirmingClipboardClear = false
-    var isPresentingMarkPrompt = false
+    var isPresentingModalPrompt = false
     private var clipboardPreviewGeneration = 0
 
     enum DismissReason {
@@ -200,7 +204,7 @@ final class CommandPaletteController: NSObject, NSWindowDelegate {
     }
 
     func windowDidResignKey(_: Notification) {
-        guard isVisible, !isProgrammaticDismiss, !isConfirmingClipboardClear, !isPresentingMarkPrompt else {
+        guard isVisible, !isProgrammaticDismiss, !isConfirmingClipboardClear, !isPresentingModalPrompt else {
             return
         }
         dismiss(reason: .deactivation)
@@ -212,6 +216,7 @@ final class CommandPaletteController: NSObject, NSWindowDelegate {
             selectedMode = .windows
             return
         }
+        refreshFilteredItems()
         invalidateLauncherSearch()
         launcherResultsFocused = false
         selectedItemID = nil
@@ -225,6 +230,27 @@ final class CommandPaletteController: NSObject, NSWindowDelegate {
             startLauncherSearch()
         }
         updateSelectionAfterFilterChange()
+    }
+
+    private func filterInputDidChange() {
+        refreshFilteredItems()
+        updateSelectionAfterFilterChange()
+    }
+
+    private func refreshFilteredItems() {
+        filteredItems = switch selectedMode {
+        case .windows:
+            .windows(CommandPaletteSearch.filterWindowItems(windows, query: searchText))
+        case .menu:
+            .menu(CommandPaletteSearch.filterMenuItems(menuItems, query: searchText))
+        case .clipboard:
+            .clipboard(CommandPaletteSearch.filterClipboardItems(clipboardItems, query: searchText))
+        case .commands:
+            .commands(CommandPaletteSearch.filterCommandItems(commandItems, query: searchText))
+        case .applications,
+             .files:
+            .launcher
+        }
     }
 
     private func loadMenuItemsIfNeeded() {
@@ -271,7 +297,9 @@ final class CommandPaletteController: NSObject, NSWindowDelegate {
         }
         presentation.expand(panel)
     }
+}
 
+extension CommandPaletteController {
     func setClipboardItemPinned(_ pinned: Bool, id: UUID) {
         guard let wmController, isClipboardHistoryEnabled,
               environment.isClipboardHistoryEnabled(wmController)
@@ -411,7 +439,7 @@ extension CommandPaletteController {
     private func installEventMonitor() {
         removeEventMonitor()
         eventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            guard let self, isVisible, !isPresentingMarkPrompt else { return event }
+            guard let self, isVisible, !isPresentingModalPrompt else { return event }
             return handleKeyDown(event) ? nil : event
         }
     }
@@ -423,7 +451,7 @@ extension CommandPaletteController {
         }
     }
 
-    func restoreKeyWindowAfterMarkPrompt() {
+    func restoreKeyWindowAfterModalPrompt() {
         if isVisible {
             presentation.panel?.makeKey()
         }

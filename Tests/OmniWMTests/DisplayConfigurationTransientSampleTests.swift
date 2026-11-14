@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import CoreGraphics
 import Foundation
@@ -60,15 +60,79 @@ final class DisplayConfigurationTransientSampleTests: XCTestCase {
         XCTAssertTrue(events.isEmpty)
     }
 
-    private func makeMonitor(displayId: CGDirectDisplayID, name: String, originX: CGFloat, width: CGFloat) -> Monitor {
+    func testSafeApertureChangeResamplesNotchMetadata() async {
+        let plain = makeMonitor(displayId: 1, name: "Built-in", originX: 0, width: 1512)
+        let notched = makeMonitor(displayId: 1, name: "Built-in", originX: 0, width: 1512, notchRange: 666 ... 846)
+        let external = makeMonitor(displayId: 2, name: "External", originX: 1512, width: 1440)
+        sampledMonitors = [plain, external]
+        let observer = DisplayConfigurationObserver(monitorSampler: { self.sampledMonitors })
+        var reconfigured: [Monitor] = []
+        var resampled: XCTestExpectation?
+        observer.setEventHandler { event in
+            guard case let .reconfigured(monitor) = event else {
+                XCTFail("Unexpected display event \(event)")
+                return
+            }
+            reconfigured.append(monitor)
+            resampled?.fulfill()
+        }
+
+        for builtIn in [notched, plain] {
+            sampledMonitors = [builtIn, external]
+            let notified = expectation(description: "Resampled after safe aperture change")
+            resampled = notified
+            NotificationCenter.default.post(name: .screenSafeApertureDidChange, object: nil)
+            await fulfillment(of: [notified], timeout: failureBound)
+        }
+        observer.sampleNow()
+
+        XCTAssertEqual(reconfigured, [notched, plain])
+    }
+
+    func testObserverReportsMainDisplaySwapWithUnchangedGeometry() {
+        sampledMonitors = [
+            makeMonitor(displayId: 1, name: "First", originX: 0, width: 1440, isMain: true),
+            makeMonitor(displayId: 2, name: "Second", originX: 1440, width: 1440, isMain: false)
+        ]
+        let observer = DisplayConfigurationObserver(monitorSampler: { self.sampledMonitors })
+        var reconfigured: [Monitor] = []
+        observer.setEventHandler { event in
+            guard case let .reconfigured(monitor) = event else {
+                XCTFail("Unexpected display event \(event)")
+                return
+            }
+            reconfigured.append(monitor)
+        }
+        let swapped = [
+            makeMonitor(displayId: 1, name: "First", originX: 0, width: 1440, isMain: false),
+            makeMonitor(displayId: 2, name: "Second", originX: 1440, width: 1440, isMain: true)
+        ]
+
+        sampledMonitors = swapped
+        observer.sampleNow()
+        observer.sampleNow()
+
+        XCTAssertEqual(reconfigured.sorted { $0.displayId < $1.displayId }, swapped)
+    }
+
+    private func makeMonitor(
+        displayId: CGDirectDisplayID,
+        name: String,
+        originX: CGFloat,
+        width: CGFloat,
+        notchRange: ClosedRange<CGFloat>? = nil,
+        isMain: Bool? = nil
+    ) -> Monitor {
         let frame = CGRect(x: originX, y: 0, width: width, height: 900)
         return Monitor(
             id: .init(displayId: displayId),
             displayId: displayId,
             frame: frame,
             visibleFrame: frame,
-            hasNotch: false,
-            name: name
+            hasNotch: notchRange != nil,
+            notchRange: notchRange,
+            name: name,
+            isMain: isMain
         )
     }
 }

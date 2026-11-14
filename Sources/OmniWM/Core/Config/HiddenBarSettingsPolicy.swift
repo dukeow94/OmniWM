@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import Foundation
 
@@ -29,7 +29,7 @@ enum HiddenBarSettingsPolicy {
         return normalized
     }
 
-    @MainActor static func validatedRehideIntervalSeconds(_ value: Double) -> Double {
+    static func validatedRehideIntervalSeconds(_ value: Double) -> Double {
         guard value.isFinite else { return SettingsExport.HiddenBar.defaults().rehideIntervalSeconds }
         return min(max(value, 2), 30)
     }

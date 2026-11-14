@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import Foundation
@@ -104,7 +104,9 @@ extension AXEventHandler {
         }
         for entry in removedEntries {
             controller.mouseEventHandler.discardNativeTitleBarDrag(for: entry.token)
-            controller.axManager.removeWindowState(pid: entry.pid, expectedWindow: entry.axRef)
+            if let axRef = entry.axRef {
+                controller.axManager.removeWindowState(pid: entry.pid, expectedWindow: axRef)
+            }
             if scratchpadTokens.contains(entry.token) {
                 controller.cleanupScratchpadWindowResources(for: entry.token)
             }

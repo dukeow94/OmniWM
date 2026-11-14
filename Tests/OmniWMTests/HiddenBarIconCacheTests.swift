@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 @testable import OmniWM
 import XCTest
@@ -48,51 +48,26 @@ final class HiddenBarIconCacheTests: XCTestCase {
     }
 
     @MainActor
-    func testReplaceVisuallyEqualIconDoesNotFire() {
-        let cache = HiddenBarIconCache()
-        cache.replaceResolvedItems(
-            ["a": [item("a")]],
-            capturedIcons: [key("a"): CapturedIcon(image: makeImage(), scale: 2)]
-        )
-        var fired = 0
-        cache.onChange = { fired += 1 }
-        cache.replaceResolvedItems(
-            ["a": [item("a")]],
-            capturedIcons: [key("a"): CapturedIcon(image: makeImage(), scale: 2)]
-        )
-        XCTAssertEqual(fired, 0)
-    }
-
-    @MainActor
-    func testReplaceChangedPixelsFires() {
-        let cache = HiddenBarIconCache()
-        cache.replaceResolvedItems(
-            ["a": [item("a")]],
-            capturedIcons: [key("a"): CapturedIcon(image: makeImage(red: 1), scale: 2)]
-        )
-        var fired = 0
-        cache.onChange = { fired += 1 }
-        cache.replaceResolvedItems(
-            ["a": [item("a")]],
-            capturedIcons: [key("a"): CapturedIcon(image: makeImage(red: 0.5), scale: 2)]
-        )
-        XCTAssertEqual(fired, 1)
-    }
-
-    @MainActor
-    func testReplaceScaleChangeFires() {
-        let cache = HiddenBarIconCache()
-        cache.replaceResolvedItems(
-            ["a": [item("a")]],
-            capturedIcons: [key("a"): CapturedIcon(image: makeImage(), scale: 2)]
-        )
-        var fired = 0
-        cache.onChange = { fired += 1 }
-        cache.replaceResolvedItems(
-            ["a": [item("a")]],
-            capturedIcons: [key("a"): CapturedIcon(image: makeImage(), scale: 1)]
-        )
-        XCTAssertEqual(fired, 1)
+    func testReplaceFiresOnlyWhenIconVisuallyChanges() {
+        let cases: [(label: String, red: CGFloat, scale: CGFloat, expectedFires: Int)] = [
+            ("visually equal", 1, 2, 0),
+            ("changed pixels", 0.5, 2, 1),
+            ("changed scale", 1, 1, 1)
+        ]
+        for testCase in cases {
+            let cache = HiddenBarIconCache()
+            cache.replaceResolvedItems(
+                ["a": [item("a")]],
+                capturedIcons: [key("a"): CapturedIcon(image: makeImage(), scale: 2)]
+            )
+            var fired = 0
+            cache.onChange = { fired += 1 }
+            cache.replaceResolvedItems(
+                ["a": [item("a")]],
+                capturedIcons: [key("a"): CapturedIcon(image: makeImage(red: testCase.red), scale: testCase.scale)]
+            )
+            XCTAssertEqual(fired, testCase.expectedFires, testCase.label)
+        }
     }
 
     @MainActor
@@ -247,28 +222,6 @@ final class HiddenBarIconCacheTests: XCTestCase {
         ))
         XCTAssertFalse(HiddenBarIconCache.isVisuallyEqual(same, nil))
         XCTAssertTrue(HiddenBarIconCache.isVisuallyEqual(nil, nil))
-    }
-
-    func testCropRectsAtScaleOneAndTwo() {
-        let union = CGRect(x: 100, y: 10, width: 90, height: 24)
-        let bounds = [
-            CGRect(x: 100, y: 10, width: 30, height: 24),
-            CGRect(x: 160, y: 10, width: 30, height: 24)
-        ]
-        XCTAssertEqual(
-            HiddenBarIconCaptureService.cropRects(bounds: bounds, union: union, scale: 1),
-            [
-                CGRect(x: 0, y: 0, width: 30, height: 24),
-                CGRect(x: 60, y: 0, width: 30, height: 24)
-            ]
-        )
-        XCTAssertEqual(
-            HiddenBarIconCaptureService.cropRects(bounds: bounds, union: union, scale: 2),
-            [
-                CGRect(x: 0, y: 0, width: 60, height: 48),
-                CGRect(x: 120, y: 0, width: 60, height: 48)
-            ]
-        )
     }
 
     func testTransparencyDetection() {
