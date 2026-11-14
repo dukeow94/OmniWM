@@ -106,7 +106,7 @@ jobs:
         run: python3 Scripts/canary_release.py verify-ci
       - uses: ./.github/actions/setup-swift
         if: steps.check.outputs.should_skip != 'true'
-      - uses: ./.github/actions/setup-lix
+      - uses: ./.github/actions/setup-dev-tools
         if: steps.check.outputs.should_skip != 'true'
         with:
           make-target: setup

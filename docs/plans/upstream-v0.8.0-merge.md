@@ -218,3 +218,25 @@ fork 문서가 upstream 웹 문서와 함께 변경되므로 웹 검증도 병�
 - [GhosttyKit v0.8.0 릴리스](https://github.com/OmniNull/OmniWM/releases/tag/v0.8.0)
 - [고정 nixpkgs Fish 정의](https://github.com/NixOS/nixpkgs/blob/f20cd90e28fe0403873f473b29e42662cd86e8c4/pkgs/by-name/fi/fish/package.nix)
 - [고정 nixpkgs Nushell 정의](https://github.com/NixOS/nixpkgs/blob/f20cd90e28fe0403873f473b29e42662cd86e8c4/pkgs/by-name/nu/nushell/package.nix)
+
+## 11. 계획 승인 후 구현 체크포인트
+
+1~10절은 사전 조사 당시의 계획과 환경 기록이다. 승인 후 구현한 내용은 다음과 같으며, 최종 CI 결과와 추가 검증은 [Draft PR #8](https://github.com/dukeow94/OmniWM/pull/8)에 기록한다.
+
+### 구현 및 환경 준비
+
+- 작업 브랜치에 `v0.8.0`을 merge하고 텍스트 충돌 10개 파일을 해결했다. `develop`과 원격 `main`에는 아직 반영하지 않았다.
+- 설정 스키마 6과 3/4/5→6 회귀 테스트를 추가했다. 기존 포커스 값, legacy resize 단축키, 명시적 현재 binding 우선권, unknown key, 백업 및 재로드를 다룬다.
+- workspace 속성을 제공하는 규칙의 배정 모드를 사용하도록 합성 규칙 처리를 수정하고, 모니터 포커스 UI·Tab rail 경계 밖 배치·IPC wire 직렬화를 보존했다.
+- checksum-pinned 비-Nix setup, doctor, CI action과 workflow, direnv 및 개발 문서를 갱신했다. 설치 재사용·오염된 다운로드 거부·기존 framework 보존 테스트를 추가했다.
+- Swiftly 1.2.0과 pinned Swift snapshot, GhosttyKit 0.8.0, SwiftFormat 0.64.4, SwiftLint 0.65.1, Fish 4.9.3, Nushell 0.116.1 및 Node 24.15.0 환경을 준비했다. Fish/Nushell은 저장소 로컬 설치이며 기존 시스템 셸을 바꾸지 않았다.
+- Nix/Lix는 설치·실행하지 않았으며, Xcode 라이선스 자동 동의·기본 developer 경로 변경·서명 identity 생성·Dev 앱 실행도 하지 않았다.
+
+### 확인한 검증과 남은 제한
+
+- 로컬에서 setup 재실행, formatting/lint, IPC encoder 생성 검사, pin 검사, 신규 setup 테스트 4개와 KittyControl 테스트 24개가 통과했다.
+- `make arc-audit`도 통과했다. 50-node workload 10,000회에서 retain/release/Swift allocation/malloc이 모두 0이며 Embedded Swift compile도 성공했다.
+- Node 24에서 dependency 설치, reference/check, 웹 테스트 11개 및 production build가 통과했다.
+- 최초 구현 revision은 CI Tooling·Website와 앱/기본 테스트 번들 compile을 통과했다. 최종 리뷰 변경은 별도 CI 실행으로 다시 검증하며, 이 체크포인트는 전체 Swift 회귀 테스트 통과를 의미하지 않는다.
+- 로컬 Xcode 라이선스 검사는 여전히 exit 69다. 사용자가 전체 Xcode의 라이선스를 검토·동의한 뒤 localization, 전체 serial/parallel Swift suite와 필요한 live/manual 검증을 완료해야 한다. 기본 developer 경로는 변경하지 않고 작업 범위의 `DEVELOPER_DIR`를 사용할 수 있다.
+- 검증이 끝날 때까지 PR은 Draft로 유지하고 `develop`에 merge하지 않는다.
