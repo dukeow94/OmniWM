@@ -39,7 +39,7 @@ jobs:
           filter: blob:none
           persist-credentials: false
       - uses: ./.github/actions/setup-swift
-      - uses: ./.github/actions/setup-lix
+      - uses: ./.github/actions/setup-dev-tools
         with:
           make-target: setup
       - name: Date sources by their last commit
@@ -97,15 +97,11 @@ jobs:
           persist-credentials: false
       - name: Check pinned downloads
         run: make check-pins
-      - uses: ./.github/actions/setup-lix
+      - uses: ./.github/actions/setup-dev-tools
         with:
           make-target: setup-tools
       - name: Put flake tools on PATH
         run: echo "$PWD/.cache/flake-tools/bin" >> "$GITHUB_PATH"
-      - name: Check the flake
-        env:
-          NIX_CONFIG: access-tokens = github.com=${{ github.token }}
-        run: nix flake check
       - name: Verify formatting
         run: make format-check
       - name: Lint
@@ -135,7 +131,7 @@ jobs:
           filter: blob:none
           persist-credentials: false
       - uses: ./.github/actions/setup-swift
-      - uses: ./.github/actions/setup-lix
+      - uses: ./.github/actions/setup-dev-tools
         with:
           make-target: setup
       - name: Date sources by their last commit
@@ -213,7 +209,7 @@ jobs:
           name: swift-tests
       - name: Restore the test runtime
         run: tar -xf swift-tests.tar && rm swift-tests.tar
-      - uses: ./.github/actions/setup-lix
+      - uses: ./.github/actions/setup-dev-tools
         if: matrix.shells
         with:
           make-target: setup-tools

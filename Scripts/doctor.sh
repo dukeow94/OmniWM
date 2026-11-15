@@ -121,21 +121,18 @@ print_paths() {
   done
 }
 
-check_nix() {
-  if version="$(nix --version 2>/dev/null)"; then
-    echo "$version"
-  else
-    problem "Nix is unavailable; install Lix from https://lix.systems/install/ and run make setup."
-  fi
-}
-
 case "${1:-doctor}" in
   doctor)
-    check_nix
     check_prerequisites
     check_framework
     check_tool swiftformat "$SWIFTFORMAT_VERSION"
     check_tool swiftlint "$SWIFTLINT_VERSION"
+    if [ "$("$BIN_DIR/fish" --version 2>/dev/null || true)" != "fish, version $FISH_VERSION" ]; then
+      problem "Fish $FISH_VERSION is missing; run make setup-tools."
+    fi
+    if [ "$("$BIN_DIR/nu" --version 2>/dev/null || true)" != "$NUSHELL_VERSION" ]; then
+      problem "Nushell $NUSHELL_VERSION is missing; run make setup-tools."
+    fi
     check_signing
     print_paths
     [ "$ERRORS" -eq 0 ]

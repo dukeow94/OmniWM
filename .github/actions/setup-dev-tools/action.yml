@@ -1,0 +1,20 @@
+name: Set up development tools
+description: Download checksum-pinned development tools and optionally GhosttyKit without installing Nix.
+inputs:
+  make-target:
+    description: Make target to run (setup or setup-tools).
+    required: false
+    default: setup-tools
+runs:
+  using: composite
+  steps:
+    - name: Prepare pinned dependencies
+      shell: bash
+      env:
+        MAKE_TARGET: ${{ inputs.make-target }}
+      run: |
+        case "$MAKE_TARGET" in
+          setup|setup-tools) make "$MAKE_TARGET" ;;
+          *) echo "Unsupported setup target: $MAKE_TARGET" >&2; exit 1 ;;
+        esac
+        echo "$PWD/.cache/flake-tools/bin" >> "$GITHUB_PATH"
