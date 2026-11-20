@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import Carbon
 import OmniWMIPC
@@ -85,52 +85,52 @@ extension ActionCatalog {
     static func appendSpanAdjustmentBindings(_ specs: inout [ActionSpec]) {
         specs.append(contentsOf: [
             action(
-                id: "setContainerPrimarySpan.decrease10Percent",
+                id: "resizeContainerPrimarySpan.shrink",
                 command: .sizing(.resizeContainerPrimarySpan(grow: false)),
                 category: .column,
                 binding: KeyBinding(keyCode: UInt32(kVK_ANSI_Minus), modifiers: UInt32(optionKey)),
                 visibility: .advanced,
-                keywords: ["shrink container", "resize primary span"]
+                keywords: ["shrink container", "decrease", "resize primary span"]
             ),
             action(
-                id: "setContainerPrimarySpan.increase10Percent",
+                id: "resizeContainerPrimarySpan.grow",
                 command: .sizing(.resizeContainerPrimarySpan(grow: true)),
                 category: .column,
                 binding: KeyBinding(keyCode: UInt32(kVK_ANSI_Equal), modifiers: UInt32(optionKey)),
                 visibility: .advanced,
-                keywords: ["grow container", "resize primary span"]
+                keywords: ["grow container", "increase", "resize primary span"]
             ),
             action(
-                id: "setWindowPrimarySpan.decrease10Percent",
+                id: "resizeWindowPrimarySpan.shrink",
                 command: .sizing(.resizeWindowPrimarySpan(grow: false)),
                 category: .column,
                 binding: .unassigned,
                 visibility: .advanced,
-                keywords: ["shrink window", "resize primary span"]
+                keywords: ["shrink window", "decrease", "resize primary span"]
             ),
             action(
-                id: "setWindowPrimarySpan.increase10Percent",
+                id: "resizeWindowPrimarySpan.grow",
                 command: .sizing(.resizeWindowPrimarySpan(grow: true)),
                 category: .column,
                 binding: .unassigned,
                 visibility: .advanced,
-                keywords: ["grow window", "resize primary span"]
+                keywords: ["grow window", "increase", "resize primary span"]
             ),
             action(
-                id: "setWindowSecondarySpan.decrease10Percent",
+                id: "resizeWindowSecondarySpan.shrink",
                 command: .sizing(.resizeWindowSecondarySpan(grow: false)),
                 category: .column,
                 binding: KeyBinding(keyCode: UInt32(kVK_ANSI_Minus), modifiers: UInt32(optionKey | shiftKey)),
                 visibility: .advanced,
-                keywords: ["shrink window", "resize secondary span"]
+                keywords: ["shrink window", "decrease", "resize secondary span"]
             ),
             action(
-                id: "setWindowSecondarySpan.increase10Percent",
+                id: "resizeWindowSecondarySpan.grow",
                 command: .sizing(.resizeWindowSecondarySpan(grow: true)),
                 category: .column,
                 binding: KeyBinding(keyCode: UInt32(kVK_ANSI_Equal), modifiers: UInt32(optionKey | shiftKey)),
                 visibility: .advanced,
-                keywords: ["grow window", "resize secondary span"]
+                keywords: ["grow window", "increase", "resize secondary span"]
             )
         ])
     }

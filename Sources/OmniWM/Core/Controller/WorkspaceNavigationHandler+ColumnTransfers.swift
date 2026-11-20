@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import Foundation
@@ -87,7 +87,6 @@ extension WorkspaceNavigationHandler {
             handle,
             from: sourceWorkspaceId,
             to: targetWorkspaceId,
-            movedTokens: movedTokens,
             sourceFocusNodeId: result.newFocusNodeId
         )
     }
@@ -135,7 +134,6 @@ extension WorkspaceNavigationHandler {
         _ handle: WindowHandle,
         from sourceWorkspaceId: WorkspaceDescriptor.ID,
         to targetWorkspaceId: WorkspaceDescriptor.ID,
-        movedTokens: [WindowToken],
         sourceFocusNodeId: NodeId?
     ) -> StructuralMutationOutcome {
         guard let controller else { return .unchanged }
@@ -152,7 +150,6 @@ extension WorkspaceNavigationHandler {
                 sourceWorkspaceId: sourceWorkspaceId,
                 destinationWorkspaceId: targetWorkspaceId,
                 selectedHandle: handle,
-                movedTokens: movedTokens,
                 scrollWorkspaceId: targetState.hasPendingOffsetAnimation ? targetWorkspaceId : nil
             )
         )

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import ApplicationServices
@@ -64,7 +64,7 @@ enum CommandPalettePresentation {
         case .menu: String(localized: "Search menu items...")
         case .clipboard: String(localized: "Search clipboard history...")
         case .commands: String(localized: "Search OmniWM commands...")
-        case .applications: String(localized: "Search applications...")
+        case .applications: String(localized: "Search apps and saved entries...")
         case .files: String(localized: "Search files...")
         }
     }
@@ -90,6 +90,15 @@ enum CommandPalettePresentation {
         }
     }
 
+    private static let modeDigitByKeyCode: [UInt16: String] = [
+        UInt16(kVK_ANSI_1): "1", UInt16(kVK_ANSI_Keypad1): "1",
+        UInt16(kVK_ANSI_2): "2", UInt16(kVK_ANSI_Keypad2): "2",
+        UInt16(kVK_ANSI_3): "3", UInt16(kVK_ANSI_Keypad3): "3",
+        UInt16(kVK_ANSI_4): "4", UInt16(kVK_ANSI_Keypad4): "4",
+        UInt16(kVK_ANSI_5): "5", UInt16(kVK_ANSI_Keypad5): "5",
+        UInt16(kVK_ANSI_6): "6", UInt16(kVK_ANSI_Keypad6): "6"
+    ]
+
     static func modeNavigationTarget(
         currentMode: CommandPaletteMode,
         isMenuModeAvailable: Bool,
@@ -98,7 +107,7 @@ enum CommandPalettePresentation {
         charactersIgnoringModifiers: String?
     ) -> CommandPaletteMode? {
         if relevantModifiers == .command {
-            switch charactersIgnoringModifiers {
+            switch modeDigitByKeyCode[keyCode] ?? charactersIgnoringModifiers {
             case "1":
                 return .windows
             case "2":
@@ -177,7 +186,7 @@ extension CommandPaletteMode {
         case .menu: String(localized: "Menu")
         case .clipboard: String(localized: "Clipboard")
         case .commands: String(localized: "Commands")
-        case .applications: String(localized: "Applications")
+        case .applications: String(localized: "Launcher")
         case .files: String(localized: "Files")
         }
     }

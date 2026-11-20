@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import Foundation
@@ -21,7 +21,6 @@ struct StructuralMutation: Equatable {
     let sourceWorkspaceId: WorkspaceDescriptor.ID
     let destinationWorkspaceId: WorkspaceDescriptor.ID
     let selectedHandle: WindowHandle
-    let movedTokens: [WindowToken]
     let scrollWorkspaceId: WorkspaceDescriptor.ID?
 
     var affectedWorkspaceIds: Set<WorkspaceDescriptor.ID> {
@@ -101,15 +100,12 @@ enum StructuralMutationOutcome: Equatable {
     }
 
     struct NiriStructuralMutation {
-        let movedTokens: [WindowToken]
         let operation: LayoutOperation
     }
 
-    enum ColumnMoveTarget {
-        case direction(Direction)
-        case first
-        case last
-        case index(Int)
+    enum WindowTarget {
+        case focused
+        case window(WindowHandle)
     }
 
     var scrollAnimationByDisplay: [CGDirectDisplayID: WorkspaceDescriptor.ID] = [:]
@@ -269,7 +265,13 @@ struct NodeActivationOptions {
             workingFrame: workingFrame,
             singleWindowFrame: layoutFrames.workingFrame,
             borderSafeFillFrame: layoutFrames.borderSafeFillFrame,
-            fullscreenLayoutFrame: layoutFrames.fullscreenLayoutFrame,
+            fullscreenLayoutFrame: controller.niriFullscreenLayoutFrame(
+                layoutFrames.fullscreenLayoutFrame,
+                workingFrame: layoutFrames.workingFrame,
+                roomGapLimits: layoutFrames.roomGapLimits,
+                monitor: monitor,
+                gap: gaps
+            ),
             viewFrame: monitor.frame,
             scale: scale
         )

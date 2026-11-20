@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import Foundation
@@ -7,15 +7,6 @@ import OmniWMIPC
 
 @MainActor @Observable
 final class WMController {
-    private struct BorderLayoutConfig: Equatable {
-        let enabled: Bool
-        let width: CGFloat
-
-        func clearance(scale: CGFloat) -> CGFloat {
-            BorderConfig.layoutClearance(enabled: enabled, width: width, scale: scale)
-        }
-    }
-
     var isEnabled: Bool = true
     var hotkeysEnabled: Bool = true
     private(set) var desiredEnabled: Bool = true
@@ -37,6 +28,8 @@ final class WMController {
     let hotkeys = HotkeyCenter()
     private(set) var hotkeyRegistrationFailures: [HotkeyCommand: HotkeyRegistrationFailureReason] = [:]
     private(set) var systemHyperTriggerFailure: SystemHyperTriggerFailure?
+    private(set) var windowSwitcherInputAvailable = false
+    var keyboardModeKind = KeyboardModeKind.normal
     var isHyperTriggerActive: Bool {
         hotkeys.isHyperTriggerActive
     }
@@ -47,7 +40,11 @@ final class WMController {
     var isLockScreenActive: Bool = false {
         didSet {
             guard oldValue != isLockScreenActive else { return }
+            workspaceBarManager.setShellLocked(isLockScreenActive)
+            publishPointerEdgeTopology()
             if isLockScreenActive {
+                windowSwitcherControllerStorage?.dismiss()
+                hotkeys.cancelArmedKeyboardMode()
                 layoutRefreshController.suspendForLockScreen()
                 resetWorkspaceBarReveal()
                 mouseEventHandler.handleInputSuppressionBegan()
@@ -58,11 +55,29 @@ final class WMController {
     }
 
     let axManager = AXManager()
+    @ObservationIgnored
+    private(set) lazy var shellAppWindowManager = ShellAppWindowManager(controller: self)
+    @ObservationIgnored
+    private(set) lazy var shellAppCatalog = ShellAppCatalog(
+        configDirectory: settings.settingsFileURL.deletingLastPathComponent()
+    )
     let traceCaptureCoordinator: RuntimeTraceCaptureCoordinator
     let appInfoCache = AppInfoCache()
     @ObservationIgnored
+    private(set) lazy var resizeOverlay = ResizeOverlayController(
+        currentFrame: { [weak self] in self?.axManager.lastAppliedFrame(for: $0.windowId) },
+        monitorFrame: { [weak self] in self?.workspaceManager.monitor(for: $0)?.frame },
+        icon: { [weak self] in self?.appInfoCache.info(for: $0.pid)?.icon },
+        requestRelayout: { [weak self] in
+            self?.layoutRefreshController.requestRelayout(reason: .staleLayoutPlan, affectedWorkspaceIds: [$0])
+        }
+    )
+    @ObservationIgnored
+    private(set) lazy var niriEdgePictures = makeEdgePictures()
+
+    @ObservationIgnored
     let workspaceBarIconResolver: WorkspaceBarIconResolver
-    private(set) var workspaceBarIconResolutionRevision: UInt64 = 0
+    var workspaceBarIconResolutionRevision: UInt64 = 0
     let eventIntake = EventIntake()
     let factResolver = FactResolver()
     let intentLedger = IntentLedger()
@@ -97,17 +112,20 @@ final class WMController {
     @ObservationIgnored
     private(set) lazy var surfaceReconciler = SurfaceReconciler(controller: self)
     @ObservationIgnored
-    private(set) lazy var workspaceBarManager: WorkspaceBarManager = .init(motionPolicy: motionPolicy)
+    private(set) lazy var workspaceBarManager: WorkspaceBarManager = .init(
+        configDirectory: settings.settingsFileURL.deletingLastPathComponent(),
+        motionPolicy: motionPolicy
+    )
     @ObservationIgnored
     private var runtimeFrameJobCancellationSuppressionDepth: Int = 0
     @ObservationIgnored
     let floatDemotionTracker = FloatDemotionTracker()
     @ObservationIgnored
-    private(set) var hiddenWorkspaceBarMonitorIds: Set<Monitor.ID> = []
+    var hiddenWorkspaceBarMonitorIds: Set<Monitor.ID> = []
     @ObservationIgnored
-    private(set) var isWorkspaceBarRevealHeld = false
+    var isWorkspaceBarRevealHeld = false
     @ObservationIgnored
-    private lazy var workspaceBarRevealMonitor: WorkspaceBarRevealMonitor = {
+    lazy var workspaceBarRevealMonitor: WorkspaceBarRevealMonitor = {
         let monitor = WorkspaceBarRevealMonitor()
         monitor.onRevealChanged = { [weak self] revealed in
             self?.setWorkspaceBarRevealHeld(revealed)
@@ -117,6 +135,12 @@ final class WMController {
 
     @ObservationIgnored
     let hiddenBarController: HiddenBarController
+    @ObservationIgnored
+    let appVolumeMixer: AppVolumeMixer
+    @ObservationIgnored
+    let mediaController = MediaController()
+    @ObservationIgnored
+    let calendarController = CalendarController()
     @ObservationIgnored
     private(set) lazy var quakeTerminalController: QuakeTerminalController = .init(
         settings: settings,
@@ -133,16 +157,48 @@ final class WMController {
         }
     )
     @ObservationIgnored
-    private(set) lazy var commandPaletteController: CommandPaletteController = .init(motionPolicy: motionPolicy)
+    var appliedQuakeTerminalSelection: QuakeTerminalProvider?
+    @ObservationIgnored
+    lazy var kittyQuickAccessTerminal: KittyQuickAccessTerminal = {
+        let terminal = KittyQuickAccessTerminal(
+            environment: .live,
+            socketPath: KittyQuickAccessTerminal.defaultSocketPath(),
+            context: { [weak self] in self?.kittyQuakeControlContext() }
+        )
+        terminal.onToggleFailure = { [weak self] problem in
+            self?.presentQuakeTerminalFailure(
+                title: String(localized: "Kitty Quake Terminal Unavailable"),
+                message: problem.message
+            )
+        }
+        return terminal
+    }()
 
     @ObservationIgnored
-    private(set) lazy var systemStatsPopupController: SystemStatsPopupController = {
-        let controller = SystemStatsPopupController()
-        controller.isToggleSourceWindow = { [weak self] window in
-            self?.workspaceBarManager.isWorkspaceBarWindow(window) ?? false
+    lazy var footQuickAccessTerminal: FootQuickAccessTerminal = {
+        let terminal = FootQuickAccessTerminal(
+            environment: .live,
+            socketPath: FootQuickAccessTerminal.defaultSocketPath(),
+            context: { [weak self] in self?.footQuakeControlContext() }
+        )
+        terminal.onToggleFailure = { [weak self] problem in
+            self?.presentQuakeTerminalFailure(
+                title: String(localized: "foot Quake Terminal Unavailable"),
+                message: problem.message
+            )
         }
-        return controller
+        return terminal
     }()
+
+    @ObservationIgnored
+    lazy var commandPaletteController: CommandPaletteController = .init(motionPolicy: motionPolicy)
+    @ObservationIgnored var windowSwitcherControllerStorage: WindowSwitcherController?
+    var windowSwitcherController: WindowSwitcherController {
+        if let windowSwitcherControllerStorage { return windowSwitcherControllerStorage }
+        let switcher = WindowSwitcherController(controller: self)
+        windowSwitcherControllerStorage = switcher
+        return switcher
+    }
 
     @ObservationIgnored
     private(set) lazy var sponsorsWindowController: SponsorsWindowController = .init(
@@ -156,6 +212,7 @@ final class WMController {
     private(set) lazy var mouseEventHandler = MouseEventHandler(controller: self)
     @ObservationIgnored
     private(set) lazy var mouseWarpHandler = MouseWarpHandler(controller: self)
+    let pointerEdgeBarrier = PointerEdgeBarrier()
     @ObservationIgnored
     private(set) lazy var axEventHandler = AXEventHandler(controller: self)
     @ObservationIgnored
@@ -201,10 +258,13 @@ final class WMController {
     let ownedWindowRegistry: OwnedWindowRegistry
     @ObservationIgnored
     let columnModeToast: ColumnModeToastController
+    let keyboardModeIndicator: KeyboardModeIndicatorController
     @ObservationIgnored
     var warpMouseCursorPosition: (CGPoint) -> Void = { CGWarpMouseCursorPosition($0) }
     @ObservationIgnored
     var currentMouseLocation: () -> CGPoint = { NSEvent.mouseLocation }
+    @ObservationIgnored
+    var windowDispositionEvaluationForTests: ((WindowToken) -> WindowDecisionEvaluation?)?
     @ObservationIgnored
     weak var ipcApplicationBridge: IPCApplicationBridge?
 
@@ -243,12 +303,14 @@ final class WMController {
             animationSpeed: settings.animationSpeed
         )
         self.hiddenBarController = hiddenBarController ?? HiddenBarController(settings: settings)
+        appVolumeMixer = AppVolumeMixer(settings: settings)
         self.clipboardHistoryDirectory = clipboardHistoryDirectory
         self.diagnosticsDirectory = diagnosticsDirectory
         traceCaptureCoordinator = RuntimeTraceCaptureCoordinator(diagnosticsDirectory: diagnosticsDirectory)
         self.windowFocusOperations = windowFocusOperations
         self.ownedWindowRegistry = ownedWindowRegistry
         columnModeToast = ColumnModeToastController(ownedWindowRegistry: ownedWindowRegistry)
+        keyboardModeIndicator = KeyboardModeIndicatorController(ownedWindowRegistry: ownedWindowRegistry)
         workspaceManager = WorkspaceManager(settings: settings)
         focusPolicyEngine = FocusPolicyEngine()
         if self.workspaceBarIconResolver.synchronize(
@@ -265,6 +327,15 @@ final class WMController {
 }
 
 extension WMController {
+    private struct BorderLayoutConfig: Equatable {
+        let enabled: Bool
+        let width: CGFloat
+
+        func clearance(scale: CGFloat) -> CGFloat {
+            BorderConfig.layoutClearance(enabled: enabled, width: width, scale: scale)
+        }
+    }
+
     func setEnabled(_ enabled: Bool) {
         desiredEnabled = enabled
         if enabled {
@@ -333,47 +404,10 @@ extension WMController {
         }
     }
 
-    @discardableResult
-    func toggleWorkspaceBarVisibility() -> Bool {
-        pruneHiddenWorkspaceBarMonitorIds()
-
-        guard let monitor = monitorForInteraction() else { return false }
-        let resolved = settings.workspaceBar.resolved(for: monitor)
-        guard resolved.enabled else { return false }
-
-        if hiddenWorkspaceBarMonitorIds.contains(monitor.id) {
-            hiddenWorkspaceBarMonitorIds.remove(monitor.id)
-        } else {
-            hiddenWorkspaceBarMonitorIds.insert(monitor.id)
-        }
-
-        cachedMonitorLayout = nil
-        workspaceManager.invalidateAllLayouts()
-        layoutRefreshController.requestRelayout(reason: .monitorSettingsChanged)
-        surfaceReconciler.noteWorldChanged()
-        hiddenBarController.dismissPanel()
-        return true
-    }
-
-    @discardableResult
-    func synchronizeWorkspaceBarIconOverrides(
-        forceReload: Bool = false,
-        forceReloadBundleId: String? = nil
-    ) -> Bool {
-        guard workspaceBarIconResolver.synchronize(
-            overrides: settings.workspaceBar.iconOverrides,
-            forceReload: forceReload,
-            forceReloadBundleId: forceReloadBundleId
-        ) else {
-            return false
-        }
-        workspaceBarIconResolutionRevision += 1
-        return true
-    }
-
     func setFocusFollowsMouse(_ enabled: Bool) {
         focusFollowsMouseEnabled = enabled
         mouseEventHandler.reconcileMouseMoveSubscription()
+        surfaceReconciler.noteWorldChanged()
         guard !enabled,
               let request = intentLedger.activeManagedRequest,
               request.origin == .focusFollowsMouse
@@ -387,43 +421,10 @@ extension WMController {
         moveMouseToFocusedWindowEnabled = enabled
     }
 
-    func syncWorkspaceBarRevealMonitor() {
-        guard hasStartedServices,
-              settings.workspaceBar.revealModifier != .off,
-              workspaceBarRefreshIsEnabled
-        else {
-            workspaceBarRevealMonitor.stop()
-            return
-        }
-
-        workspaceBarRevealMonitor.start(
-            modifier: settings.workspaceBar.revealModifier,
-            holdMilliseconds: settings.workspaceBar.revealHoldMilliseconds
-        )
-    }
-
-    func setWorkspaceBarRevealHeld(_ revealed: Bool) {
-        guard isWorkspaceBarRevealHeld != revealed else { return }
-        workspaceBarManager.refreshAutoHide()
-        isWorkspaceBarRevealHeld = revealed
-        surfaceReconciler.noteWorldChanged()
-    }
-
-    func resetWorkspaceBarReveal() {
-        workspaceBarRevealMonitor.resetReveal()
-    }
-
     func refreshHotkeyFailureSnapshots() {
         hotkeyRegistrationFailures = hotkeys.registrationFailures
         systemHyperTriggerFailure = hotkeys.systemHyperTriggerFailure
-    }
-
-    func pruneHiddenWorkspaceBarMonitorIds() {
-        cachedMonitorLayout = nil
-        hiddenWorkspaceBarMonitorIds = hiddenWorkspaceBarMonitorIds.filter { monitorId in
-            guard let monitor = workspaceManager.monitor(byId: monitorId) else { return false }
-            return settings.workspaceBar.resolved(for: monitor).enabled
-        }
+        windowSwitcherInputAvailable = hotkeys.isWindowSwitcherAvailable
     }
 
     func handleRuntimeInvalidation(
@@ -431,13 +432,9 @@ extension WMController {
         domains: InvalidationDomain,
         surfaceScope: SessionSurfaceInvalidationScope
     ) {
+        pruneEdgePictures()
         layoutRefreshController.workspaceSwipe.handleInvalidation(workspaceId: workspaceId, domains: domains)
-        switch surfaceScope {
-        case .full:
-            surfaceReconciler.noteWorldChanged()
-        case .border:
-            surfaceReconciler.noteBorderChanged()
-        }
+        surfaceReconciler.noteInvalidation(surfaceScope)
         guard domains.contains(.workspace) || domains.contains(.fullscreen) else { return }
         guard runtimeFrameJobCancellationSuppressionDepth == 0 else { return }
         cancelPendingFrameJobsForInvalidation(workspaceId: workspaceId)
@@ -470,6 +467,12 @@ extension WMController {
     func syncMouseWarpPolicy(for monitors: [Monitor]? = nil) -> Bool {
         let effectiveMonitors = monitors ?? workspaceManager.monitors
         let shouldEnable = shouldUseMouseWarp(for: effectiveMonitors)
+        if shouldEnable, hasStartedServices, settings.pointer.enabled {
+            pointerEdgeBarrier.start()
+        } else {
+            pointerEdgeBarrier.stop()
+        }
+        publishPointerEdgeTopology()
         mouseEventHandler.reconcileMouseMoveSubscription()
         guard shouldEnable != isMouseWarpPolicyEnabled else {
             return shouldEnable
@@ -485,12 +488,8 @@ extension WMController {
     }
 
     func resetMouseWarpPolicy() {
+        pointerEdgeBarrier.stop()
         mouseWarpHandler.cleanup()
         isMouseWarpPolicyEnabled = false
-    }
-
-    func cleanupUIOnStop() {
-        workspaceBarRevealMonitor.stop()
-        workspaceBarManager.cleanup()
     }
 }

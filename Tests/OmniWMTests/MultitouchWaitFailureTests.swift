@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import Foundation
 @testable import OmniWM
@@ -11,7 +11,7 @@ final class MultitouchWaitFailureTests: XCTestCase {
         case rejected
     }
 
-    func testNoncancelledStartupWaitFailureExhaustsAndAllowsFreshWakeEpisode() async {
+    func testNoncancelledStartupWaitFailureExhaustsAndAllowsFreshWakeEpisode() async throws {
         let backend = FakeMultitouchBackend()
         var durations: [Duration] = []
         let source = makeSource(backend: backend) { duration in
@@ -21,7 +21,7 @@ final class MultitouchWaitFailureTests: XCTestCase {
         }
         defer { source.shutdown() }
         XCTAssertTrue(source.startLifecycle())
-        await drainMultitouchTasks()
+        try await waitForRevalidation(source, exhausted: true)
 
         let failed = source.diagnosticsSnapshot()
         XCTAssertEqual(failed.state, .exhausted)
@@ -33,7 +33,7 @@ final class MultitouchWaitFailureTests: XCTestCase {
         XCTAssertEqual(durations, [.milliseconds(100)])
 
         source.requestRevalidation(.wake)
-        await drainMultitouchTasks()
+        try await waitForRevalidation(source, exhausted: true)
 
         let rearmed = source.diagnosticsSnapshot()
         XCTAssertEqual(rearmed.state, .exhausted)
@@ -45,7 +45,7 @@ final class MultitouchWaitFailureTests: XCTestCase {
         XCTAssertEqual(durations, [.milliseconds(100), .seconds(1)])
     }
 
-    func testNoncancelledWakeWaitFailurePreservesRunningGenerationAndRegistrations() async {
+    func testNoncancelledWakeWaitFailurePreservesRunningGenerationAndRegistrations() async throws {
         let backend = FakeMultitouchBackend()
         let device = FakeMultitouchBackend.device(pointer: 0x1001, registryId: 101)
         backend.enumerations = [FakeMultitouchBackend.enumeration([device])]
@@ -59,14 +59,14 @@ final class MultitouchWaitFailureTests: XCTestCase {
         }
         defer { source.shutdown() }
         XCTAssertTrue(source.startLifecycle())
-        await drainMultitouchTasks()
+        try await waitForRevalidation(source, exhausted: false)
         let running = source.diagnosticsSnapshot()
         XCTAssertEqual(running.state, .running)
         XCTAssertNotNil(running.activeGeneration)
         let callsBeforeFailure = backend.calls
 
         source.requestRevalidation(.wake)
-        await drainMultitouchTasks()
+        try await waitForRevalidation(source, exhausted: true)
 
         let failed = source.diagnosticsSnapshot()
         XCTAssertEqual(failed.state, .running)
@@ -77,6 +77,14 @@ final class MultitouchWaitFailureTests: XCTestCase {
         XCTAssertNil(failed.nextRetryDelay)
         XCTAssertEqual(backend.calls, callsBeforeFailure)
         XCTAssertEqual(durations, [.milliseconds(100), .seconds(1)])
+    }
+
+    private func waitForRevalidation(_ source: MultitouchGestureSource, exhausted: Bool) async throws {
+        try await XCTUnwrap(source.revalidationTask).value
+        let snapshot = source.diagnosticsSnapshot()
+        XCTAssertEqual(snapshot.retryExhausted, exhausted)
+        XCTAssertNil(snapshot.nextRetryDelay)
+        XCTAssertTrue(exhausted || snapshot.state == .running)
     }
 
     private func makeSource(

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import Carbon
 @testable import OmniWM
@@ -96,7 +96,7 @@ final class WorkspaceNumberHotkeyTests: XCTestCase {
         let manager = WorkspaceManager(settings: settings)
         let monitor = try XCTUnwrap(manager.monitors.first)
         var reregistrations = 0
-        settings.onWorkspaceHotkeysChanged = { reregistrations += 1 }
+        settings.onDynamicHotkeysChanged = { reregistrations += 1 }
 
         let workspace = try XCTUnwrap(manager.createDynamicWorkspace(named: "10", on: monitor.id))
         XCTAssertFalse(settings.workspaces.configuredNames().contains("10"))
@@ -119,7 +119,7 @@ final class WorkspaceNumberHotkeyTests: XCTestCase {
     func testRemovingWorkspaceRequestsHotkeyReregistrationOutsideExportApply() {
         let settings = makeSettingsStore()
         var reregistrations = 0
-        settings.onWorkspaceHotkeysChanged = { reregistrations += 1 }
+        settings.onDynamicHotkeysChanged = { reregistrations += 1 }
         let original = settings.workspaces.configurations
         let withTen = original + [WorkspaceConfiguration(name: "10")]
 
@@ -140,6 +140,11 @@ final class WorkspaceNumberHotkeyTests: XCTestCase {
     private func makeSettingsStore() -> SettingsStore {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("OmniWMWorkspaceNumberHotkeyTests-\(UUID().uuidString)", isDirectory: true)
+        addTeardownBlock {
+            if FileManager.default.fileExists(atPath: root.path) {
+                try FileManager.default.removeItem(at: root)
+            }
+        }
         return SettingsStore(
             persistence: SettingsFilePersistence(
                 directory: root.appendingPathComponent("config", isDirectory: true),

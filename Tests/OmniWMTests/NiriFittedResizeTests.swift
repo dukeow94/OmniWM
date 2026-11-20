@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import CoreGraphics
 @testable import OmniWM
@@ -122,11 +122,11 @@ final class NiriFittedResizeTests: XCTestCase {
         )
     }
 
-    private func assertShownSpans(_ fixture: Fixture, _ expected: [CGFloat]) throws {
+    private func assertShownSpans(_ fixture: Fixture, _ expected: [CGFloat], cachedSpans: [CGFloat]? = nil) throws {
         let frames = layout(fixture)
         XCTAssertEqual(fixture.spans.count, expected.count)
         for index in fixture.windows.indices {
-            XCTAssertEqual(fixture.spans[index], expected[index], accuracy: 0.000001)
+            XCTAssertEqual(fixture.spans[index], (cachedSpans ?? expected)[index])
             let frame = try XCTUnwrap(frames[fixture.windows[index].token])
             XCTAssertEqual(fixture.orientation == .horizontal ? frame.width : frame.height, expected[index])
         }
@@ -223,8 +223,8 @@ final class NiriFittedResizeTests: XCTestCase {
             fixture.engine.removeWindow(token: third.token, in: fixture.workspaceId)
             fixture.windows.removeLast()
             _ = layout(fixture)
-            XCTAssertEqual(fixture.spans[0], 8400.0 / 11, accuracy: 0.000001)
-            XCTAssertEqual(fixture.spans[1], 4800.0 / 11, accuracy: 0.000001)
+            XCTAssertEqual(fixture.spans[0], 8400.0 / 11)
+            XCTAssertEqual(fixture.spans[1], 400 * (1200.0 / (700 + 400)))
             XCTAssertEqual(fixture.specs, [.fixed(700), .proportion(1.0 / 3)])
         }
     }
@@ -244,8 +244,8 @@ final class NiriFittedResizeTests: XCTestCase {
         fixture.engine.removeWindow(token: third.token, in: fixture.workspaceId)
         _ = layout(fixture)
 
-        XCTAssertEqual(fixture.spans[0], 8400.0 / 11, accuracy: 0.000001)
-        XCTAssertEqual(fixture.spans[1], 4800.0 / 11, accuracy: 0.000001)
+        XCTAssertEqual(fixture.spans[0], 8400.0 / 11)
+        XCTAssertEqual(fixture.spans[1], 400 * (1200.0 / (700 + 400)))
         XCTAssertEqual(fixture.specs, [.fixed(700), .proportion(1.0 / 3)])
     }
 
@@ -272,6 +272,75 @@ final class NiriFittedResizeTests: XCTestCase {
         }
     }
 
+    func testProportionalShrinkEscapesPackingHintsInBothOrientations() throws {
+        for orientation in [Monitor.Orientation.horizontal, .vertical] {
+            var fixture = fixture(count: 3, visibleCount: 3, orientation: orientation)
+            let column = fixture.columns[0]
+            column.width = .proportion(0.5)
+            column.height = .proportion(0.5)
+            let hint = ObservedAxisHint(requested: 600, observed: 616)
+            let hints = orientation == .horizontal
+                ? ObservedPackingHints(width: hint) : ObservedPackingHints(height: hint)
+            fixture.engine.updateWindowConstraints(
+                for: fixture.windows[0].token,
+                constraints: .unconstrained,
+                packingHints: hints,
+                in: fixture.workspaceId,
+                motion: .disabled
+            )
+            try assertShownSpans(fixture, [616, 400, 400])
+            let engine = fixture.engine
+
+            for step in 1 ... 5 {
+                engine.setWindowPrimarySpan(
+                    fixture.windows[0], change: .adjustProportion(-1), context: fixture.context, state: &fixture.state
+                )
+                _ = layout(fixture)
+                XCTAssertEqual(fixture.spans[0], 600 - CGFloat(step) * 12)
+                XCTAssertEqual(fixture.windows[0].packingHints, hints)
+            }
+
+            engine.setWindowPrimarySpan(
+                fixture.windows[0], change: .setProportion(50), context: fixture.context, state: &fixture.state
+            )
+            try assertShownSpans(fixture, [616, 400, 400])
+        }
+    }
+
+    func testProportionalResizeDoesNotBankStepsOutsideApplicationBounds() throws {
+        for orientation in [Monitor.Orientation.horizontal, .vertical] {
+            var fixture = fixture(count: 3, visibleCount: 3, orientation: orientation)
+            let engine = fixture.engine
+            engine.updateWindowConstraints(
+                for: fixture.windows[0].token,
+                constraints: WindowSizeConstraints(
+                    minSize: .init(width: 500, height: 500),
+                    maxSize: .init(width: 700, height: 700), isFixed: false
+                ),
+                in: fixture.workspaceId, motion: .disabled
+            )
+            _ = layout(fixture)
+
+            for grow in [false, true] {
+                for _ in 0 ..< 5 {
+                    engine.setWindowPrimarySpan(
+                        fixture.windows[0], change: .adjustProportion(grow ? 10 : -10),
+                        context: fixture.context, state: &fixture.state
+                    )
+                    _ = layout(fixture)
+                }
+                XCTAssertEqual(fixture.spans[0], grow ? 700 : 500)
+                engine.setWindowPrimarySpan(
+                    fixture.windows[0], change: .adjustProportion(grow ? -10 : 10),
+                    context: fixture.context, state: &fixture.state
+                )
+                _ = layout(fixture)
+                let (shownBound, step): (CGFloat, CGFloat) = grow ? (700, -10) : (500, 10)
+                XCTAssertEqual(fixture.spans[0], fixture.frame.width * (shownBound / fixture.frame.width + step / 100))
+            }
+        }
+    }
+
     func testPresetCyclingUsesTheShownSpanAndRetainsTheResult() throws {
         for orientation in [Monitor.Orientation.horizontal, .vertical] {
             var fixture = fixture(orientation: orientation)
@@ -282,10 +351,10 @@ final class NiriFittedResizeTests: XCTestCase {
                 fixture.columns[0], forwards: true, context: fixture.context, state: &fixture.state
             )
 
-            try assertShownSpans(fixture, [800, 600])
-            try assertShownSpans(fixture, [800, 600])
+            try assertShownSpans(fixture, [800, 600], cachedSpans: [fixture.frame.width * (2.0 / 3 * 100 / 100), 600])
+            try assertShownSpans(fixture, [800, 600], cachedSpans: [fixture.frame.width * (2.0 / 3 * 100 / 100), 600])
             XCTAssertFalse(fixture.specs[0].isFixed)
-            XCTAssertEqual(fixture.specs[0].value, 2.0 / 3, accuracy: 0.000000000001)
+            XCTAssertEqual(fixture.specs[0].value, 2.0 / 3 * 100 / 100)
             XCTAssertEqual(fixture.specs[1], .proportion(1.0 / 3))
             engine.toggleContainerPrimarySpan(
                 fixture.columns[0], forwards: false, context: fixture.context, state: &fixture.state

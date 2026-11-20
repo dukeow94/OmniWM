@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import CoreGraphics
 import Foundation
@@ -507,7 +507,7 @@ extension CursorContainmentHandlerTests {
         file: StaticString = #filePath,
         line: UInt = #line
     ) {
-        XCTAssertEqual(point.x, expected.x, accuracy: 0.0001, file: file, line: line)
-        XCTAssertEqual(point.y, expected.y, accuracy: 0.0001, file: file, line: line)
+        XCTAssertEqual(point.x, expected.x, file: file, line: line)
+        XCTAssertEqual(point.y, expected.y, file: file, line: line)
     }
 }

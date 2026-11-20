@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import CoreGraphics
 import Foundation
@@ -31,16 +31,12 @@ final class OverflowCappedConstraintsTests: XCTestCase {
         )
     }
 
-    func testFittingMinIsKept() {
-        let result = capped(constraints(minWidth: 800, minHeight: 600))
-        XCTAssertEqual(result.minSize.width, 800)
-        XCTAssertEqual(result.minSize.height, 600)
-    }
-
-    func testOversizedMinIsKeptWithoutNeighbors() {
-        let result = capped(constraints(minWidth: 3000, minHeight: 2000))
-        XCTAssertEqual(result.minSize.width, 3000)
-        XCTAssertEqual(result.minSize.height, 2000)
+    func testMinIsKeptWithoutNeighbors() {
+        for (label, width, height) in [("fitting", CGFloat(800), CGFloat(600)), ("oversized", 3000, 2000)] {
+            let result = capped(constraints(minWidth: width, minHeight: height))
+            XCTAssertEqual(result.minSize.width, width, label)
+            XCTAssertEqual(result.minSize.height, height, label)
+        }
     }
 
     func testOversizedMinWidthCappedByHorizontalNeighbor() {
@@ -97,33 +93,24 @@ final class MonitorNeighborAxesTests: XCTestCase {
         )
     }
 
-    func testSingleMonitorHasNoNeighbors() {
+    func testMonitorNeighborAxes() {
         let main = monitor(id: 1, frame: CGRect(x: 0, y: 0, width: 2560, height: 1440))
-        XCTAssertEqual(main.neighborAxes(among: [main]), .none)
-    }
-
-    func testSideBySideMonitorsAreHorizontalNeighbors() {
-        let left = monitor(id: 1, frame: CGRect(x: 0, y: 0, width: 2560, height: 1440))
-        let right = monitor(id: 2, frame: CGRect(x: 2560, y: 0, width: 1920, height: 1080))
-        let axes = left.neighborAxes(among: [left, right])
-        XCTAssertTrue(axes.horizontal)
-        XCTAssertFalse(axes.vertical)
-    }
-
-    func testStackedMonitorsAreVerticalNeighbors() {
-        let bottom = monitor(id: 1, frame: CGRect(x: 0, y: 0, width: 2560, height: 1440))
-        let top = monitor(id: 2, frame: CGRect(x: 300, y: 1440, width: 1920, height: 1080))
-        let axes = bottom.neighborAxes(among: [bottom, top])
-        XCTAssertFalse(axes.horizontal)
-        XCTAssertTrue(axes.vertical)
-    }
-
-    func testDiagonalOffsetCountsOverlappingAxes() {
-        let main = monitor(id: 1, frame: CGRect(x: 0, y: 0, width: 2560, height: 1440))
-        let offset = monitor(id: 2, frame: CGRect(x: 2560, y: 1000, width: 1920, height: 1080))
-        let axes = main.neighborAxes(among: [main, offset])
-        XCTAssertTrue(axes.horizontal)
-        XCTAssertFalse(axes.vertical)
+        let cases: [(String, [Monitor], Bool, Bool)] = [
+            ("single", [main], false, false),
+            (
+                "side by side",
+                [main, monitor(id: 2, frame: CGRect(x: 2560, y: 0, width: 1920, height: 1080))],
+                true,
+                false
+            ),
+            ("stacked", [main, monitor(id: 2, frame: CGRect(x: 300, y: 1440, width: 1920, height: 1080))], false, true),
+            ("offset", [main, monitor(id: 2, frame: CGRect(x: 2560, y: 1000, width: 1920, height: 1080))], true, false)
+        ]
+        for (label, monitors, horizontal, vertical) in cases {
+            let axes = main.neighborAxes(among: monitors)
+            XCTAssertEqual(axes.horizontal, horizontal, label)
+            XCTAssertEqual(axes.vertical, vertical, label)
+        }
     }
 }
 
@@ -192,8 +179,8 @@ final class ObservedMinSizeCapTests: XCTestCase {
         )
         let snapshot = try XCTUnwrap(input.windows.first { $0.token == token })
 
-        XCTAssertEqual(snapshot.constraints.minSize.width, input.monitor.workingFrame.width, accuracy: 0.5)
-        XCTAssertEqual(snapshot.constraints.minSize.height, 500, accuracy: 0.5)
+        XCTAssertEqual(snapshot.constraints.minSize.width, input.monitor.workingFrame.width)
+        XCTAssertEqual(snapshot.constraints.minSize.height, 500)
 
         controller.workspaceManager.setCachedConstraints(.unconstrained, for: token)
         let hints = ObservedPackingHints(height: ObservedAxisHint(requested: 300, observed: 306))

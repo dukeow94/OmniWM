@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import Foundation
 
@@ -23,6 +23,8 @@ struct TraceCaptureResources {
         ScrollTickTrace.shared,
         AXWriteLatencyTrace.shared,
         OverviewFrameTrace.shared,
+        ShellFrameTrace.shared,
+        ShellNotificationTrace.shared,
         BorderOpMetricsRecorder.shared,
         MouseTrace.shared,
         TrackpadScrollTrace.shared,
@@ -48,6 +50,7 @@ struct TraceCaptureResources {
 
     func begin(for profile: TraceCaptureProfile, generation: UInt64) {
         if profile == .problem {
+            ShellFrameTraceDisplayLink.stop()
             diagnosticsEventRecorder.beginVerboseCapture()
             recorders.forEach { $0.beginCapture() }
             FrameEffectTraceContext.beginCapture(generation: generation)
@@ -58,6 +61,7 @@ struct TraceCaptureResources {
 
     func end(for profile: TraceCaptureProfile) {
         if profile == .problem {
+            ShellFrameTraceDisplayLink.stop()
             MainRunLoopActivityTrace.endCapture()
             FrameEffectObservationTracker.shared.endCapture()
             FrameEffectTraceContext.endCapture()

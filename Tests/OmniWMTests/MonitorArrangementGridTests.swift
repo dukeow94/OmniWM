@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import CoreGraphics
 @testable import OmniWM
@@ -24,11 +24,11 @@ final class MonitorArrangementGridTests: XCTestCase {
     func testGridFitProducesSquareCellsWithinCanvas() {
         let canvas = CGSize(width: 400, height: 300)
         let fit = MonitorArrangementGeometry.gridFit(columns: 2, rows: 2, in: canvas, padding: 10, spacing: 6)
-        XCTAssertEqual(fit.cellSize.width, fit.cellSize.height, accuracy: 0.0001)
+        XCTAssertEqual(fit.cellSize.width, fit.cellSize.height)
         XCTAssertGreaterThan(fit.cellSize.width, 0)
         let last = MonitorArrangementGeometry.cellFrame(column: 1, row: 1, fit: fit, spacing: 6)
-        XCTAssertLessThanOrEqual(last.maxX, canvas.width - 10 + 0.001)
-        XCTAssertLessThanOrEqual(last.maxY, canvas.height - 10 + 0.001)
+        XCTAssertLessThanOrEqual(last.maxX, canvas.width - 10)
+        XCTAssertLessThanOrEqual(last.maxY, canvas.height - 10)
     }
 
     func testNearestCellHandlesDegenerateFit() {

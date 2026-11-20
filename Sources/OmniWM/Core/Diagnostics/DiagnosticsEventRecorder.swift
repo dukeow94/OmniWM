@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import Foundation
 import Synchronization
@@ -68,6 +68,10 @@ final class DiagnosticsEventRecorder: @unchecked Sendable {
             recordVerbose(name: "cgs.frameChanged", windowId: windowId)
         case let .orderChanged(windowId):
             recordVerbose(name: "cgs.orderChanged", windowId: windowId)
+        case let .visibilityChanged(windowId, true):
+            recordVerbose(name: "cgs.orderedIn", windowId: windowId)
+        case let .visibilityChanged(windowId, false):
+            recordLifecycle(name: "cgs.orderedOut", windowId: windowId)
         case let .titleChanged(windowId):
             recordVerbose(name: "cgs.titleChanged", windowId: windowId)
         case let .frontAppChanged(pid):

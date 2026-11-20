@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import Foundation
@@ -13,6 +13,8 @@ extension WMController {
         defersRetryRaise: Bool = false,
         requiresWorkerRaise: Bool = false
     ) -> ManagedFocusRequest? {
+        let token = workspaceManager.entry(for: token)?.target.hostedMetadata == nil
+            ? token : shellAppWindowManager.activeSheet(for: token) ?? token
         guard let entry = focusableEntry(for: token, origin: origin) else { return nil }
         let handoff = prepareFocusHandoff(for: token)
         let requiresWorkerRaise = requiresWorkerRaise && !raisesWindow
@@ -35,6 +37,7 @@ extension WMController {
         {
             dispatchRetryRaise(for: request, refronting: false)
         }
+        guard entry.axRef != nil else { return request }
         windowFocusOperations.afterSubmittedFocus { [weak self] in
             guard let self,
                   intentLedger.activeManagedRequest(requestId: request.requestId)?.phase == .awaitingConfirmation

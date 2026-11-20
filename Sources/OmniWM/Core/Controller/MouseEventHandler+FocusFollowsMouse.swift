@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import Foundation
@@ -50,7 +50,7 @@ extension MouseEventHandler {
             return
         }
 
-        if shouldBlockOwnWindowInput(at: location) {
+        if shouldBlockOwnWindowInput(at: location, windowIdUnderPointer: windowIdUnderPointer) {
             resetHoveredEdgesIfNeeded()
             return
         }
@@ -93,9 +93,18 @@ extension MouseEventHandler {
             ?? monitor.autoOrientation
     }
 
-    func shouldBlockOwnWindowInput(at location: CGPoint) -> Bool {
-        guard let controller else { return false }
-        return controller.isPointInOwnWindow(location)
+    func shouldBlockOwnWindowInput(at location: CGPoint, windowIdUnderPointer: Int? = nil) -> Bool {
+        guard let controller, controller.isPointInOwnWindow(location) else { return false }
+        if let windowIdUnderPointer, windowIdUnderPointer > 0,
+           !controller.isOwnedWindow(windowNumber: windowIdUnderPointer)
+        {
+            return controller.ownedWindowRegistry.contains(point: location, excluding: [.niriEdgePicture])
+        }
+        return true
+    }
+
+    func shouldBlockOwnWindowGestureInput(at location: CGPoint) -> Bool {
+        controller?.ownedWindowRegistry.contains(point: location, excluding: SurfaceKind.gestureTransparent) == true
     }
 
     private func handleFocusFollowsMouse(at location: CGPoint, windowIdUnderPointer: Int?) {
@@ -109,6 +118,11 @@ extension MouseEventHandler {
 
         let now = Date()
         guard now.timeIntervalSince(state.lastFocusFollowsMouseTime) >= state.focusFollowsMouseDebounce else {
+            return
+        }
+        if controller.settings.focus.followsMouseOnlyFullyVisible, let windowIdUnderPointer, windowIdUnderPointer > 0,
+           controller.workspaceManager.nativeManagedFocusToken?.windowId == windowIdUnderPointer
+        {
             return
         }
 
@@ -125,7 +139,7 @@ extension MouseEventHandler {
         }
     }
 
-    private func hasPendingNativeFullscreenTransition(at location: CGPoint) -> Bool {
+    func hasPendingNativeFullscreenTransition(at location: CGPoint) -> Bool {
         guard let workspaceManager = controller?.workspaceManager else { return false }
         guard let monitor = location.monitorApproximation(in: workspaceManager.monitors),
               let workspace = workspaceManager.activeWorkspaceOrFirst(on: monitor.id)
@@ -135,7 +149,7 @@ extension MouseEventHandler {
         return workspaceManager.hasPendingNativeFullscreenTransition(in: workspace.id)
     }
 
-    private func isPointerDisplayShowingFullscreenSpace(at location: CGPoint) -> Bool {
+    func isPointerDisplayShowingFullscreenSpace(at location: CGPoint) -> Bool {
         guard let controller else { return false }
         let workspaceManager = controller.workspaceManager
         guard workspaceManager.hasNativeFullscreenLifecycleContext else { return false }
@@ -153,7 +167,7 @@ extension MouseEventHandler {
         guard let controller else { return nil }
 
         if let windowIdUnderPointer, windowIdUnderPointer != 0 {
-            return routedFocusFollowsMouseTarget(windowIdUnderPointer, controller: controller)
+            return routedFocusFollowsMouseTarget(windowIdUnderPointer, at: location, controller: controller)
         }
 
         guard let workspaceId = workspaceIdForPointer(at: location),
@@ -165,12 +179,15 @@ extension MouseEventHandler {
         switch controller.settings.workspaces.layoutType(for: workspace.name) {
         case .niri,
              .defaultLayout:
-            guard let engine = controller.niriEngine,
-                  let window = engine.hitTestFocusableWindow(point: location, in: workspaceId)
+            guard let engine = controller.niriEngine else { return nil }
+            if controller.settings.focus.followsMouseOnlyFullyVisible {
+                return fullyVisibleNiriHoverTarget(at: location, in: workspaceId, engine: engine)
+            }
+            guard let window = engine.hitTestFocusableWindow(point: location, in: workspaceId)
             else {
                 return nil
             }
-            return .niri(workspaceId: workspaceId, window: window)
+            return niriFocusFollowsMouseTarget(window, in: workspaceId, at: location)
 
         case .dwindle:
             guard let engine = controller.dwindleEngine else { return nil }
@@ -187,7 +204,7 @@ extension MouseEventHandler {
     }
 
     private func routedFocusFollowsMouseTarget(
-        _ windowIdUnderPointer: Int, controller: WMController
+        _ windowIdUnderPointer: Int, at location: CGPoint, controller: WMController
     ) -> FocusFollowsMouseTarget? {
         guard windowIdUnderPointer > 0,
               let entry = controller.workspaceManager.entry(
@@ -217,7 +234,7 @@ extension MouseEventHandler {
                 ) == true else {
                     return nil
                 }
-                return .niri(workspaceId: entry.workspaceId, window: window)
+                return niriFocusFollowsMouseTarget(window, in: entry.workspaceId, at: location)
 
             case .dwindle:
                 guard controller.dwindleEngine?.findNode(
@@ -229,6 +246,43 @@ extension MouseEventHandler {
                 return .dwindle(workspaceId: entry.workspaceId, token: entry.token)
             }
         }
+    }
+
+    private func niriFocusFollowsMouseTarget(
+        _ window: NiriWindow,
+        in workspaceId: WorkspaceDescriptor.ID,
+        at location: CGPoint
+    ) -> FocusFollowsMouseTarget? {
+        guard let controller else { return nil }
+        if controller.settings.focus.followsMouseOnlyFullyVisible {
+            guard let monitor = controller.workspaceManager.monitor(for: workspaceId),
+                  let entry = controller.workspaceManager.entry(for: window.token),
+                  let frame = entry.axRef.flatMap(nativeWindowFrameProvider)
+                  ?? controller.shellAppWindowManager.frame(for: entry.token),
+                  !frame.isEmpty,
+                  monitor.frame.contains(frame),
+                  frame.contains(location)
+            else { return nil }
+        }
+        return .niri(workspaceId: workspaceId, window: window)
+    }
+
+    private func fullyVisibleNiriHoverTarget(
+        at location: CGPoint,
+        in workspaceId: WorkspaceDescriptor.ID,
+        engine: NiriLayoutEngine
+    ) -> FocusFollowsMouseTarget? {
+        var firstMatch: FocusFollowsMouseTarget?
+        for column in engine.projectedColumns(in: workspaceId) {
+            for window in column.windows {
+                guard engine.isProjectedFocusableWindow(window, in: workspaceId),
+                      let target = niriFocusFollowsMouseTarget(window, in: workspaceId, at: location)
+                else { continue }
+                if window.isFullscreen { return target }
+                if firstMatch == nil { firstMatch = target }
+            }
+        }
+        return firstMatch
     }
 
     private func focusFollowsMouseToken(for target: FocusFollowsMouseTarget) -> WindowToken {

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import CoreGraphics
 import Darwin
@@ -73,8 +73,12 @@ struct RuntimeState: Codable, Equatable, Sendable {
     var quakeTerminalCustomFrame: RuntimeQuakeTerminalFrame?
     var issueDraft: IssueDraft?
     var hasSeenIssueWalkthrough: Bool?
+    var welcomePresented: Bool?
+    var screenRecordingPromptDeclined: Bool?
     var monitorSetupStatus: MonitorSetupStatus?
     var launchOverlayPlayedVersion: String?
+    var appVolumes: [String: AppVolumeSetting]?
+    var menuBarHideHold: MenuBarHideHold?
 }
 
 @MainActor
@@ -308,6 +312,15 @@ final class RuntimeStateStore {
         }
     }
 
+    var welcomePresented: Bool {
+        get { state.welcomePresented ?? false }
+        set {
+            guard welcomePresented != newValue else { return }
+            state.welcomePresented = newValue
+            scheduleSave()
+        }
+    }
+
     var monitorSetupStatus: MonitorSetupStatus {
         get { state.monitorSetupStatus ?? Self.defaultMonitorSetupStatus }
         set {
@@ -317,11 +330,30 @@ final class RuntimeStateStore {
         }
     }
 
+    var menuBarHideHold: MenuBarHideHold? {
+        get { state.menuBarHideHold }
+        set {
+            guard menuBarHideHold != newValue else { return }
+            state.menuBarHideHold = newValue
+            scheduleSave()
+        }
+    }
+
     var launchOverlayPlayedVersion: String? {
         get { state.launchOverlayPlayedVersion }
         set {
             guard state.launchOverlayPlayedVersion != newValue else { return }
             state.launchOverlayPlayedVersion = newValue
+            scheduleSave()
+        }
+    }
+
+    var appVolumes: [String: AppVolumeSetting] {
+        get { state.appVolumes ?? [:] }
+        set {
+            let stored = newValue.isEmpty ? nil : newValue
+            guard state.appVolumes != stored else { return }
+            state.appVolumes = stored
             scheduleSave()
         }
     }
@@ -384,6 +416,17 @@ final class RuntimeStateStore {
         } catch {
             Log.config.error("Failed to load \(url.path): \(error.localizedDescription)")
             return RuntimeState()
+        }
+    }
+}
+
+extension RuntimeStateStore {
+    var screenRecordingPromptDeclined: Bool {
+        get { state.screenRecordingPromptDeclined ?? false }
+        set {
+            guard screenRecordingPromptDeclined != newValue else { return }
+            state.screenRecordingPromptDeclined = newValue
+            scheduleSave()
         }
     }
 }

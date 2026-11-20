@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import Foundation
@@ -27,7 +27,7 @@ extension WorkspaceManager {
         workspaceCatalog.insertWorkspace(workspace)
         invalidateWorkspaceProjectionCaches()
         noteInvalidation(workspaceId: workspace.id, domains: [.workspace, .layout, .focus])
-        settings.reconcileWorkspaceNumberHotkeys()
+        settings.reconcileDynamicHotkeys()
         return workspace.id
     }
 }

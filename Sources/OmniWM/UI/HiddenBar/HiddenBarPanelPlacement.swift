@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import CoreGraphics
 
 struct HiddenBarPanelPlacement: Equatable {
     static let continuousCornerReach: CGFloat = 1.52866
     static let liftMargin: CGFloat = 10
+    static let alongPadding: CGFloat = 4
 
     struct WorkspaceBar: Equatable {
         let monitorId: Monitor.ID
@@ -43,11 +44,11 @@ struct HiddenBarPanelPlacement: Equatable {
     }
 
     var maxContentHeight: CGFloat {
-        max(1, visibleFrame.height - 16 - HiddenBarPanelController.alongPadding * 2)
+        max(1, visibleFrame.height - 16 - Self.alongPadding * 2)
     }
 
     var maxContentWidth: CGFloat {
-        max(1, visibleFrame.width - 16 - HiddenBarPanelController.alongPadding * 2)
+        max(1, visibleFrame.width - 16 - Self.alongPadding * 2)
     }
 
     func layout(size: CGSize) -> HiddenBarPanelLayout {

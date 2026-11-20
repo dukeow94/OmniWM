@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import ApplicationServices
 import CoreGraphics
@@ -127,15 +127,63 @@ final class WindowCloseFocusRecoveryTests: XCTestCase {
         }
     }
 
+    func testLastFloatingWindowCloseClearsNativeFocusOwnerAndHidesBorder() throws {
+        let controller = WindowAdmissionTestSupport.controller(prefix: "OmniWMLastFloatingWindowCloseTests")
+        let workspaceId = try XCTUnwrap(
+            controller.workspaceManager.workspaceId(for: "1", createIfMissing: true)
+        )
+        _ = controller.workspaceManager.focusWorkspace(named: "1")
+        controller.settings.borders.enabled = true
+        defer {
+            controller.surfaceReconciler.cleanup()
+        }
+
+        let pid: pid_t = 952_001
+        let token = WindowToken(pid: pid, windowId: 952_101)
+        let frame = CGRect(x: 100, y: 100, width: 600, height: 400)
+        let axRef = WindowAdmissionTestSupport.axRef(for: token)
+        _ = controller.workspaceManager.addWindow(
+            axRef,
+            pid: token.pid,
+            windowId: token.windowId,
+            to: workspaceId,
+            mode: .floating
+        )
+        controller.workspaceManager.updateFloatingGeometry(frame: frame, for: token)
+        controller.axManager.confirmFrameWrite(for: token.windowId, frame: frame)
+        let monitorId = controller.workspaceManager.monitorId(for: workspaceId)
+        XCTAssertTrue(controller.workspaceManager.setManagedFocus(token, in: workspaceId, onMonitor: monitorId))
+
+        let world = WorldView(controller: controller, liveBoundsProvider: { _ in frame })
+        XCTAssertNotNil(SurfaceDerivation.deriveBorder(world: world))
+        XCTAssertEqual(controller.workspaceManager.nativeManagedFocusToken, token)
+        controller.surfaceReconciler.reconcileNow()
+        XCTAssertNil(controller.surfaceReconciler.pendingReconcileScope)
+
+        controller.axEventHandler.retireManagedWindow(
+            try XCTUnwrap(controller.workspaceManager.entry(for: token)),
+            reason: .destroyed(shouldRecoverFocus: false, allowsPreferredRecoveryToken: false)
+        )
+
+        XCTAssertNil(controller.workspaceManager.nativeManagedFocusToken)
+        XCTAssertNil(controller.workspaceManager.borderFocusToken)
+        XCTAssertNil(SurfaceDerivation.deriveBorder(world: world))
+        XCTAssertNotNil(controller.surfaceReconciler.pendingReconcileScope)
+    }
+
     func testClosedBorderStaysHiddenThroughReplacementAcknowledgementAndReturnsForNewIdentity() async throws {
         let fixture = try Self.makeFixture()
         let controller = fixture.controller
         let handler = controller.axEventHandler
+        // The synthetic windows have no native geometry. Background layout must not discard the seeded frame.
+        let refresh = controller.layoutRefreshController
+        refresh.resetState()
+        refresh.layoutState.isRefreshSuspendedForLockScreen = true
         var acknowledgement: CheckedContinuation<Bool, Never>?
         defer {
             acknowledgement?.resume(returning: false)
             handler.resetCreatedWindowRetryState()
-            controller.layoutRefreshController.resetState()
+            refresh.resetState()
             controller.surfaceReconciler.cleanup()
             Self.stop(fixture)
         }
@@ -174,8 +222,9 @@ final class WindowCloseFocusRecoveryTests: XCTestCase {
         XCTAssertFalse(handler.hasPendingManagedReplacementDestroy(fixture.closingToken))
         XCTAssertTrue(handler.dispatchAdmissionRetry(windowId: windowId))
         let completion = try XCTUnwrap(handler.admissionRetryStateByWindowId[windowId]?.task)
-        await fulfillment(of: [entered], timeout: 2)
+        await fulfillment(of: [entered], timeout: failureBound)
 
+        XCTAssertEqual(controller.axManager.lastAppliedFrame(for: fixture.closingToken.windowId), frame)
         XCTAssertNotNil(controller.workspaceManager.entry(for: fixture.closingToken))
         XCTAssertNil(controller.workspaceManager.entry(for: replacementToken))
         XCTAssertNil(SurfaceDerivation.deriveBorder(world: world))
@@ -190,6 +239,8 @@ final class WindowCloseFocusRecoveryTests: XCTestCase {
         XCTAssertTrue(controller.workspaceManager.handle(for: replacementToken) === handle)
         XCTAssertTrue(fixture.engine.findNode(for: replacementToken, in: fixture.localWorkspaceId)
             === fixture.closingNode)
+        XCTAssertNil(controller.axManager.lastAppliedFrame(for: fixture.closingToken.windowId))
+        XCTAssertEqual(controller.axManager.lastAppliedFrame(for: replacementToken.windowId), frame)
         XCTAssertEqual(SurfaceDerivation.deriveBorder(world: world)?.token, replacementToken)
         XCTAssertEqual(
             SurfaceDerivation.deriveAnimationBorder(world: world, previous: previous)?.token,
@@ -208,13 +259,13 @@ final class WindowCloseFocusRecoveryTests: XCTestCase {
         XCTAssertEqual(focusThenDestroy.preferredWindowId, control.preferredWindowId)
         XCTAssertEqual(focusThenDestroy.selectedWindowId, control.selectedWindowId)
         XCTAssertEqual(focusThenDestroy.activeColumnIndex, control.activeColumnIndex)
-        XCTAssertEqual(focusThenDestroy.viewOffset, control.viewOffset, accuracy: 0.5)
+        XCTAssertEqual(focusThenDestroy.viewOffset, control.viewOffset)
         XCTAssertEqual(destroyThenFocus.activeWorkspaceIsLocal, control.activeWorkspaceIsLocal)
         XCTAssertEqual(destroyThenFocus.focusedWindowId, control.focusedWindowId)
         XCTAssertEqual(destroyThenFocus.preferredWindowId, control.preferredWindowId)
         XCTAssertEqual(destroyThenFocus.selectedWindowId, control.selectedWindowId)
         XCTAssertEqual(destroyThenFocus.activeColumnIndex, control.activeColumnIndex)
-        XCTAssertEqual(destroyThenFocus.viewOffset, control.viewOffset, accuracy: 0.5)
+        XCTAssertEqual(destroyThenFocus.viewOffset, control.viewOffset)
         XCTAssertTrue(control.closingWindowWasRemoved)
         XCTAssertTrue(focusThenDestroy.closingWindowWasRemoved)
         XCTAssertTrue(destroyThenFocus.closingWindowWasRemoved)
@@ -243,7 +294,7 @@ final class WindowCloseFocusRecoveryTests: XCTestCase {
         }
         handler.handleCGSEvent(.closed(windowId: UInt32(fixture.closingToken.windowId)))
         let queryTask = try XCTUnwrap(handler.lifecycleQueries.task)
-        await fulfillment(of: [started], timeout: 2)
+        await fulfillment(of: [started], timeout: failureBound)
 
         let probeId = try Self.observeRemoteFocus(in: fixture)
         controller.deadlineWheel.cancel(intentId: probeId)
@@ -308,7 +359,7 @@ final class WindowCloseFocusRecoveryTests: XCTestCase {
                 spaceId: 0
             ))
             let queryTask = try XCTUnwrap(handler.lifecycleQueries.task)
-            await fulfillment(of: [started], timeout: 2)
+            await fulfillment(of: [started], timeout: failureBound)
 
             let probeId = try Self.observeRemoteFocus(in: fixture)
             controller.deadlineWheel.cancel(intentId: probeId)
@@ -339,43 +390,28 @@ final class WindowCloseFocusRecoveryTests: XCTestCase {
         try await Self.verifyDelayedSameAppFacts(order: .destroyThenFocus)
     }
 
-    func testMouseFocusBypassesPendingDestroyHold() async throws {
-        let fixture = try Self.makeFixture()
-        defer { Self.stop(fixture) }
+    func testAuthoritativeFocusRoutesBypassPendingDestroyHold() async throws {
+        for mouseIntent in [true, false] {
+            let fixture = try Self.makeFixture()
+            defer { Self.stop(fixture) }
 
-        await Self.closeFocusedWindow(in: fixture)
-        fixture.controller.axEventHandler.noteMouseFocusIntent(token: fixture.remoteToken)
-        XCTAssertTrue(
-            fixture.controller.axEventHandler.handleAppActivation(
-                pid: fixture.pid,
-                source: .focusedWindowChanged
+            await Self.closeFocusedWindow(in: fixture)
+            if mouseIntent {
+                fixture.controller.axEventHandler.noteMouseFocusIntent(token: fixture.remoteToken)
+            }
+            XCTAssertTrue(
+                fixture.controller.axEventHandler.handleAppActivation(
+                    pid: fixture.pid,
+                    source: mouseIntent ? .focusedWindowChanged : .workspaceDidActivateApplication
+                )
             )
-        )
-        fixture.controller.eventIntake.drainNow()
+            fixture.controller.eventIntake.drainNow()
 
-        XCTAssertEqual(fixture.controller.activeWorkspace()?.id, fixture.remoteWorkspaceId)
-        XCTAssertEqual(fixture.controller.workspaceManager.selectedManagedToken, fixture.remoteToken)
-        XCTAssertNil(fixture.controller.intentLedger.openSameAppCloseProbe())
-        await fixture.controller.axEventHandler.awaitPendingManagedReplacementBursts(for: [fixture.pid])
-    }
-
-    func testExplicitAppActivationBypassesPendingDestroyHold() async throws {
-        let fixture = try Self.makeFixture()
-        defer { Self.stop(fixture) }
-
-        await Self.closeFocusedWindow(in: fixture)
-        XCTAssertTrue(
-            fixture.controller.axEventHandler.handleAppActivation(
-                pid: fixture.pid,
-                source: .workspaceDidActivateApplication
-            )
-        )
-        fixture.controller.eventIntake.drainNow()
-
-        XCTAssertEqual(fixture.controller.activeWorkspace()?.id, fixture.remoteWorkspaceId)
-        XCTAssertEqual(fixture.controller.workspaceManager.selectedManagedToken, fixture.remoteToken)
-        XCTAssertNil(fixture.controller.intentLedger.openSameAppCloseProbe())
-        await fixture.controller.axEventHandler.awaitPendingManagedReplacementBursts(for: [fixture.pid])
+            XCTAssertEqual(fixture.controller.activeWorkspace()?.id, fixture.remoteWorkspaceId)
+            XCTAssertEqual(fixture.controller.workspaceManager.selectedManagedToken, fixture.remoteToken)
+            XCTAssertNil(fixture.controller.intentLedger.openSameAppCloseProbe())
+            await fixture.controller.axEventHandler.awaitPendingManagedReplacementBursts(for: [fixture.pid])
+        }
     }
 
     func testMatchedReplacementReplaysCurrentHeldSameAppFocus() async throws {
@@ -590,8 +626,9 @@ final class WindowCloseFocusRecoveryTests: XCTestCase {
         defer { stop(fixture) }
         let controller = fixture.controller
         let remoteEntry = try XCTUnwrap(controller.workspaceManager.entry(for: fixture.remoteToken))
+        let remoteReference = try XCTUnwrap(remoteEntry.axRef)
         let remoteFact = FocusedWindowFact(
-            axRef: remoteEntry.axRef,
+            axRef: remoteReference,
             isFullscreen: false,
             isSystemModalSurface: false
         )
@@ -623,10 +660,9 @@ final class WindowCloseFocusRecoveryTests: XCTestCase {
         await controller.axEventHandler.awaitPendingManagedReplacementBursts(for: [fixture.pid])
         await WindowAdmissionTestSupport.drainLayoutRefreshes(controller)
         let settledViewport = controller.workspaceManager.niriViewportState(for: fixture.localWorkspaceId)
-        let previousSeq = controller.eventIntake.lastSeq
-        await gate.resolve(remoteFact)
-        await waitForIntake(after: previousSeq, controller: controller)
-        controller.eventIntake.drainNow()
+        await WindowAdmissionTestSupport.awaitActivationFactsDelivery(to: controller) {
+            await gate.resolve(remoteFact)
+        }
         let viewport = controller.workspaceManager.niriViewportState(for: fixture.localWorkspaceId)
 
         XCTAssertEqual(controller.activeWorkspace()?.id, fixture.localWorkspaceId)
@@ -634,11 +670,12 @@ final class WindowCloseFocusRecoveryTests: XCTestCase {
         XCTAssertNil(controller.intentLedger.openSameAppCloseProbe())
         XCTAssertEqual(viewport.selectedNodeId, settledViewport.selectedNodeId)
         XCTAssertEqual(viewport.activeColumnIndex, settledViewport.activeColumnIndex)
-        XCTAssertEqual(viewport.viewOffset, settledViewport.viewOffset, accuracy: 0.5)
+        XCTAssertEqual(viewport.viewOffset, settledViewport.viewOffset)
     }
 
     private static func makeFixture() throws -> Fixture {
         let controller = WindowAdmissionTestSupport.controller(prefix: "OmniWMWindowCloseFocusRecoveryTests")
+        controller.motionPolicy.animationsEnabled = false
         let localWorkspaceId = try XCTUnwrap(
             controller.workspaceManager.workspaceId(for: "1", createIfMissing: true)
         )
@@ -777,41 +814,21 @@ final class WindowCloseFocusRecoveryTests: XCTestCase {
         to newToken: WindowToken,
         controller: WMController
     ) async throws {
-        let clock = ContinuousClock()
-        let deadline = clock.now.advanced(by: .seconds(2))
         let windowId = try XCTUnwrap(UInt32(exactly: newToken.windowId))
-        while (controller.workspaceManager.entry(for: newToken) == nil
-            || controller.axEventHandler.admissionRetryStateByWindowId[windowId] != nil),
-            clock.now < deadline
-        {
-            await Task.yield()
-        }
+        try await waitForAdmissionRetryToFinish(windowId: windowId, controller: controller)
         XCTAssertNil(controller.workspaceManager.entry(for: oldToken))
         XCTAssertNotNil(controller.workspaceManager.entry(for: newToken))
-        XCTAssertNil(controller.axEventHandler.admissionRetryStateByWindowId[windowId])
     }
 
     private static func waitForAdmissionRetryToFinish(
         windowId: UInt32,
         controller: WMController
     ) async throws {
-        let clock = ContinuousClock()
-        let deadline = clock.now.advanced(by: .seconds(2))
-        while controller.axEventHandler.admissionRetryStateByWindowId[windowId] != nil,
-              clock.now < deadline
-        {
-            await Task.yield()
-        }
-        XCTAssertNil(controller.axEventHandler.admissionRetryStateByWindowId[windowId])
-    }
-
-    private static func waitForIntake(after sequence: UInt64, controller: WMController) async {
-        let clock = ContinuousClock()
-        let deadline = clock.now.advanced(by: .seconds(2))
-        while controller.eventIntake.lastSeq <= sequence, clock.now < deadline {
-            await Task.yield()
-        }
-        XCTAssertGreaterThan(controller.eventIntake.lastSeq, sequence)
+        let handler = controller.axEventHandler
+        XCTAssertTrue(handler.dispatchAdmissionRetry(windowId: windowId))
+        let rebind = try XCTUnwrap(handler.admissionRetryStateByWindowId[windowId]?.task)
+        await rebind.value
+        XCTAssertNil(handler.admissionRetryStateByWindowId[windowId])
     }
 
     @discardableResult

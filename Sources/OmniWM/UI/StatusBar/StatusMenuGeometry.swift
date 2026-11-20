@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import Foundation
 
 let statusMenuWidth: CGFloat = 280
+let statusMenuScrollGutter: CGFloat = 12
 
 enum StatusMenuGeometry {
     static func panelSize(contentSize: CGSize, visibleFrame: CGRect) -> CGSize {

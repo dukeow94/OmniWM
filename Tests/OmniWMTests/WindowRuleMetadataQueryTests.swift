@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import Foundation
 @testable import OmniWM
@@ -49,7 +49,7 @@ final class WindowRuleMetadataQueryTests: XCTestCase {
             return [:]
         }
         let task = Task { await controller.reevaluateWindowRules(for: Set(tokens.map { .window($0) })) }
-        await fulfillment(of: [started], timeout: 2)
+        await fulfillment(of: [started], timeout: failureBound)
         XCTAssertEqual(queries, 1)
         XCTAssertNotNil(controller.workspaceManager.entry(for: tokens[0]))
         task.cancel()
@@ -58,6 +58,52 @@ final class WindowRuleMetadataQueryTests: XCTestCase {
         XCTAssertTrue(outcome.stale)
         XCTAssertFalse(outcome.evaluatedAnyWindow)
         XCTAssertFalse(outcome.relayoutNeeded)
+    }
+
+    func testSingleWindowSuspendedQueryLeavesMainAvailableAndCancellationRejectsReply() async throws {
+        let controller = try controller()
+        defer { cleanup(controller) }
+        let gate = LifecycleQueryGate()
+        defer { gate.resume() }
+        let started = expectation(description: "single-window query started")
+        var queries = 0
+        controller.axEventHandler.windowInfoBatchProvider = { ids in
+            queries += 1
+            XCTAssertEqual(ids, [UInt32(self.tokens[0].windowId)])
+            started.fulfill()
+            _ = await gate.wait()
+            return [:]
+        }
+        let task = Task { await controller.reevaluateWindowRules(for: [.window(tokens[0])]) }
+        await fulfillment(of: [started], timeout: failureBound)
+        XCTAssertEqual(queries, 1)
+        XCTAssertNotNil(controller.workspaceManager.entry(for: tokens[0]))
+        task.cancel()
+        gate.resume()
+        let outcome = await task.value
+        XCTAssertTrue(outcome.stale)
+        XCTAssertFalse(outcome.evaluatedAnyWindow)
+        XCTAssertFalse(outcome.relayoutNeeded)
+    }
+
+    func testSingleWindowFailedQueryPreservesMetadataWithoutSynchronousFallback() async throws {
+        for throwsError in [false, true] {
+            let controller = try controller()
+            defer { cleanup(controller) }
+            var queries = 0
+            controller.axEventHandler.windowInfoBatchProvider = { ids in
+                queries += 1
+                XCTAssertEqual(ids, [UInt32(self.tokens[0].windowId)])
+                if throwsError { throw AXEventHandler.LifecycleQueryError.unavailable }
+                return nil
+            }
+            let outcome = await controller.reevaluateWindowRules(for: [.window(tokens[0])])
+            XCTAssertEqual(queries, 1)
+            XCTAssertFalse(outcome.stale)
+            XCTAssertTrue(outcome.evaluatedAnyWindow)
+            XCTAssertEqual(controller.workspaceManager.entry(for: tokens[0])?.mode, .floating)
+            XCTAssertEqual(controller.workspaceManager.entry(for: tokens[0])?.ruleEffects.minWidth, 640)
+        }
     }
 
     func testWindowReplacementInvalidatesSuspendedBatchBeforeEvaluation() async throws {
@@ -75,7 +121,7 @@ final class WindowRuleMetadataQueryTests: XCTestCase {
             return [:]
         }
         let task = Task { await controller.reevaluateWindowRules(for: Set(tokens.map { .window($0) })) }
-        await fulfillment(of: [started], timeout: 2)
+        await fulfillment(of: [started], timeout: failureBound)
         manager.removeWindow(pid: tokens[0].pid, windowId: tokens[0].windowId)
         manager.addWindow(
             WindowAdmissionTestSupport.axRef(for: tokens[0]), pid: tokens[0].pid, windowId: tokens[0].windowId,

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import Cocoa
 import GhosttyKit
@@ -175,8 +175,9 @@ final class QuakeTerminalController: NSObject {
         "quake-terminal"
     }
 
-    private func createSurfaceView() -> GhosttySurfaceView? {
-        guard let view = ghosttyRuntime.makeSurfaceView(for: self) else { return nil }
+    private func createSurfaceView(launch: LauncherLaunchRequest? = nil) -> GhosttySurfaceView? {
+        guard let view = ghosttyRuntime.makeSurfaceView(for: self, launch: launch, hasSurfaces: !tabs.isEmpty)
+        else { return nil }
         view.onFrameChanged = { [weak self] frame in
             self?.persistCustomFrame(frame)
         }
@@ -233,6 +234,17 @@ final class QuakeTerminalController: NSObject {
 
     func animateOut() {
         animateOut(hideBehavior: .restoreLatestTarget)
+    }
+
+    func hideForProviderSwitch() {
+        animator.invalidate()
+        clipboardPrompts.cancelActivePrompt()
+        restoreTarget = nil
+        pendingRestoreTarget = nil
+        visible = false
+        window?.isAnimating = false
+        window?.orderOut(nil)
+        window?.alphaValue = 1
     }
 
     private func animateOut(hideBehavior: HideBehavior) {
@@ -407,6 +419,10 @@ extension QuakeTerminalController: NSWindowDelegate {
 }
 
 extension QuakeTerminalController {
+    var launcherSurfaces: [GhosttySurfaceView] {
+        tabs.launcherSurfaces
+    }
+
     func handleGhosttyAction(_ action: ghostty_action_s, from view: GhosttySurfaceView) -> Bool {
         tabs.handleGhosttyAction(action, from: view)
     }
@@ -426,5 +442,20 @@ extension QuakeTerminalController {
         }
 
         tabs.surfaceClosed(closedView)
+    }
+}
+
+extension QuakeTerminalController {
+    func launch(_ request: LauncherLaunchRequest) -> Bool {
+        setup()
+        guard let view = createSurfaceView(launch: request),
+              tabs.createTab(surfaceView: view) != nil else { return false }
+        if visible {
+            window?.makeFirstResponder(view)
+            window?.makeKeyAndOrderFront(nil)
+        } else {
+            animateIn()
+        }
+        return true
     }
 }

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import Observation
@@ -143,6 +143,16 @@ struct StatusMenuPrimaryView: View {
                 }
                 MenuDivider()
             }
+            if let title = model.leaveKeyboardModeTitle {
+                MenuActionRow(
+                    icon: "keyboard",
+                    label: title,
+                    iconTint: Color(nsColor: StatusBarController.keyboardModeColor(model.keyboardModeKind))
+                ) {
+                    model.leaveKeyboardMode()
+                }
+                MenuDivider()
+            }
             if !model.diagnosticsIssues.isEmpty {
                 MenuActionRow(
                     icon: "exclamationmark.triangle.fill",
@@ -161,42 +171,68 @@ struct StatusMenuPrimaryView: View {
                 )
                 MenuDivider()
             }
-            MenuSectionLabel(text: String(localized: "CONTROLS"))
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 3), spacing: 6) {
-                ForEach(model.toggleTiles) { tile in
-                    MenuToggleTile(
-                        control: tile.control,
-                        isOn: tile.isOn,
-                        onHoverChanged: handleHoverChanged,
-                        onFocusChanged: handleFocusChanged
-                    )
+            if model.settings.statusMenu.showControls, !model.visibleToggleTiles.isEmpty {
+                MenuSectionLabel(text: String(localized: "CONTROLS"))
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 3), spacing: 6) {
+                    ForEach(model.visibleToggleTiles) { tile in
+                        MenuToggleTile(
+                            control: tile.control,
+                            isOn: tile.isOn,
+                            onHoverChanged: handleHoverChanged,
+                            onFocusChanged: handleFocusChanged
+                        )
+                    }
                 }
-            }
-            .padding(10)
-            StatusMenuControlHelpCard(control: helpPresentation.selection.presentedControl)
-                .padding(.horizontal, 10)
-                .padding(.bottom, 10)
-            MenuDivider()
-            if model.canShowHiddenIcons {
-                MenuActionRow(icon: "eye", label: String(localized: "Show Hidden Icons")) {
-                    model.showHiddenIcons()
+                .padding(10)
+                if model.settings.statusMenu.showControlHelp {
+                    StatusMenuControlHelpCard(control: helpPresentation.selection.presentedControl)
+                        .padding(.horizontal, 10)
+                        .padding(.bottom, 10)
                 }
+                MenuDivider()
             }
-            MenuActionRow(icon: "gearshape", label: String(localized: "Settings")) {
-                model.openSettings()
-            }
-            MenuActionRow(icon: "ladybug", label: String(localized: "Report a Bug…")) {
-                model.openReportIssue()
-            }
-            MenuActionRow(icon: "slider.horizontal.3", label: String(localized: "App Rules")) {
-                model.openAppRules()
-            }
-            if model.checkForUpdatesAction != nil {
-                MenuActionRow(icon: "arrow.down.circle", label: String(localized: "Check for Updates...")) {
-                    model.checkForUpdates()
+            if model.hasVisiblePrimaryRows {
+                if model.canShowHiddenIcons, model.isMenuItemVisible(.hiddenIcons) {
+                    MenuActionRow(
+                        icon: StatusMenuItem.hiddenIcons.icon,
+                        label: StatusMenuItem.hiddenIcons.title
+                    ) {
+                        model.showHiddenIcons()
+                    }
                 }
+                if model.isMenuItemVisible(.settings) {
+                    MenuActionRow(icon: StatusMenuItem.settings.icon, label: StatusMenuItem.settings.title) {
+                        model.openSettings()
+                    }
+                }
+                if model.isMenuItemVisible(.reportBug) {
+                    MenuActionRow(icon: StatusMenuItem.reportBug.icon, label: StatusMenuItem.reportBug.title) {
+                        model.openReportIssue()
+                    }
+                }
+                if model.isMenuItemVisible(.appRules) {
+                    MenuActionRow(icon: StatusMenuItem.appRules.icon, label: StatusMenuItem.appRules.title) {
+                        model.openAppRules()
+                    }
+                }
+                if model.isMenuItemVisible(.openShellFolder) {
+                    MenuActionRow(
+                        icon: StatusMenuItem.openShellFolder.icon,
+                        label: StatusMenuItem.openShellFolder.title
+                    ) {
+                        model.openShellFolder()
+                    }
+                }
+                if model.isMenuItemVisible(.checkForUpdates), model.checkForUpdatesAction != nil {
+                    MenuActionRow(
+                        icon: StatusMenuItem.checkForUpdates.icon,
+                        label: StatusMenuItem.checkForUpdates.title
+                    ) {
+                        model.checkForUpdates()
+                    }
+                }
+                MenuDivider()
             }
-            MenuDivider()
         }
         .onChange(of: model.menuPresentationGeneration) { _, _ in
             helpPresentation.reset()
@@ -220,11 +256,12 @@ struct StatusMenuFooterView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            MenuDivider()
-            MenuActionRow(icon: "sparkles", label: String(localized: "Omni Sponsors")) {
-                model.openSponsors()
+            if model.isMenuItemVisible(.sponsors) {
+                MenuActionRow(icon: "sparkles", label: String(localized: "Omni Sponsors")) {
+                    model.openSponsors()
+                }
+                MenuDivider()
             }
-            MenuDivider()
             MenuActionRow(icon: "power", label: String(localized: "Quit OmniWM"), isDestructive: true) {
                 model.quit()
             }
@@ -357,6 +394,9 @@ struct StatusMenuHelpLinksView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            MenuActionRow(icon: "sparkles", label: String(localized: "Welcome to OmniWM")) {
+                model.openWelcome()
+            }
             MenuActionRow(icon: "link", label: String(localized: "GitHub"), isExternal: true) {
                 open("https://github.com/OmniNull/OmniWM")
             }

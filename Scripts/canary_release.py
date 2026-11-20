@@ -1,4 +1,4 @@
-"""Decide when a canary build is needed and write its release notes.
+"""Decide when to build a canary, verify its CI, and write release notes.
 
 A canary publishes main HEAD as an automated prerelease. The build is skipped
 when HEAD is already contained in any existing canary or stable tag, because
@@ -6,6 +6,7 @@ such a canary would only repackage an existing build.
 """
 
 import argparse
+import json
 import os
 import subprocess
 import sys
@@ -93,7 +94,77 @@ def check(repo, force):
                 "should_skip": "true",
                 "skip_reason": f"HEAD {head[:12]} is already contained in {tag}",
             }
+        base = notes_base(repo, head)
+        if base and not app_changes(repo, f"{base}..{head}"):
+            return {"should_skip": "true", "skip_reason": f"only docs changed since {base}"}
     return {"should_skip": "false", "skip_reason": ""}
+
+
+def github_api(path):
+    result = subprocess.run(
+        ["gh", "api", "--method", "GET", "--paginate", "--slurp", path],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    require(result.returncode == 0, f"Cannot read CI status: {result.stderr.strip()}")
+    try:
+        return json.loads(result.stdout)
+    except json.JSONDecodeError as error:
+        raise CanaryError(f"Invalid CI response: {error}") from error
+
+
+def ci_candidates(repo, head):
+    candidates = []
+    for commit, paths in commits(repo, "%H", "--first-parent", "-51", head):
+        candidates.append(commit)
+        if not all(map(is_docs_path, paths)):
+            break
+    return candidates or [head]
+
+
+def verify_ci(repo, repository):
+    require(repository, "--repository or GITHUB_REPOSITORY is required for verify-ci")
+    head = git(repo, "rev-parse", "HEAD")
+    commit, runs = head, []
+    for commit in ci_candidates(repo, head):
+        pages = github_api(
+            f"repos/{repository}/actions/workflows/ci.yml/runs"
+            f"?branch=main&event=push&head_sha={commit}&per_page=100"
+        )
+        runs = [run for page in pages for run in page["workflow_runs"]]
+        if runs:
+            break
+    require(
+        runs,
+        f"No OmniWM CI push run exists for main commit {head} or the app commit under its docs changes; "
+        "wait for CI and retry the canary.",
+    )
+    latest = max(runs, key=lambda run: run["run_number"])
+    expected = {
+        "head_sha": commit,
+        "head_branch": "main",
+        "event": "push",
+        "path": ".github/workflows/ci.yml",
+    }
+    require(
+        all(latest.get(key) == value for key, value in expected.items()),
+        f"Latest CI run does not match main commit {commit}.",
+    )
+    require(
+        latest.get("status") == "completed" and latest.get("conclusion") == "success",
+        f"Latest OmniWM CI run for {commit} has not succeeded: {latest['html_url']} "
+        f"({latest.get('status')}/{latest.get('conclusion')}); wait for CI and retry the canary.",
+    )
+    pages = github_api(f"repos/{repository}/actions/runs/{latest['id']}/jobs?filter=latest&per_page=100")
+    jobs = [job for page in pages for job in page["jobs"]]
+    for name in ("Verify", "Tests"):
+        matching = [job for job in jobs if job.get("name") == name]
+        require(
+            matching and all(job.get("status") == "completed" and job.get("conclusion") == "success" for job in matching),
+            f"{name} must complete successfully for {commit}: {latest['html_url']}",
+        )
+    return latest
 
 
 def notes_base(repo, commit):
@@ -131,12 +202,30 @@ def notes(repo):
     lines.append("")
     lines.append(f"### Changes since {previous}" if previous else "### Recent changes")
     lines.append("")
-    if previous:
-        log = git(repo, "log", "--format=- %h %s", f"{previous}..{head}")
-    else:
-        log = git(repo, "log", "--format=- %h %s", "-20", head)
-    lines.append(log or "No commits recorded.")
+    log_range = [f"{previous}..{head}"] if previous else ["-20", head]
+    lines.append("\n".join(app_changes(repo, *log_range)) or "No commits recorded.")
     return "\n".join(lines) + "\n"
+
+
+def commits(repo, entry_format, *log_range):
+    log = git(
+        repo, "-c", "core.quotePath=false", "log", f"--format=%x00{entry_format}",
+        "--name-only", "--no-renames", "--diff-merges=first-parent", *log_range,
+    )
+    for record in log.split("\x00")[1:]:
+        entry, *paths = [line for line in record.splitlines() if line]
+        yield entry, paths
+
+
+def app_changes(repo, *log_range):
+    return [
+        entry for entry, paths in commits(repo, "- %h %s", *log_range)
+        if not paths or not all(map(is_docs_path, paths))
+    ]
+
+
+def is_docs_path(path):
+    return path.startswith(("docs/", "website/")) or ("/" not in path and path.endswith(".md"))
 
 
 def write_github_output(path, values):
@@ -155,6 +244,10 @@ def main(argv=None):
     check_parser.add_argument("--force", action="store_true")
     check_parser.add_argument("--github-output", default=os.environ.get("GITHUB_OUTPUT"))
 
+    ci_parser = subparsers.add_parser("verify-ci", help="require passing main push CI for the checked-out commit")
+    ci_parser.add_argument("--repo", default=".")
+    ci_parser.add_argument("--repository", default=os.environ.get("GITHUB_REPOSITORY"))
+
     notes_parser = subparsers.add_parser("notes", help="print canary release notes")
     notes_parser.add_argument("--repo", default=".")
     notes_parser.add_argument("--output")
@@ -168,13 +261,16 @@ def main(argv=None):
             print(values["should_skip"])
             if values["skip_reason"]:
                 print(values["skip_reason"], file=sys.stderr)
+        elif args.command == "verify-ci":
+            ci_run = verify_ci(args.repo, args.repository)
+            print(f"OmniWM CI passed for {ci_run['head_sha']}: {ci_run['html_url']}")
         else:
             text = notes(args.repo)
             if args.output:
                 Path(args.output).write_text(text, encoding="utf-8")
             else:
                 sys.stdout.write(text)
-    except CanaryError as error:
+    except (CanaryError, OSError) as error:
         print(f"canary-release: {error}", file=sys.stderr)
         return 2
     return 0

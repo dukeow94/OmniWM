@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import GhosttyKit
@@ -12,8 +12,8 @@ final class GhosttyAppCallbackContext {
         self.controller = controller
     }
 
-    static func installWakeupCallback(in runtimeConfig: inout ghostty_runtime_config_s) {
-        runtimeConfig.wakeup_cb = { userdata in
+    static var wakeupCallback: ghostty_runtime_wakeup_cb {
+        { userdata in
             guard let userdata else { return }
             let context = Unmanaged<GhosttyAppCallbackContext>.fromOpaque(userdata).takeUnretainedValue()
             DispatchQueue.main.async {
@@ -23,10 +23,17 @@ final class GhosttyAppCallbackContext {
         }
     }
 
-    static func installActionCallback(in runtimeConfig: inout ghostty_runtime_config_s) {
-        runtimeConfig.action_cb = { app, target, action in
-            guard let app, let userdata = ghostty_app_userdata(app) else { return false }
+    static var actionCallback: ghostty_runtime_action_cb {
+        { app, target, action in
+            guard let userdata = ghostty_app_userdata(app) else { return false }
             switch action.tag {
+            case GHOSTTY_ACTION_SHOW_CHILD_EXITED:
+                guard target.tag == GHOSTTY_TARGET_SURFACE,
+                      let surface = target.target.surface,
+                      let userdata = ghostty_surface_userdata(surface) else { return false }
+                let context = Unmanaged<GhosttySurfaceCallbackContext>.fromOpaque(userdata).takeUnretainedValue()
+                DispatchQueue.main.async { context.view?.onCommandExit?() }
+                return false
             case GHOSTTY_ACTION_NEW_TAB,
                  GHOSTTY_ACTION_CLOSE_TAB,
                  GHOSTTY_ACTION_NEW_SPLIT,
@@ -43,9 +50,8 @@ final class GhosttyAppCallbackContext {
                     QuakeTerminalURLHandler.handle(action.action.open_url)
                 }
             case GHOSTTY_ACTION_CONFIG_CHANGE:
-                guard target.tag == GHOSTTY_TARGET_APP,
-                      let config = action.action.config_change.config else { return false }
-                let appearance = QuakeGhosttyAppearance(config: config)
+                guard target.tag == GHOSTTY_TARGET_APP else { return false }
+                let appearance = QuakeGhosttyAppearance(config: action.action.config_change.config)
                 return MainActor.assumeIsolated {
                     let context = Unmanaged<GhosttyAppCallbackContext>.fromOpaque(userdata).takeUnretainedValue()
                     guard let controller = context.controller else { return false }

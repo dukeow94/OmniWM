@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import ApplicationServices
@@ -30,6 +30,10 @@ final class AppAXFrameDelivery {
 
     var retryRaiseSuppression: LockedWindowIdSet {
         frameWriteSuppression
+    }
+
+    func hasInFlightFrameWrite(for windowId: Int) -> Bool {
+        frameMailbox.hasInFlightFrameWrite(for: windowId)
     }
 
     func cancelFrameJob(for windowId: Int) {

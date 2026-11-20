@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import Foundation
@@ -34,10 +34,7 @@ extension NiriLayoutHandler {
                 )
             } == true
         let (frames, hiddenHandles) = calculateRelayoutFrames(
-            pass: pass,
-            state: state,
-            snapshot: snapshot,
-            isSettled: isSettled
+            pass: pass, state: state, snapshot: snapshot, isSettled: isSettled
         )
 
         var directives = relayoutAnimationDirectives(
@@ -45,7 +42,7 @@ extension NiriLayoutHandler {
             viewportNeedsRecalc: selection.viewportNeedsRecalc, arrival: arrival
         )
 
-        let diff = layoutDiff(
+        var diff = layoutDiff(
             windows: snapshot.windows,
             frames: frames,
             hiddenHandles: hiddenHandles,
@@ -58,7 +55,11 @@ extension NiriLayoutHandler {
                 settledContext: isSettled ? (snapshot.monitor, state) : nil
             )
         )
-        completeAnimationDirectives(&directives, pass: pass, state: state)
+        diff.edgeHiddenFrames = edgeHiddenFrames(engine: pass.engine, snapshot: snapshot)
+        diff.picturePreparation = picturePreparation(
+            engine: pass.engine, snapshot: snapshot, state: state, isSettled: isSettled
+        )
+        let hasPendingAnimationWork = completeAnimationDirectives(&directives, pass: pass, state: state)
         return WorkspaceLayoutPlan(
             workspaceId: pass.wsId,
             monitor: snapshot.monitor,
@@ -70,8 +71,16 @@ extension NiriLayoutHandler {
             ),
             diff: diff,
             animationDirectives: directives,
-            isActiveWorkspace: snapshot.isActiveWorkspace
+            isActiveWorkspace: snapshot.isActiveWorkspace,
+            isSlideInFlight: hasPendingAnimationWork
         )
+    }
+
+    func edgeHiddenFrames(engine: NiriLayoutEngine, snapshot: NiriWorkspaceSnapshot) -> [WindowToken: CGRect] {
+        engine.layoutPool.edgeHiddenFrames.filter { token, _ in
+            snapshot.windows.contains { $0.token == token && !$0.isNativeFullscreenSuspended }
+                && !snapshot.excludedTokens.contains(token)
+        }
     }
 
     func layoutDiff(
@@ -81,6 +90,7 @@ extension NiriLayoutHandler {
         context: NiriLayoutDiffContext
     ) -> WorkspaceLayoutDiff {
         var diff = WorkspaceLayoutDiff()
+        let workspace = context.engine.states[context.workspaceId]
         for window in windows {
             let token = window.token
             if window.isNativeFullscreenSuspended {
@@ -113,7 +123,9 @@ extension NiriLayoutHandler {
                 diff.restoreChanges.append(.init(token: token, hiddenState: hiddenState))
             }
             guard let frame = frames[token] else { continue }
-            diff.frameChanges.append(layoutFrameChange(token: token, frame: frame, context: context))
+            diff.frameChanges.append(layoutFrameChange(
+                token: token, frame: frame, node: workspace?.nodesByToken[token], context: context
+            ))
         }
         return diff
     }
@@ -142,9 +154,9 @@ extension NiriLayoutHandler {
     private func layoutFrameChange(
         token: WindowToken,
         frame: CGRect,
+        node: NiriWindow?,
         context: NiriLayoutDiffContext
     ) -> LayoutFrameChange {
-        let node = context.engine.findNode(for: token, in: context.workspaceId)
         var change = LayoutFrameChange(
             token: token,
             frame: frame,
@@ -202,7 +214,7 @@ extension NiriLayoutHandler {
             workingFrame: pass.insetFrame,
             singleWindowFrame: snapshot.monitor.workingFrame,
             borderSafeFillFrame: snapshot.monitor.borderSafeFillFrame,
-            fullscreenLayoutFrame: snapshot.monitor.fullscreenLayoutFrame,
+            fullscreenLayoutFrame: snapshot.fullscreenLayoutFrame,
             viewFrame: snapshot.monitor.frame,
             scale: snapshot.monitor.scale
         )
@@ -222,7 +234,8 @@ extension NiriLayoutHandler {
                 )
             },
             isSettled: isSettled,
-            excludedTokens: snapshot.excludedTokens
+            excludedTokens: snapshot.excludedTokens, edgePictures: snapshot.edgePictures,
+            recordsPresentationGeometry: true
         )
     }
 
@@ -280,7 +293,7 @@ extension NiriLayoutHandler {
         _ directives: inout [AnimationDirective],
         pass: NiriLayoutPass,
         state: ViewportState
-    ) {
+    ) -> Bool {
         let startsAnimation = directives.contains {
             if case .startNiriScroll = $0 { return true }
             return false
@@ -297,5 +310,6 @@ extension NiriLayoutHandler {
         if hasPendingAnimationWork, !startsAnimation, !hasRegisteredAnimation {
             directives.append(.startNiriScroll(workspaceId: pass.wsId))
         }
+        return hasPendingAnimationWork
     }
 }

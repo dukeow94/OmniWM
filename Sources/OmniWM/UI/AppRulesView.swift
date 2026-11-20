@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import SwiftUI
 
@@ -13,22 +13,37 @@ struct AppRulesView: View {
     @State private var pendingDeleteRule: AppRule?
     @State private var searchText = ""
     @State private var pendingSelection: AppRule.ID?
+    @State private var pendingDraft: AppRuleDraft?
     @State private var isConfirmingDiscard = false
 
     var body: some View {
-        NavigationSplitView {
-            AppRulesSidebar(
-                rules: settings.appRules,
-                searchText: $searchText,
-                selection: selectionBinding,
-                onAdd: { presentNewRule() },
-                onDelete: { pendingDeleteRule = $0 },
-                onMove: moveHandler
-            )
-        } detail: {
-            detailColumn
+        GeometryReader { geometry in
+            let wide = geometry.size.width >= 760
+            let layout = wide ? AnyLayout(HStackLayout(spacing: 0)) : AnyLayout(VStackLayout(spacing: 0))
+            layout {
+                AppRulesSidebar(
+                    rules: settings.appRules,
+                    searchText: $searchText,
+                    selection: selectionBinding,
+                    onAdd: { presentNewRule() },
+                    onDelete: { pendingDeleteRule = $0 },
+                    onMove: moveHandler
+                )
+                .frame(width: wide ? 230 : nil)
+                .frame(maxHeight: wide ? .infinity : selectedRuleId == nil ? 220 : 0)
+                .clipped()
+                VStack(alignment: .leading, spacing: 0) {
+                    if !wide, selectedRuleId != nil {
+                        Button("All Rules", systemImage: "chevron.left") { selectionBinding.wrappedValue = nil }
+                            .padding(.horizontal, 20)
+                            .padding(.vertical, 10)
+                    }
+                    detailColumn
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .clipped()
+            }
         }
-        .navigationSplitViewStyle(.balanced)
         .sheet(item: $addDraft, content: addSheet)
         .onAppear(perform: presentRequestedDraft)
         .onChange(of: editorState.requestedDraft?.id) { _, _ in presentRequestedDraft() }
@@ -50,13 +65,20 @@ struct AppRulesView: View {
         ) {
             Button("Discard Changes", role: .destructive) {
                 editorState.isDirty = false
-                selectedRuleId = pendingSelection
+                if let pendingDraft {
+                    selectedRuleId = nil
+                    addDraft = pendingDraft
+                    self.pendingDraft = nil
+                } else {
+                    selectedRuleId = pendingSelection
+                }
             }
-            Button("Cancel", role: .cancel) {}
+            Button("Cancel", role: .cancel) { pendingDraft = nil }
         } message: {
             Text("You have unsaved changes to this app rule.")
         }
-        .frame(minWidth: 880, minHeight: 680)
+        .padding(.horizontal, 12)
+        .padding(.bottom, 12)
     }
 
     private var selectionBinding: Binding<AppRule.ID?> {
@@ -148,16 +170,22 @@ struct AppRulesView: View {
     private func presentRequestedDraft() {
         guard let draft = editorState.requestedDraft else { return }
         editorState.requestedDraft = nil
+        selectedRuleId = nil
         presentNewRule(draft)
     }
 
     private func presentNewRule(_ draft: AppRuleDraft = AppRuleDraft()) {
-        addDraft = draft
+        if editorState.isDirty {
+            pendingDraft = draft
+            isConfirmingDiscard = true
+        } else {
+            addDraft = draft
+        }
     }
 
     private func presentNewRule(from snapshot: WindowDecisionDebugSnapshot) {
         guard let draft = AppRuleDraft.guided(from: snapshot) else { return }
-        addDraft = draft
+        presentNewRule(draft)
     }
 }
 
@@ -170,47 +198,48 @@ struct AppRulesSidebar: View {
     let onMove: ((IndexSet, Int) -> Void)?
 
     var body: some View {
-        List(selection: $selection) {
-            ForEach(filteredRules) { rule in
-                AppRuleSidebarRow(rule: rule)
-                    .tag(rule.id)
-                    .contextMenu {
-                        Button(role: .destructive) {
-                            onDelete(rule)
-                        } label: {
-                            Label("Delete", systemImage: "trash")
+        VStack(alignment: .leading, spacing: 12) {
+            TextField("Search rules", text: $searchText)
+                .textFieldStyle(.roundedBorder)
+            Button("Add Rule", systemImage: "plus", action: onAdd)
+            List(selection: $selection) {
+                ForEach(filteredRules) { rule in
+                    AppRuleSidebarRow(rule: rule)
+                        .tag(rule.id)
+                        .contextMenu {
+                            Button(role: .destructive) {
+                                onDelete(rule)
+                            } label: {
+                                Label("Delete", systemImage: "trash")
+                            }
                         }
-                    }
-            }
-            .onMove(perform: onMove)
+                }
+                .onMove(perform: onMove)
 
-            if rules.count > 1, onMove != nil {
-                Text("More specific rules win; ties break by order — drag to reorder.")
+                if rules.count > 1, onMove != nil {
+                    Text(
+                        "Each setting comes from the most specific matching rule that sets it; ties break by order — drag to reorder."
+                    )
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .selectionDisabled()
                     .listRowSeparator(.hidden)
-            }
-        }
-        .listStyle(.sidebar)
-        .navigationTitle("App Rules")
-        .searchable(text: $searchText, prompt: "Search rules")
-        .overlay {
-            if !rules.isEmpty, filteredRules.isEmpty {
-                ContentUnavailableView.search(text: searchText)
-            }
-        }
-        .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Button(action: onAdd) {
-                    Label("Add app rule", systemImage: "plus")
-                        .labelStyle(.iconOnly)
                 }
-                .help("Add app rule")
-                .accessibilityLabel("Add app rule")
+            }
+            .listStyle(.inset)
+            .overlay {
+                if !rules.isEmpty, filteredRules.isEmpty {
+                    ContentUnavailableView.search(text: searchText)
+                } else if rules.isEmpty {
+                    ContentUnavailableView(
+                        "No App Rules",
+                        systemImage: "app.badge.checkmark",
+                        description: Text("Add a rule to choose how an app’s windows are managed.")
+                    )
+                }
             }
         }
-        .navigationSplitViewColumnWidth(min: 440, ideal: 520, max: 680)
+        .padding(12)
     }
 
     private var filteredRules: [AppRule] {
@@ -246,7 +275,9 @@ struct AppRuleSidebarRow: View {
             Text(rule.specificity.formatted())
                 .font(.caption2.monospacedDigit())
                 .foregroundStyle(.tertiary)
-                .help("Match specificity \(rule.specificity) — higher specificity wins; ties break by list order")
+                .help(
+                    "Match specificity \(rule.specificity) — for each setting, the most specific matching rule wins; ties break by list order"
+                )
                 .accessibilityLabel("Specificity \(rule.specificity)")
         }
         .padding(.vertical, 2)

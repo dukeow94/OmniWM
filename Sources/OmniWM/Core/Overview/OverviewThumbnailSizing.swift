@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import CoreGraphics
 
@@ -39,7 +39,7 @@ enum OverviewThumbnailSizing {
                     guard window.isDisplayed,
                           window.overviewFrame.size.hasFinitePositiveDimensions(),
                           section.clipFrame(for: window).isEmpty || section.clipFrame(for: window)
-                          .intersects(window.overviewFrame),
+                              .intersects(window.overviewFrame),
                           OverviewRenderGeometry.shouldRender(
                               frame: window.overviewFrame,
                               visibleContentRect: visibleContent
@@ -64,6 +64,37 @@ enum OverviewThumbnailSizing {
                     }
                 }
             }
+        }
+        return requests
+    }
+
+    static func collectRequests(
+        represented: Set<WindowHandle>,
+        visible: [OverviewPreviewRequest],
+        selectedHandle: WindowHandle?,
+        sourceOrder: inout [ObjectIdentifier]
+    ) -> [ObjectIdentifier: OverviewPreviewRequest] {
+        var requests: [ObjectIdentifier: OverviewPreviewRequest] = [:]
+        sourceOrder.removeAll(keepingCapacity: true)
+        for index in visible.indices {
+            let request = visible[index]
+            guard represented.contains(request.handle), request.token == request.handle.token else { continue }
+            let key = ObjectIdentifier(request.handle)
+            if let previous = requests[key] {
+                requests[key] = OverviewPreviewRequest(
+                    handle: request.handle,
+                    pixelWidth: max(previous.pixelWidth, request.pixelWidth),
+                    pixelHeight: max(previous.pixelHeight, request.pixelHeight)
+                )
+            } else {
+                requests[key] = request
+                sourceOrder.append(key)
+            }
+        }
+        if let selectedHandle,
+           let index = sourceOrder.firstIndex(of: ObjectIdentifier(selectedHandle)), index != 0
+        {
+            sourceOrder.insert(sourceOrder.remove(at: index), at: 0)
         }
         return requests
     }

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import Foundation
@@ -30,6 +30,11 @@ extension MouseEventHandler {
             if let liveOffset = driver.liveViewOffset(in: wsId, semanticOffset: semanticOffset) {
                 controller.workspaceManager.withNiriViewportState(for: wsId) { vstate in
                     vstate.jumpOffset(to: liveOffset)
+                }
+            }
+            if engine.effectiveSettings(in: wsId).edgeOverscroll != .disabled {
+                controller.workspaceManager.withNiriViewportState(for: wsId) { vstate in
+                    vstate.preservesGestureOffset = true
                 }
             }
             driver.beginGesture(in: wsId, isTrackpad: true, timestamp: timestamp)

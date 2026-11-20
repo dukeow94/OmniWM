@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 @testable import OmniWM
 import XCTest
@@ -145,30 +145,22 @@ final class LaunchConflictCheckerTests: XCTestCase {
         XCTAssertTrue(LaunchConflictChecker.conflicts(in: snapshots).isEmpty)
     }
 
-    func testScanFindsHeadlessProcessWithoutRunningApplicationEntry() {
-        let checker = LaunchConflictChecker(
-            environment: .init(
-                applicationSnapshots: { [] },
-                processSnapshots: { _ in [self.snapshot(pid: 501, executableName: "yabai")] },
-                currentPID: { 500 }
+    func testScanFindsHeadlessProcessesWithoutRunningApplicationEntries() {
+        let cases: [(pid: pid_t, currentPID: pid_t, executable: String, expected: LaunchConflictCheckResult)] = [
+            (501, 500, "yabai", .blocked(.conflicts([.yabai]))),
+            (551, 550, "komorebi", .blocked(.conflicts([.komorebi])))
+        ]
+        for row in cases {
+            let checker = LaunchConflictChecker(
+                environment: .init(
+                    applicationSnapshots: { [] },
+                    processSnapshots: { _ in [self.snapshot(pid: row.pid, executableName: row.executable)] },
+                    currentPID: { row.currentPID }
+                )
             )
-        )
 
-        XCTAssertEqual(checker.scan(), .blocked(.conflicts([.yabai])))
-    }
-
-    func testScanFindsHeadlessKomorebiWithoutBundleIdentity() {
-        let checker = LaunchConflictChecker(
-            environment: .init(
-                applicationSnapshots: { [] },
-                processSnapshots: { _ in
-                    [self.snapshot(pid: 551, executableName: "komorebi")]
-                },
-                currentPID: { 550 }
-            )
-        )
-
-        XCTAssertEqual(checker.scan(), .blocked(.conflicts([.komorebi])))
+            XCTAssertEqual(checker.scan(), row.expected, row.executable)
+        }
     }
 
     func testScanExcludesCurrentProcessButFindsSecondOmniWMInstance() {
@@ -346,16 +338,10 @@ final class LaunchConflictCheckerTests: XCTestCase {
             _ = waitpid(childPID, &status, 0)
         }
 
-        var observedStatus: UInt32?
-        for _ in 0 ..< 500 {
-            observedStatus = LaunchProcessScanner.processStatus(pid: childPID)
-            if observedStatus == UInt32(SZOMB) {
-                break
-            }
-            usleep(1_000)
-        }
+        var exitInfo = siginfo_t()
+        XCTAssertEqual(waitid(P_PID, id_t(childPID), &exitInfo, WEXITED | WNOWAIT), 0)
 
-        XCTAssertEqual(observedStatus, UInt32(SZOMB))
+        XCTAssertEqual(LaunchProcessScanner.processStatus(pid: childPID), UInt32(SZOMB))
     }
 
     private func snapshot(
@@ -373,56 +359,38 @@ final class LaunchConflictCheckerTests: XCTestCase {
 
 @MainActor
 final class LaunchConflictGateTests: XCTestCase {
-    func testGateRetriesConflictUntilScanClears() {
-        var results: [LaunchConflictCheckResult] = [
-            .blocked(.conflicts([.aeroSpace, .yabai])),
-            .clear
-        ]
-        var presentedReasons: [LaunchConflictBlockReason] = []
-        var bootstrapCount = 0
-        var quitCount = 0
-        var focusRestored = false
+    func testGateRetriesBlockedReasonsUntilScanClears() {
+        let reasons: [LaunchConflictBlockReason] = [.conflicts([.aeroSpace, .yabai]), .scanUnavailable]
+        for blockedReason in reasons {
+            var results: [LaunchConflictCheckResult] = [
+                .blocked(blockedReason),
+                .clear
+            ]
+            var presentedReasons: [LaunchConflictBlockReason] = []
+            var bootstrapCount = 0
+            var quitCount = 0
+            var focusRestored = false
 
-        LaunchConflictGate.run(
-            scan: { results.removeFirst() },
-            present: { reason in
-                XCTAssertEqual(bootstrapCount, 0)
-                presentedReasons.append(reason)
-                focusRestored = true
-                return .checkAgain
-            },
-            onClear: {
-                XCTAssertTrue(focusRestored)
-                bootstrapCount += 1
-            },
-            onQuit: { quitCount += 1 }
-        )
+            LaunchConflictGate.run(
+                scan: { results.removeFirst() },
+                present: { reason in
+                    XCTAssertEqual(bootstrapCount, 0)
+                    presentedReasons.append(reason)
+                    focusRestored = true
+                    return .checkAgain
+                },
+                onClear: {
+                    XCTAssertTrue(focusRestored)
+                    bootstrapCount += 1
+                },
+                onQuit: { quitCount += 1 }
+            )
 
-        XCTAssertEqual(presentedReasons, [.conflicts([.aeroSpace, .yabai])])
-        XCTAssertEqual(bootstrapCount, 1)
-        XCTAssertEqual(quitCount, 0)
-        XCTAssertTrue(results.isEmpty)
-    }
-
-    func testGateRetriesUnavailableScanUntilScanClears() {
-        var results: [LaunchConflictCheckResult] = [
-            .blocked(.scanUnavailable),
-            .clear
-        ]
-        var bootstrapCount = 0
-
-        LaunchConflictGate.run(
-            scan: { results.removeFirst() },
-            present: { _ in
-                XCTAssertEqual(bootstrapCount, 0)
-                return .checkAgain
-            },
-            onClear: { bootstrapCount += 1 },
-            onQuit: { XCTFail("Unexpected quit") }
-        )
-
-        XCTAssertEqual(bootstrapCount, 1)
-        XCTAssertTrue(results.isEmpty)
+            XCTAssertEqual(presentedReasons, [blockedReason])
+            XCTAssertEqual(bootstrapCount, 1)
+            XCTAssertEqual(quitCount, 0)
+            XCTAssertTrue(results.isEmpty)
+        }
     }
 
     func testGateBootstrapsImmediatelyWhenScanIsClear() {
@@ -476,6 +444,7 @@ final class LaunchConflictAutoRecheckTests: XCTestCase {
         private var results: [LaunchConflictCheckResult]
         private(set) var scans = 0
         private(set) var clears = 0
+        var onClear: @MainActor () -> Void = {}
 
         init(_ results: [LaunchConflictCheckResult]) {
             self.results = results
@@ -490,6 +459,7 @@ final class LaunchConflictAutoRecheckTests: XCTestCase {
                 },
                 onClear: {
                     self.clears += 1
+                    self.onClear()
                 }
             )
         }
@@ -514,21 +484,19 @@ final class LaunchConflictAutoRecheckTests: XCTestCase {
         XCTAssertEqual(script.clears, 1)
     }
 
-    func testTimerFiresOnMainRunLoopAndStopsAfterClear() {
+    func testTimerFiresOnMainRunLoopAndStopsAfterClear() async throws {
         let script = ScriptedScan([.blocked(.conflicts([.yabai])), .blocked(.conflicts([.yabai])), .clear])
+        let cleared = expectation(description: "Timer ticks reached the clear scan")
+        script.onClear = { cleared.fulfill() }
         let recheck = script.makeRecheck(interval: 0.01)
         recheck.start()
+        let timer = try XCTUnwrap(recheck.timer)
 
-        let deadline = Date().addingTimeInterval(5)
-        while script.clears == 0, Date() < deadline {
-            RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.02))
-        }
+        await fulfillment(of: [cleared], timeout: failureBound)
         XCTAssertEqual(script.clears, 1)
         XCTAssertEqual(script.scans, 3)
-
-        RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.05))
-        XCTAssertEqual(script.scans, 3)
-        XCTAssertEqual(script.clears, 1)
+        XCTAssertFalse(timer.isValid)
+        XCTAssertNil(recheck.timer)
     }
 
     func testStopPreventsFurtherTicks() {

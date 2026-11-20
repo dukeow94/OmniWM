@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 @testable import OmniWM
@@ -7,43 +7,30 @@ import XCTest
 
 @MainActor
 final class WorkspaceBarPanelPolicyTests: XCTestCase {
-    func testFillModeUsesAboveStatusLevelWithoutFullscreenAuxiliary() {
-        let resolved = makeResolved(notchMode: .fillLeftOfNotch, windowLevel: .screensaver)
-        let island = makeIsland(resolved: resolved)
-        defer { island.panel.close() }
-
-        XCTAssertEqual(
-            island.panel.level.rawValue,
-            NSWindow.Level.statusBar.rawValue + 1
-        )
-        let behavior = island.panel.collectionBehavior
-        XCTAssertTrue(behavior.contains(.canJoinAllSpaces))
-        XCTAssertTrue(behavior.contains(.stationary))
-        XCTAssertFalse(behavior.contains(.fullScreenAuxiliary))
-    }
-
-    func testNonFillModeUsesConfiguredLevelAndExistingFlags() {
-        let resolved = makeResolved(notchMode: .off, windowLevel: .screensaver)
-        let island = makeIsland(resolved: resolved)
-        defer { island.panel.close() }
-
-        XCTAssertEqual(island.panel.level, .screenSaver)
-        XCTAssertEqual(
-            island.panel.collectionBehavior,
-            [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
-        )
-    }
+    private let monitor = Monitor(
+        id: .init(displayId: 7),
+        displayId: 7,
+        frame: CGRect(x: 0, y: 0, width: 1512, height: 982),
+        visibleFrame: CGRect(x: 0, y: 0, width: 1512, height: 950),
+        hasNotch: false,
+        name: "Plain"
+    )
 
     func testExistingPanelRestoresConfiguredPolicyWhenLeavingFillMode() {
-        let normal = makeResolved(notchMode: .off, windowLevel: .floating)
+        let normal = makeResolved(notchMode: .off, windowLevel: .screensaver)
         let island = makeIsland(resolved: normal)
         defer { island.panel.close() }
+        XCTAssertEqual(island.panel.level, .screenSaver)
+        XCTAssertEqual(island.panel.collectionBehavior, [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary])
 
-        island.applySettings(resolved: makeResolved(notchMode: .fillLeftOfNotch, windowLevel: .screensaver))
+        island.applySettings(
+            resolved: makeResolved(notchMode: .fillLeftOfNotch, windowLevel: .screensaver),
+            monitor: monitor
+        )
         XCTAssertEqual(island.panel.level.rawValue, NSWindow.Level.statusBar.rawValue + 1)
-        XCTAssertFalse(island.panel.collectionBehavior.contains(.fullScreenAuxiliary))
+        XCTAssertEqual(island.panel.collectionBehavior, [.canJoinAllSpaces, .stationary])
 
-        island.applySettings(resolved: normal)
+        island.applySettings(resolved: makeResolved(notchMode: .off, windowLevel: .floating), monitor: monitor)
         XCTAssertEqual(island.panel.level, .floating)
         XCTAssertEqual(island.panel.collectionBehavior, [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary])
     }
@@ -51,23 +38,17 @@ final class WorkspaceBarPanelPolicyTests: XCTestCase {
     private func makeIsland(resolved: ResolvedBarSettings) -> WorkspaceBarIslandPanel {
         let snapshot = WorkspaceBarSnapshot(
             projection: WorkspaceBarProjection(items: [], scratchpads: []),
-            showLabels: true,
-            showSystemStatsButton: false,
             backgroundOpacity: 0.6,
-            barHeight: 24,
-            accentColor: nil,
-            textColor: nil
+            barHeight: 24
         )
         return WorkspaceBarIslandPanel(
             panel: WorkspaceBarPanel.defaultPanel(),
             rootView: WorkspaceBarView(
                 model: WorkspaceBarModel(snapshot: snapshot),
-                motionPolicy: MotionPolicy(animationsEnabled: false),
-                onFocusWorkspace: { _ in },
-                onFocusWindow: { _ in },
-                onActivateScratchpad: { _ in }
+                motionPolicy: MotionPolicy(animationsEnabled: false)
             ),
-            resolved: resolved
+            resolved: resolved,
+            monitor: monitor
         )
     }
 

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import ApplicationServices
@@ -180,7 +180,11 @@ enum CommandPaletteSearch {
             uniquingKeysWith: { first, _ in first }
         )
 
-        return ActionCatalog.allSpecs().filter {
+        let apps = wmController.shellAppCatalog.definitions.values.filter { $0.id != ShellAppWindowManager.exampleID }
+        let appSpecs = apps.flatMap { app in
+            [false, true].compactMap { ActionCatalog.shellAppSpec(appID: app.id, title: app.title, newWindow: $0) }
+        }
+        return (ActionCatalog.allSpecs() + appSpecs).filter {
             wmController.settings.isCommandFeatureEnabled($0.command)
         }.map { spec in
             let trigger = spec.visibility == .unassignable ? nil : triggersByID[spec.id]
@@ -217,23 +221,13 @@ enum CommandPaletteSearch {
     }
 
     private static func commandSearchRank(_ item: CommandPaletteCommandItem, query: String) -> Int? {
-        let title = ActionCatalog.normalizedSearchTerm(item.spec.localizedTitle)
-        if title.hasPrefix(query) { return 0 }
-        if title.contains(query) { return 1 }
-
-        let layout = ActionCatalog.normalizedSearchTerm(item.spec.layoutCompatibility.rawValue)
-        let localizedLayout = ActionCatalog.normalizedSearchTerm(item.spec.layoutCompatibility.localizedDisplayName)
-        let category = ActionCatalog.normalizedSearchTerm(item.spec.category.rawValue)
-        let localizedCategory = ActionCatalog.normalizedSearchTerm(item.spec.category.localizedDisplayName)
-        let terms = ActionCatalog.normalizedSearchTerms(for: item.id)
-            ?? item.spec.searchTerms.map(ActionCatalog.normalizedSearchTerm)
-        if terms.contains(where: {
-            $0 != title && $0 != layout && $0 != localizedLayout && $0 != category && $0 != localizedCategory
-                && $0.contains(query)
-        }) { return 2 }
-        if category.contains(query) || localizedCategory.contains(query) { return 3 }
-        if layout.contains(query) || localizedLayout.contains(query) { return 4 }
-        if item.shortcutSearchTerms.contains(where: { $0.contains(query) }) { return 5 }
+        let keys = ActionCatalog.searchKeys(for: item.spec)
+        if keys.title.hasPrefix(query) { return 0 }
+        if keys.title.contains(query) { return 1 }
+        for term in keys.terms where term.contains(query) { return 2 }
+        for term in keys.categoryTerms where term.contains(query) { return 3 }
+        for term in keys.layoutTerms where term.contains(query) { return 4 }
+        for term in item.shortcutSearchTerms where term.contains(query) { return 5 }
         return nil
     }
 
@@ -290,16 +284,17 @@ enum CommandPaletteSearch {
             guard entry.layoutReason == .standard,
                   let handle = wmController.workspaceManager.handle(for: entry.token) else { continue }
 
-            let title = AXWindowService.titlePreferFast(windowId: UInt32(entry.windowId)) ?? ""
-            let appInfo = wmController.appInfoCache.info(for: entry.pid)
+            let presentation = wmController.appInfoCache.presentation(
+                for: entry, title: AXWindowService.titlePreferFast(windowId: UInt32(entry.windowId))
+            )
             let workspaceName = wmController.workspaceManager.descriptor(for: entry.workspaceId)?.name ?? "?"
 
             items.append(CommandPaletteWindowItem(
                 id: entry.token,
                 handle: handle,
-                title: title,
-                appName: appInfo?.name ?? String(localized: "Unknown"),
-                appIcon: appInfo?.icon,
+                title: presentation.title ?? "",
+                appName: presentation.name ?? String(localized: "Unknown"),
+                appIcon: presentation.icon,
                 workspaceName: workspaceName,
                 isAppHidden: wmController.workspaceManager.isAppHidden(pid: entry.pid),
                 markNames: wmController.windowMarkRegistry.names(for: entry.token)

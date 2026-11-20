@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import ApplicationServices
 import CoreGraphics
@@ -83,9 +83,9 @@ final class NiriInitialContainerPrimarySpanTests: XCTestCase {
             orientation: .vertical
         )
 
-        XCTAssertEqual(try XCTUnwrap(horizontalFrames[firstToken]).width, 500, accuracy: 0.001)
-        XCTAssertEqual(try XCTUnwrap(verticalFrames[firstToken]).height, 400, accuracy: 0.001)
-        XCTAssertEqual(try XCTUnwrap(verticalFrames[secondToken]).height, 400, accuracy: 0.001)
+        XCTAssertEqual(try XCTUnwrap(horizontalFrames[firstToken]).width, 500)
+        XCTAssertEqual(try XCTUnwrap(verticalFrames[firstToken]).height, 400)
+        XCTAssertEqual(try XCTUnwrap(verticalFrames[secondToken]).height, 400)
     }
 
     func testInitialFullWidthProportionUsesNormalWidthStateAndMatchingPreset() {
@@ -341,8 +341,7 @@ final class NiriInitialContainerPrimarySpanTests: XCTestCase {
             to: workspaceId,
             ruleEffects: ManagedWindowRuleEffects(
                 minWidth: 700,
-                minHeight: nil,
-                matchedRuleId: nil
+                minHeight: nil
             ),
             admissionHints: ManagedWindowAdmissionHints(initialNiriContainerPrimarySpan: 0.25)
         )

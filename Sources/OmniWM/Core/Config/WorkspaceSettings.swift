@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import Foundation
 import OmniWMIPC
@@ -17,22 +17,31 @@ final class WorkspaceSettings {
         didSet { onChange?() }
     }
 
+    var autoBackAndForth = WorkspaceSettings.defaults.workspaceAutoBackAndForth {
+        didSet { onChange?() }
+    }
+
     func configuredNames() -> [String] {
         configurations.map(\.name)
     }
 
     func layoutType(for workspaceName: String) -> LayoutType {
-        if let config = configurations.first(where: { $0.name == workspaceName }) {
-            if config.layoutType == .defaultLayout {
-                return defaultLayoutType
-            }
-            return config.layoutType
+        let configurations = self.configurations
+        let span = configurations.span
+        for index in span.indices where span[index].name == workspaceName {
+            let layoutType = span[index].layoutType
+            return layoutType == .defaultLayout ? defaultLayoutType : layoutType
         }
         return defaultLayoutType
     }
 
     func displayName(for workspaceName: String) -> String {
-        configurations.first(where: { $0.name == workspaceName })?.effectiveDisplayName ?? workspaceName
+        let configurations = self.configurations
+        let span = configurations.span
+        for index in span.indices where span[index].name == workspaceName {
+            return span[index].effectiveDisplayName
+        }
+        return workspaceName
     }
 
     static func normalizedConfigurations(_ configs: [WorkspaceConfiguration]) -> [WorkspaceConfiguration] {

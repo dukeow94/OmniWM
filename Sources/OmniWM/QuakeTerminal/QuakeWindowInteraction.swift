@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 
@@ -32,7 +32,7 @@ final class QuakeWindowInteraction {
             return true
         }
 
-        if event.modifierFlags.contains(.option) {
+        if event.modifierFlags.isSuperset(of: [.command, .option]) {
             isInteracting = true
             interactionMode = .windowMove(startOrigin: window.frame.origin, startMouseLocation: NSEvent.mouseLocation)
             NSCursor.closedHand.set()

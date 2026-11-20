@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import SwiftUI
@@ -8,10 +8,18 @@ import SwiftUI
 final class HostedWindowPresenter {
     private(set) var window: NSWindow?
     private let ownedWindowRegistry: OwnedWindowRegistry
+    private let orderFront: @MainActor (NSWindow) -> Void
     private var closeObserver: (any NSObjectProtocol)?
 
-    init(ownedWindowRegistry: OwnedWindowRegistry = .shared) {
+    init(
+        ownedWindowRegistry: OwnedWindowRegistry = .shared,
+        orderFront: @escaping @MainActor (NSWindow) -> Void = { window in
+            window.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+        }
+    ) {
         self.ownedWindowRegistry = ownedWindowRegistry
+        self.orderFront = orderFront
     }
 
     func present(
@@ -25,8 +33,7 @@ final class HostedWindowPresenter {
         content: () -> some View
     ) {
         if let window {
-            window.makeKeyAndOrderFront(nil)
-            NSApp.activate(ignoringOtherApps: true)
+            orderFront(window)
             return
         }
 
@@ -39,8 +46,7 @@ final class HostedWindowPresenter {
         configure(window)
         center(window)
         ownedWindowRegistry.register(window)
-        window.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
+        orderFront(window)
 
         closeObserver = NotificationCenter.default
             .addObserver(forName: NSWindow.willCloseNotification, object: window, queue: .main) { [weak self] _ in

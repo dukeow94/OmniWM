@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import CoreGraphics
 @testable import OmniWM
@@ -95,6 +95,34 @@ final class NiriMonitorTransitionSpanTests: XCTestCase {
         )
     }
 
+    func testDestinationAutoOverrideRederivesSpansWithGlobalCustom() {
+        let engine = makeEngine(startingOn: wide)
+        engine.defaultContainerPrimarySpan = 0.95
+
+        assign(engine, to: narrow)
+
+        XCTAssertEqual(engine.columns(in: workspaceId).map(\.width), Array(repeating: .proportion(1), count: 3))
+    }
+
+    func testDestinationCustomOverrideKeepsExistingSpansWithGlobalAuto() {
+        let engine = makeEngine(startingOn: wide)
+        let global = engine.globalResolvedSettings()
+        let custom = ResolvedNiriSettings(
+            visibleContainerCount: 1,
+            defaultContainerPrimarySpan: 0.9,
+            centerFocusedColumn: global.centerFocusedColumn,
+            alwaysCenterSingleColumn: global.alwaysCenterSingleColumn,
+            singleWindowFit: global.singleWindowFit,
+            infiniteLoop: global.infiniteLoop
+        )
+        engine.updateMonitorSettings(custom, for: narrow.monitor.id)
+
+        assign(engine, to: narrow)
+
+        XCTAssertEqual(engine.columns(in: workspaceId).map(\.width), Array(repeating: .proportion(0.5), count: 3))
+        XCTAssertEqual(engine.resolvedContainerResetPrimarySpan(in: workspaceId).proportion, 0.9)
+    }
+
     private func makeEngine(startingOn start: Target) -> NiriLayoutEngine {
         let engine = NiriLayoutEngine()
         engine.isMutationSanctioned = true
@@ -124,6 +152,7 @@ final class NiriMonitorTransitionSpanTests: XCTestCase {
         let global = engine.globalResolvedSettings()
         return ResolvedNiriSettings(
             visibleContainerCount: visibleContainerCount,
+            defaultContainerPrimarySpan: global.defaultContainerPrimarySpan,
             centerFocusedColumn: global.centerFocusedColumn,
             alwaysCenterSingleColumn: global.alwaysCenterSingleColumn,
             singleWindowFit: global.singleWindowFit,

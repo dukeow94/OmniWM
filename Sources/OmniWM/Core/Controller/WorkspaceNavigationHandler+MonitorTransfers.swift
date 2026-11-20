@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import Foundation
@@ -35,6 +35,7 @@ extension WorkspaceNavigationHandler {
         direction: Direction
     ) -> StructuralMutationOutcome {
         guard let controller,
+              controller.workspaceManager.entry(for: handle.id)?.target.hostedMetadata?.role.parent == nil,
               let sourceWorkspaceId = controller.workspaceManager.workspace(for: handle.id),
               let sourceMonitorId = controller.workspaceManager.monitorId(for: sourceWorkspaceId),
               let targetMonitor = controller.workspaceManager.adjacentMonitor(
@@ -78,7 +79,6 @@ extension WorkspaceNavigationHandler {
                 sourceWorkspaceId: mutation.sourceWorkspaceId,
                 destinationWorkspaceId: mutation.destinationWorkspaceId,
                 selectedHandle: mutation.selectedHandle,
-                movedTokens: mutation.movedTokens,
                 scrollWorkspaceId: nil
             )
         )

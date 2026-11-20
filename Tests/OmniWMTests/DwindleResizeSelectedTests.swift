@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import CoreGraphics
 import Foundation
@@ -68,28 +68,18 @@ final class DwindleResizeSelectedTests: XCTestCase {
         XCTAssertEqual(
             fixture.engine.root(for: fixture.workspaceId)?.splitRatio ?? 0,
             expectedRatio,
-            accuracy: 1e-6,
             file: file,
             line: line
         )
     }
 
-    func testHorizontalGrowNormalizesForSelectedChild() {
+    func testResizeNormalizesForSelectedChild() {
         assertResize(orientation: .horizontal, delta: 0.1, selectedChild: .first, expectedRatio: 1.1)
         assertResize(orientation: .horizontal, delta: 0.1, selectedChild: .second, expectedRatio: 0.9)
-    }
-
-    func testHorizontalShrinkNormalizesForSelectedChild() {
         assertResize(orientation: .horizontal, delta: -0.1, selectedChild: .first, expectedRatio: 0.9)
         assertResize(orientation: .horizontal, delta: -0.1, selectedChild: .second, expectedRatio: 1.1)
-    }
-
-    func testVerticalGrowNormalizesForSelectedChild() {
         assertResize(orientation: .vertical, delta: 0.1, selectedChild: .first, expectedRatio: 1.1)
         assertResize(orientation: .vertical, delta: 0.1, selectedChild: .second, expectedRatio: 0.9)
-    }
-
-    func testVerticalShrinkNormalizesForSelectedChild() {
         assertResize(orientation: .vertical, delta: -0.1, selectedChild: .first, expectedRatio: 0.9)
         assertResize(orientation: .vertical, delta: -0.1, selectedChild: .second, expectedRatio: 1.1)
     }
@@ -108,7 +98,7 @@ final class DwindleResizeSelectedTests: XCTestCase {
                 in: fixture.workspaceId
             )
         )
-        XCTAssertEqual(fixture.engine.root(for: fixture.workspaceId)?.splitRatio ?? 0, 1.0, accuracy: 1e-6)
+        XCTAssertEqual(fixture.engine.root(for: fixture.workspaceId)?.splitRatio ?? 0, 1.0)
     }
 
     func testSingleWindowReturnsFalse() {
@@ -140,11 +130,11 @@ final class DwindleResizeSelectedTests: XCTestCase {
         XCTAssertEqual(nearerSplit.splitOrientation, .vertical)
 
         XCTAssertTrue(engine.resizeSelected(by: 0.1, orientation: .horizontal, in: workspaceId))
-        XCTAssertEqual(root.splitRatio ?? 0, 1.1, accuracy: 1e-6)
-        XCTAssertEqual(nearerSplit.splitRatio ?? 0, 1.0, accuracy: 1e-6)
+        XCTAssertEqual(root.splitRatio ?? 0, 1.1)
+        XCTAssertEqual(nearerSplit.splitRatio ?? 0, 1.0)
 
         XCTAssertTrue(engine.resizeFocusedWindow(by: 0.1, in: workspaceId))
-        XCTAssertEqual(root.splitRatio ?? 0, 1.1, accuracy: 1e-6)
-        XCTAssertEqual(nearerSplit.splitRatio ?? 0, 1.1, accuracy: 1e-6)
+        XCTAssertEqual(root.splitRatio ?? 0, 1.1)
+        XCTAssertEqual(nearerSplit.splitRatio ?? 0, 1.1)
     }
 }

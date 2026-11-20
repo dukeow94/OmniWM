@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import CoreGraphics
 import Foundation
@@ -126,11 +126,13 @@ extension DwindleLayoutEngine {
         return minSize
     }
 
-    func tilingBoundaryEdges(of node: DwindleNode) -> ResizeEdge {
+    func tilingBoundaryEdges(of node: DwindleNode, excluding excludedTokens: Set<WindowToken>) -> ResizeEdge {
         var edges = ResizeEdge.all
         var child = node
         while let parent = child.parent {
-            if case let .split(orientation, _) = parent.kind {
+            if case let .split(orientation, _) = parent.kind,
+               splitHasTwoVisibleBranches(parent, excluding: excludedTokens)
+            {
                 switch orientation {
                 case .horizontal:
                     edges.subtract(child.isFirstChild(of: parent) ? .right : .left)

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import ApplicationServices
@@ -131,25 +131,6 @@ final class WorkspaceBarDataSourceTests: XCTestCase {
         )
         XCTAssertFalse(hiddenEmptyProjection.items.contains { $0.id == fixture.workspaceId })
         XCTAssertEqual(fixture.workspaceManager.entry(for: token)?.workspaceId, fixture.workspaceId)
-    }
-
-    func testConfiguredBundleExclusionFiltersFloatingWindow() throws {
-        let fixture = try makeFixture()
-        _ = addWindow(
-            pid: 46_003,
-            windowId: 46_103,
-            bundleId: "com.example.excluded",
-            mode: .floating,
-            to: fixture
-        )
-        let projection = project(
-            fixture,
-            showFloatingWindows: true,
-            excludedBundleIDs: ["com.example.excluded"]
-        )
-        let item = try XCTUnwrap(projection.items.first { $0.id == fixture.workspaceId })
-
-        XCTAssertTrue(item.floatingWindows.isEmpty)
     }
 
     func testActiveWorkspaceStaysOnBarWhileEmptyWorkspacesAreHidden() throws {
@@ -528,7 +509,6 @@ final class WorkspaceBarDataSourceTests: XCTestCase {
         XCTAssertEqual(item.windowCount, 2)
         XCTAssertEqual(item.hiddenWindowCount, 1)
         XCTAssertFalse(item.isAppHidden)
-        XCTAssertTrue(item.hasHiddenWindows)
         XCTAssertEqual(item.allWindows.map(\.id), [visible, hidden])
         XCTAssertEqual(item.allWindows.map(\.isAppHidden), [false, true])
         XCTAssertEqual(item.allWindows.map(\.id.pid), [visible.pid, hidden.pid])

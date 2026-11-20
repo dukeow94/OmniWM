@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import Carbon
@@ -145,13 +145,15 @@ final class OverviewSnapshot {
                 continue
             }
             let frame = engineFrames[entry.token] ?? data.frame
+            let title = facts.presentationTitle(for: entry, fallback: data.title)
             if entry.token != data.token || entry.workspaceId != data.workspaceId || frame != data.frame || data
                 .floatingPreviewFrame != facts.floatingPreviewFrame(for: entry)
+                || data.title != title
             {
                 windows[handle] = OverviewWindowLayoutData(
                     token: entry.token,
                     workspaceId: entry.workspaceId,
-                    title: data.title,
+                    title: title,
                     appName: data.appName,
                     appIcon: data.appIcon,
                     frame: frame,

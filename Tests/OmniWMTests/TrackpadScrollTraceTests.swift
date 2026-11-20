@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import CoreGraphics
 @testable import OmniWM
@@ -29,7 +29,10 @@ final class TrackpadScrollTraceTests: XCTestCase {
             let pair = field.split(separator: "=", maxSplits: 1)
             return pair.count == 2 ? (String(pair[0]), String(pair[1])) : nil
         })
-        XCTAssertEqual(try XCTUnwrap(values["velocity"].flatMap(Double.init)), 15, accuracy: 0.000001)
+        XCTAssertEqual(
+            try XCTUnwrap(values["velocity"].flatMap(Double.init)),
+            180 / WorkspaceSwipeMotion.travelUnits / (1.04 - 1)
+        )
         XCTAssertGreaterThan(try XCTUnwrap(values["projected"].flatMap(Double.init)), 0.5)
         XCTAssertEqual(values["progress"], "0.0")
         XCTAssertEqual(values["target"], "1.0")

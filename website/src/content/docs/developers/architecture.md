@@ -15,7 +15,7 @@ This guide is for contributors who want to understand OmniWM's internals. It is 
 
 ### SwiftPM Targets
 
-OmniWM is built with Swift Package Manager (Swift 6.4, strict concurrency, language mode v6). There are six production targets, one test target, and one binary target, with a clear dependency graph:
+OmniWM is built with Swift Package Manager (the pinned Swift 6.5-dev snapshot, strict concurrency, language mode v6). There are twelve production targets, one test target, and one binary target, with a clear dependency graph:
 
 ```
 OmniWMApp                          (@main entry point)
@@ -23,16 +23,27 @@ OmniWMApp                          (@main entry point)
     ├── OmniWMIPC                  (shared IPC models — zero dependencies)
     ├── OmniWMLayerCorners         (Objective-C native border-layer bridge)
     ├── OmniWMLauncherSPI          (Objective-C launcher integration bridge)
+    ├── OmniWMAudioTap             (C gain renderer for per-app volume taps)
+    ├── OmniWMScriptHost           (C++ Luau shell host)
+    │   └── OmniWMLuau             (vendored Luau VM and compiler, MIT)
+    ├── OmniWMMaterialColor        (C++ Material Color Utilities bridge for wallpaper palettes)
+    ├── OmniWMShellCore            (noncopyable shell layout and diff core)
     ├── TOML                       (swift-toml — the only third-party package)
     └── GhosttyKit                 (binary xcframework)
+
+OmniWMNowPlaying                   (dynamic library loaded by the Now Playing adapter)
 
 OmniWMCtl                          (omniwmctl CLI)
 └── OmniWMIPC
 
 OmniWMTests                        (test target)
 ├── OmniWM
+├── OmniWMAudioTap
 ├── OmniWMCtl
-└── OmniWMLayerCorners
+├── OmniWMLayerCorners
+├── OmniWMMaterialColor
+├── OmniWMScriptHost
+└── OmniWMShellCore
 ```
 
 | Target | Purpose | Dependencies |
@@ -40,10 +51,16 @@ OmniWMTests                        (test target)
 | `OmniWMIPC` | Shared IPC data models and wire format | None |
 | `OmniWMLayerCorners` | Objective-C bridge for native CALayer corner radii and rim properties | None |
 | `OmniWMLauncherSPI` | Objective-C bridge for launcher integration | None |
+| `OmniWMAudioTap` | C gain renderer for per-app volume process taps | None |
+| `OmniWMNowPlaying` | Objective-C dynamic library the Now Playing adapter loads to read and control media | None |
+| `OmniWMLuau` | Vendored Luau VM and compiler (MIT) | None |
+| `OmniWMScriptHost` | C++ Luau shell host: VM containment, CPU and memory budgets, the `ui` prelude, rendering and the wire format | OmniWMLuau |
+| `OmniWMMaterialColor` | C++ Material Color Utilities bridge for wallpaper palettes | None |
+| `OmniWMShellCore` | Noncopyable layout and diff core for shell widget trees | None |
 | `OmniWMCtl` | CLI tool (`omniwmctl`) | OmniWMIPC |
-| `OmniWM` | Core window manager library | OmniWMIPC, OmniWMLayerCorners, OmniWMLauncherSPI, GhosttyKit, TOML, system frameworks |
+| `OmniWM` | Core window manager library | OmniWMIPC, OmniWMLayerCorners, OmniWMLauncherSPI, OmniWMAudioTap, OmniWMMaterialColor, OmniWMScriptHost, OmniWMShellCore, GhosttyKit, TOML, system frameworks |
 | `OmniWMApp` | Executable wrapper with SwiftUI scene | OmniWM |
-| `OmniWMTests` | Test target (fixtures copied as a resource bundle) | OmniWM, OmniWMCtl, OmniWMLayerCorners |
+| `OmniWMTests` | Test target (fixtures copied as a resource bundle) | OmniWM, OmniWMAudioTap, OmniWMCtl, OmniWMLayerCorners, OmniWMMaterialColor, OmniWMScriptHost, OmniWMShellCore |
 
 ### Source Directory Map
 
@@ -67,6 +84,7 @@ Sources/
 │   │   ├── Ax/                      AXManager, per-app threads, frame ledger
 │   │   ├── Surface/                 STAGE 4 — SurfaceReconciler, WorldView, SurfaceScene
 │   │   ├── Border/                  Border config, applier, layered border panel
+│   │   ├── Shell/                   Luau shell host, widget packages, data feed, popouts, drawers, shaders
 │   │   ├── Spaces/                  SpaceTracker, SpaceTopology
 │   │   ├── Layout/
 │   │   │   ├── DNode.swift          WindowToken, WindowHandle identity types
@@ -82,6 +100,7 @@ Sources/
 │   │   ├── Multitouch/              Raw multitouch frame source + gesture bindings
 │   │   ├── Monitor/                 Display detection, OutputId, restore assignments
 │   │   ├── Overview/                Expose-style workspace overview
+│   │   ├── Launcher/                App/file discovery, shell environments and saved-entry execution
 │   │   ├── Clipboard/               Clipboard history service/store/models
 │   │   ├── Menu/                    Menu extraction for Menu Anywhere
 │   │   ├── Diagnostics/             Logging, bounded recorders, runtime trace capture, health reports
@@ -91,21 +110,27 @@ Sources/
 │   │   ├── LockScreen/              Lock screen detection
 │   │   └── Support/                 Utility types & extensions
 │   ├── IPC/                         IPC server, connections, routing, broker
-│   ├── QuakeTerminal/               Drop-down terminal, Ghostty integration
+│   ├── QuakeTerminal/               Drop-down terminal, Ghostty, Kitty and foot integration
 │   └── UI/                          SwiftUI/AppKit settings, bars, palette, status, stats
 ├── OmniWMApp/                       @main entry + settings redirect
 ├── OmniWMCtl/                       CLI parser, IPC client, renderer, completion
 ├── OmniWMIPC/                       models, wire format, socket path, automation manifest
 ├── OmniWMLayerCorners/              Objective-C native border-layer bridge (1 .m + 1 header)
-└── OmniWMLauncherSPI/               Objective-C launcher integration bridge
+├── OmniWMLauncherSPI/               Objective-C launcher integration bridge
+├── OmniWMAudioTap/                  C per-app volume gain renderer
+├── OmniWMNowPlaying/                Objective-C Now Playing library
+├── OmniWMLuau/                      Vendored Luau VM and compiler
+├── OmniWMMaterialColor/             C++ Material Color Utilities bridge
+├── OmniWMScriptHost/                C++ Luau shell host
+└── OmniWMShellCore/                 Shell layout and diff core
 ```
 
 ### External Dependencies
 
-OmniWM has a single third-party Swift package and otherwise builds on system frameworks:
+OmniWM uses a single third-party Swift package, vendored Luau and Material Color Utilities sources, and system frameworks:
 
 - **`swift-toml`** — the only third-party Swift package; used by `Core/Config/SettingsTOMLCodec.swift` and `SettingsTOMLMigration.swift` to decode, encode, and migrate `settings.toml`.
-- **Key system frameworks**: AppKit/SwiftUI, Accessibility/ApplicationServices, Carbon/CoreHID, Core Graphics/Core Text/QuartzCore/ScreenCaptureKit, IOKit (including `hidsystem` and `pwr_mgt`), ServiceManagement, and os. Metal and MetalKit are link-time only — no Swift file imports them; the Ghostty surface reaches Metal through a `CAMetalLayer`.
+- **Key system frameworks**: AppKit/SwiftUI, Accessibility/ApplicationServices, Carbon/CoreHID, Core Graphics/Core Text/QuartzCore/ScreenCaptureKit, IOKit (including `hidsystem` and `pwr_mgt`), ServiceManagement, and os. The Luau shell's `ui.shader` compiles and draws Metal fragment shaders (`Core/Shell/ShellShader.swift`, `ShellShaderDrawer.swift`); MetalKit is link-time only, and the Ghostty surface reaches Metal through a `CAMetalLayer`.
 - **SkyLight**: a private Apple framework for low-latency window-server access, linked via `-framework SkyLight` and additionally `dlopen`/`dlsym`-loaded for SLS* symbols.
 - **CFPreferences**: Hidden Bar reads and updates the native per-app visibility data in the Control Center group preferences. The API is public; the stored data format is private to macOS.
 - **FoundationModels**: weak-linked and auto-link-disabled, so the app still launches where the framework is
@@ -116,12 +141,12 @@ OmniWM has a single third-party Swift package and otherwise builds on system fra
 ### Building & Running
 
 ```bash
-make setup                   # Obtain pinned GhosttyKit, SwiftFormat, and SwiftLint
+make setup                   # Obtain pinned prebuilt GhosttyKit and development tools via flake.nix
 make build                   # Ghostty preflight + arm64 Debug build
 make run                     # Build, sign, install, and switch to OmniWM Dev
 make format                  # Rewrite formatting with SwiftFormat
 make lint                    # Run SwiftLint
-make verify                  # format-check + lint + build — the gate before a commit lands
+make verify                  # format-check + lint + localization + arm64 Debug build
 make check                   # Alias for `make verify`
 swift test                   # Default suite; live/private integration and measurement tests are opt-in
 ./Scripts/package-app.sh release true   # Checks, build, sign, notarize
@@ -129,24 +154,24 @@ swift test                   # Default suite; live/private integration and measu
 
 `make build` first runs `Scripts/ghostty-preflight.sh`, which fails the build unless the GhosttyKit archive named in
 `Scripts/build-metadata.env` exists, is arm64-only, and matches the pinned SHA-256. `make format`/`make lint` pin exact
-tool versions (SwiftFormat 0.63.0, SwiftLint 0.65.1) and fail fast on any other version. SwiftFormat's `fileHeader`
+tool versions (SwiftFormat 0.64.4, SwiftLint 0.65.1) and fail fast on any other version. SwiftFormat's `fileHeader`
 rule also inserts and enforces the two-line SPDX/GPL-2.0-only header that every Swift source and test file under
 `Sources/` and `Tests/` must carry; `Package.swift` is the exception, because its `swift-tools-version` directive
 must stay on line one.
 
-Live/private integration and measurement cases skip unless their explicit environment gate is set:
+Live, private API and measurement tests compile only when `OMNIWM_LIVE_CHECKS` is set, so the default suite never skips them. CI compiles them without running them. Run the ones you need with a filter:
 
-| Environment gate | Cases enabled |
-| --- | --- |
-| `OMNIWM_RUN_SKYLIGHT_LIVE_TESTS=1` | Private SkyLight integration and native border compositor checks |
-| `OMNIWM_RUN_FINDER_QUICK_LOOK_TESTS=1` | Finder Quick Look placement, with a Quick Look window open |
-| `OMNIWM_RUN_SURFACE_MEASUREMENTS=1` | Surface presentation measurements |
-| `OMNIWM_RUN_OVERVIEW_PREVIEW_LIVE_TESTS=1` | Live Overview previews and layer compositor checks |
-| `OMNIWM_RUN_WINDOW_SUBSCRIPTION_LIVE_TESTS=1` | Private WindowServer subscription semantics, requiring two movable foreign windows |
-| `OMNIWM_RUN_METADATA_READ_LIVE_TESTS=1` | Read-only WindowServer metadata checks |
-| `OMNIWM_RUN_AX_WRITE_METRICS_BENCHMARK=1` | AX write metrics recorder latency distributions |
+```sh
+OMNIWM_LIVE_CHECKS=1 swift test --arch arm64 --filter TabRailWindowServerLiveTests
+```
+
+They cover private SkyLight integration, the native border compositor, Finder Quick Look placement (with a Quick Look window open), surface presentation measurements, live Overview previews, read-only WindowServer metadata, AX write metric latency, shell render speed, installed applications and shells, native Terminal and iTerm2 Launcher sessions, and rendered Settings captures. A few need an input and fail without it: `OMNIWM_TEST_NIX_APP` for the Nix app case, `OMNI_PROBE_OUT` for `ShellGlassProbeTests`, and `OMNIWM_STEP_RENDERS` or `OMNIWM_STEP_DASHBOARD_RENDERS` for the render exports.
+
+The three slowest glass renderer sweeps (composition, premultiplication and rim band) render a reduced grid that still covers every case, opacity, scale and rim value, and the frame coverage probe renders its 1920-wide frames at 1x only. This is the default everywhere, including a plain `swift test`; `OMNIWM_GLASS_EVIDENCE` or `OMNI_F1_FRAME_PROBE_OUT` enable the whole grid.
 
 `make test-skylight-live` runs the focused SkyLight transaction test.
+
+Documentation-only changes use the [website checks](/developers/website/) without an app build or Swift tests. App runtime changes also require the full serial suite, and concurrency changes require the parallel suite; see [Verification](/developers/contributing/#verification).
 
 Use `make run` for normal development launches. It installs `~/Applications/OmniWM Dev.app` and opens it through
 LaunchServices with the fixed `com.barut.OmniWM.dev` identity and separate settings, state, and permissions.
@@ -156,8 +181,7 @@ optional local signing, and switching between copies. `swift run OmniWM` starts 
 Hidden Bar uses macOS per-app menu-bar visibility preferences. OmniWM keeps its native status item and a leading
 workspace-bar button available. Left-click either for OmniWM controls; right-click or Option-click to reveal hidden
 icons. The workspace-bar button follows the bar's orientation and opens controls on that display. When the workspace
-bar is visible, hidden icons reveal in a drawer with curved shoulders and the same material and tint. Icons are captured
-from the transparent macOS menu-hosting window. Selecting an icon temporarily reveals the native item for interaction.
+bar is visible, hidden icons reveal through the `hidden-bar` shell widget. Icons are captured from the native menu-hosting window, including MenuBarAgent-hosted items. Selecting an icon acquires its native menu and renders it through `hidden-bar-menu` beneath the icon while the strip stays open; items without a menu retain native activation. The native item is temporarily exposed during menu acquisition and interaction.
 
 ---
 
@@ -185,7 +209,9 @@ after bootstrap succeeds.
 
 The launch permission check requires Accessibility and Input Monitoring before bootstrap. Screen Recording is
 optional and only controls capture-derived visuals. After granting permissions, the user returns to the permissions
-window and chooses **Start OmniWM** or **Continue Without Screen Recording** to finish bootstrap.
+window and chooses **Start OmniWM** or **Continue Without Screen Recording** to finish bootstrap. Ticking **Don't ask
+about Screen Recording again** stores the choice in runtime state, and later launches skip the window while
+Accessibility and Input Monitoring stay granted.
 
 The potentially interfering resident-manager catalog covers a second OmniWM instance plus AeroSpace, Amethyst,
 bobrwm, Glide, komorebi for Mac, Nehir, Paneru, parket, Rift, Tangrid, TrimWM, yabai, and Yashiki. Dedicated
@@ -223,9 +249,12 @@ snapshot are outside scope.
 8. **`StatusBarController`** — menu-bar UI and manual update checks.
 9. **`IPCServer`** — started only if `ipcEnabled` is set.
 10. **Automatic update checks** — started after the rest of the core bootstrap succeeds.
-11. **Launch and monitor-setup presentation** — starts monitor-readiness observation, plays `LaunchOverlayController`
-    on the primary display the first time each version launches with animations enabled, then evaluates whether to
-    present the monitor setup guide once the overlay finishes or is skipped.
+11. **Launch, Welcome and monitor-setup presentation** — starts monitor-readiness observation and plays
+    `LaunchOverlayController` on the primary display the first time each version launches with animations enabled.
+    When the overlay finishes or is skipped, `presentWelcomeIfNeeded` shows the first-run Welcome window and sets
+    `RuntimeStateStore.welcomePresented`. Closing that first-run window schedules monitor-setup evaluation; later
+    launches evaluate setup directly. Settings links leave Welcome open, and **Help & Links > Welcome to OmniWM**
+    reopens it without restarting the first-run setup sequence.
 
 `FatalCapture` is not a process-wide Swift trap handler. Preconditions, force unwraps, Core Foundation ownership
 faults, and other raw traps bypass those explicit shims. GhosttyKit's embedded crash handler can instead write a
@@ -499,6 +528,12 @@ There is one deliberate exception to "all mutation goes through commit": **per-f
 - **The intake buffer.** `EventIntake` holds its buffer in a `nonisolated OSAllocatedUnfairLock`, so `EventIntake.post(...)` is callable from any transport thread; the drain re-enters the main actor via `CFRunLoopPerformBlock` + `MainActor.assumeIsolated`.
 - **IPC actors.** `IPCApplicationBridge`, `IPCConnection`, `IPCEventBroker`, and `IPCConnectionRegistry` are Swift actors; they hop to `@MainActor` for any window-management work.
 - **Clipboard store.** `ClipboardHistoryStore` is a Swift actor; pasteboard reads happen on a utility `DispatchQueue`.
+- **OmniShell.** Source/catalog loading, Luau packages, durable storage, resources and native providers have actor
+  owners with serial executors. `ShellLayerScene.engineQueue` handles retained layer-scene work; the main-actor
+  `ShellWidgetHost` owns AppKit surfaces and routes input. See [OmniShell](#416-omnishell) for the boundaries.
+- **Launcher.** `LauncherEnvironmentCache` shares asynchronous shell-environment resolution. `LauncherProcess`
+  collects bounded child output using dispatch sources; the main-actor `LauncherExecution` publishes outcomes
+  and opens the selected terminal. See [Launcher](#415-launcher).
 
 ---
 
@@ -614,7 +649,7 @@ NiriRoot (per workspace)
 
 **File organization.** The core engine is split across `NiriLayoutEngine.swift` and focused `NiriLayoutEngine+*.swift` extensions, with navigation in `NiriNavigation.swift`, the node tree in `NiriNode.swift`, viewport math in `ViewportState.swift` and its extensions, and overlays for interactive move/resize, drag ghost, and swap targets. Tabbed Niri columns and grouped Dwindle tiles share the surface-layer `TabRailManager`.
 
-**Interactive move/resize.** Desktop Niri moves resolve one configured non-Shift modifier chord at mouse-down. The chord defaults to Option: the base chord swaps windows, adding Shift selects insertion, and Off leaves modified drags entirely to applications. `DragGhostController` captures a ScreenCaptureKit thumbnail shown as a translucent ghost and `SwapTargetOverlay` highlights the drop target. Edge-dragging resizes the container on the primary axis and the selected window on the secondary axis. Each interaction captures its orientation at begin and keeps that axis ownership through update and completion.
+**Interactive move/resize.** Desktop moves start when one configured non-Shift modifier chord, with or without Shift, is held at mouse-down. The chord defaults to Option, and Off leaves modified drags entirely to applications. Mouse moves in both layouts choose swap or insertion from the drop position through `WindowMoveGeometry`: the central 40% of the target swaps and the nearest edge inserts on that side. Niri maps primary-axis edges to a new column and cross-axis edges to the target column's stack, and re-evaluates the release position before applying the change. Multi-finger move gestures only swap. A mouse release on another display is classified by `MouseEventHandler.classifyMoveLocation`, planned and validated by `WMController.crossDisplayDropPlan` (target slot, destination constraints), and committed as one `cross_display_drop` world event through both engines' cross-workspace transfer helpers. `DragGhostController` captures a ScreenCaptureKit thumbnail shown as a translucent ghost and `SwapTargetOverlay` highlights the drop target. Edge-dragging resizes the container on the primary axis and the selected window on the secondary axis. Each interaction captures its orientation at begin and keeps that axis ownership through update and completion.
 
 ### 4.4 Dwindle Layout Engine (BSP)
 
@@ -651,7 +686,7 @@ enum DwindleNodeKind {
 
 Each leaf owns one stable tile containing an ordered member list and one active member. Singleton-to-neighbor joins preserve the destination tile identity; extraction removes only the active member while preserving the remaining group identity and per-member fullscreen state. `DwindleLayoutEngine` owns these tree/tile mutations, while `DwindleLayoutHandler` owns hidden-member reveal, rollback, and verified focus completion. Group rails are derived through `WorldView` and applied by the shared `TabRailManager`. Overview caches every eligible group member for search and projects one preview into the canonical group content frame; tab controls change only the preview until dismissal activates the selected member through the existing Dwindle handler.
 
-`DwindleLayoutEngine.calculateLayout(for:screen:) -> [WindowToken: CGRect]`. **Smart split** (`planSplit`) chooses orientation from the available rectangle's slope vs. aspect; **preselection** lets the user direct where the next window inserts. The engine also supports resize/balance/whole-tile swap/toggle-orientation/toggle-fullscreen, grouped-member reorder, and geometric-neighbor navigation. Like Niri it is a plain `final class`, AX-free, mutation-gated by `WorldStore`.
+`DwindleLayoutEngine.calculateLayout(for:screen:) -> [WindowToken: CGRect]`. **Smart split** (`planSplit`) chooses orientation from the available rectangle's slope vs. aspect; **preselection** lets the user direct where the next window inserts. The engine also supports resize/balance/whole-tile swap/toggle-orientation/toggle-fullscreen, grouped-member reorder, and geometric-neighbor navigation. Modifier-drag chooses swapping or insertion from the current drop position within the same workspace, without requiring Shift. A target is a tile with an optional direction, an outer workspace edge, or an internal split boundary. The central 40% of a tile's width and height selects swapping and previews the whole tile; the surrounding regions select directional insertion and preview half the tile. The controller supplies the current working frame, so workspace-edge targets respect display insets and take precedence in an edge band capped at 24 points or 10% of the frame's shorter side, after at least 10 points of pointer travel. Release re-evaluates the target and records the resulting operation before requesting relayout. Insertion detaches the source tile, collapses its old split, and either splits the target leaf or wraps the remaining tree in a new root split. Both use a 50:50 ratio subject to the existing minimum-size projection. Edge insertion preserves the remaining tree's internal split ratios and seeds affected tiles from their presented frames for animation continuity. Group membership, constraints, and preselection are preserved. Cross-display drops move whole tiles unless `gestures.dwindleGroupDragAcrossDisplays` is `window`; a group entering Niri becomes one tabbed column. Multi-finger moves remain swap-only. Internal-boundary hit testing walks the presented visible tree once, checks child dividers before their enclosing split within a band capped at 12 points per side, and requires at least 10 points of pointer travel. Each branch must retain a visible tile besides the source. On release, the source is detached and inserted before the second branch through a new equal split, preserving the original divider ratio and both retained subtrees' internal ratios. If source removal promotes the target split, insertion resolves through its surviving parent. Previewing leaves the tree untouched; removing a window from the workspace or invalidating the target cancels the interaction. Like Niri it is a plain `final class`, AX-free, mutation-gated by `WorldStore`.
 
 ### 4.5 Focus Lifecycle
 
@@ -706,7 +741,7 @@ Native focus ownership and border projection are intentionally separate. `render
 
 **Hotkeys** (`Sources/OmniWM/Core/Input/`)
 
-`ActionCatalog` is the source of truth for action metadata and shortcut assignability. `buildSpecs()` assembles `ActionSpec`s from focused extensions, including repeated workspace, column, window, and scratchpad bindings. Each spec has a title, search keywords, category, layout compatibility, default binding, and visibility. `HotkeyBinding`/`HotkeyBindingRegistry` persist exactly one binding per spec that is not `.unassignable`. `HotkeyBindingRegistry.resolve` matches the persisted list against the current defaults and rejects unknown, missing, or duplicate action IDs rather than repairing the file; each accepted trigger is still normalized through `canonicalizeTrigger`. Unassignable specs are never persisted but remain available to non-hotkey command surfaces such as IPC.
+`ActionCatalog` is the source of truth for action metadata and shortcut assignability. `buildSpecs()` assembles `ActionSpec`s from focused extensions, including repeated workspace, column, window, and scratchpad bindings. Each spec has a title, search keywords, category, layout compatibility, default binding, and visibility. `HotkeyBinding`/`HotkeyBindingRegistry` persist bindings for assignable specs. `HotkeyBindingRegistry.resolve` rejects unknown, unassignable, or duplicate action IDs. Omitted entries from `defaultBindings` become `Unassigned`; dynamic assignable action IDs appear in the resolved list only when persisted. Each accepted trigger is still normalized through `canonicalizeTrigger`. Unassignable specs are never persisted but remain available to non-hotkey command surfaces such as IPC.
 
 `HotkeyCenter` (`Hotkeys.swift`) installs one Carbon `InstallEventHandler` and registers each binding via `RegisterEventHotKey`, plus a virtual-hyper synthesis path. On a press it emits a `HotkeyInvocation` through `onCommand`; the invocation carries the semantic `HotkeyCommand` and optional `PhysicalHotkeyTrigger` metadata (`keyCode`, modifiers, and repeat state). `WMController` wires it to `eventIntake.enqueue(.hotkeyInvocation(invocation))`, so physical commands enter the same ordered intake pipeline as other world-mutating events and commands (falling back to `CommandHandler.handleHotkeyInvocation` only if intake is closed).
 
@@ -745,8 +780,10 @@ Window create/move/front-app events originate here; AX *destroy/miniaturize/focu
 `HiddenTitleBarRegistry` and `InputMethodBundleRegistry` structural lookup tables
 
 `decision(for:token:appFullscreen:) -> WindowDecision` establishes structural ownership before it ranks rule
-matches. User and built-in rules compile into separate `CompiledRule` lists; each list ranks matches by
-specificity then declaration order, and an explicit user layout takes precedence over a built-in layout.
+matches. User and built-in rules compile into separate `CompiledRule` lists ranked by specificity then declaration order.
+Matching user rules compose per setting: layout, workspace, minimum width, minimum height, and initial span each
+come from the highest-ranked matching rule that sets them. The built-in list contributes only its best match, and
+an explicit user layout takes precedence over a built-in layout.
 Evaluation proceeds through these boundaries:
 
 1. `AXHelpTag` roles and input-method apps are hard external. `InputMethodBundleRegistry.discover()` seeds a
@@ -795,7 +832,7 @@ and the parent, help-tag, and input-method exclusions still apply. Broad app/tit
 cannot cross any precise-inclusion gate.
 
 Per-app `initialContainerPrimarySpan` is an admission hint, not an ongoing `ManagedWindowRuleEffects` constraint.
-`WindowRuleEngine` takes it only from the single winning rule, and Niri consumes it once when a resizable
+`WindowRuleEngine` takes it from the highest-ranked matching rule that sets it, and Niri consumes it once when a resizable
 window creates or claims a new container. Niri owns that initial primary-span seed before its normal fallback;
 Dwindle ignores it, restored placement takes precedence, and later resize or relayout operations do not
 reassert the rule value. Single Window Fit retains visual precedence for a lone window, while physical
@@ -877,7 +914,7 @@ When management is suspended, `NativeFullscreenPlaceholderManager` retains one n
 
 `SurfaceDerivation.derive(world:)` is a pure transform `WorldView → DesiredSurfaceScene`. The border-eligibility gate in `deriveBorder` starts from `borderFocusToken`, resolves that projection back to a live managed entry, and retains the existing visibility, suppression, system-modal, layout-fullscreen, and native-fullscreen-transition checks. Unrelated fullscreen records no longer suppress borders or focus recovery on other workspaces.
 
-**The focus border** is a derived surface applied by `BorderSurfaceApplier`. `BorderWindow` drives one persistent `BorderLayerPanel`: a transparent, nonactivating `NSPanel` with disabled implicit animations. Solid borders use a native Core Animation rim with independent corner radii. The panel orders below the exact target through SkyLight. Target-level metadata is queried asynchronously and accepted only when both PID and WID match; until then, the border uses that same target's cached level or level 0. A failed lookup permits one later border-only retry.
+**The focus border** is a derived surface applied by `BorderSurfaceApplier`. `BorderWindow` drives one persistent `BorderLayerPanel`: a transparent, nonactivating `NSPanel` with disabled implicit animations. Solid borders use a native Core Animation rim with independent corner radii. The panel keeps AppKit's window identity for Spaces and Mission Control, hosts its layers in its own `CAContext`, and is placed only through WindowServer, so AppKit's frame adjustments and move handling are switched off for it. It orders directly above the exact target through the WindowManagement action AppKit itself uses, staying below the target until a corner sample exists or sampling gives up, and below an edge picture. Target-level metadata is queried asynchronously and accepted only when both PID and WID match; until then, the border uses that same target's cached level or level 0. A failed lookup permits one later border-only retry.
 
 The target frame is rounded once to physical pixels. Border width expands the exterior ring and sets minimum layout clearance. Corner sampling is deferred until the workspace has no viewport motion and the target has no pending AX frame write; animation ticks reuse cached or default radii. `targetFrameOnScreen` records the rounded target while `frameOnScreen` reports the expanded overlay surface. The surface is registered with `SurfaceCoordinator` and excluded from the screenshot window picker through `IgnoreForScreencaptureWindowSelection`; full-screen captures and screen recording still include it.
 
@@ -885,7 +922,7 @@ Optional gradients replace the visible solid rim with an even-odd ring mask. An 
 
 `BorderSettings` owns optional gradient, glow, and dark-color values. Each absent dark endpoint inherits its corresponding light color independently, and the settings UI can reset optional overrides. `WMController` caches the resolved effective appearance at initialization, after an appearance setting is applied, and on effective-appearance notifications. `WorldView` passes that value into `BorderConfig`; animation ticks perform no AppKit appearance lookup. Style-only settings changes schedule border-only reconciliation.
 
-**`SurfaceCoordinator`** (a `.shared` singleton) is the registry of OmniWM-owned surfaces, backed by `SurfaceScene`. Beyond "exclude from tiling" it answers hit-testing (`containsInteractive`), ScreenCaptureKit capture-eligibility (`isCaptureEligible`), and focus-recovery suppression (`hasFrontmostSuppressingWindow`). The vocabulary lives in `SurfaceScene.swift`: `SurfaceKind` (`border`, `parkingEdgeMask`, `workspaceBar`, `overview`, `nativeFullscreenPlaceholder`, `tabRail`, `dragGhost`, `utility`, `quake`, `launchOverlay`, `secureInputIndicator`, `systemStats`, `hiddenBarPanel`), `HitTestPolicy`, `CapturePolicy`, and `SurfacePolicy` (which bundles them plus `suppressesManagedFocusRecovery`). `OwnedWindowRegistry` (in `App/`) is now a thin facade over `SurfaceCoordinator.shared`.
+**`SurfaceCoordinator`** (a `.shared` singleton) is the registry of OmniWM-owned surfaces, backed by `SurfaceScene`. Beyond "exclude from tiling" it answers hit-testing (`containsInteractive`), ScreenCaptureKit capture-eligibility (`isCaptureEligible`), and focus-recovery suppression (`hasFrontmostSuppressingWindow`). The vocabulary lives in `SurfaceScene.swift`: `SurfaceKind` (`border`, `parkingEdgeMask`, `workspaceBar`, `overview`, `nativeFullscreenPlaceholder`, `tabRail`, `dragGhost`, `utility`, `quake`, `launchOverlay`, `secureInputIndicator`, `hiddenBarPanel`), `HitTestPolicy`, `CapturePolicy`, and `SurfacePolicy` (which bundles them plus `suppressesManagedFocusRecovery`). `OwnedWindowRegistry` (in `App/`) is now a thin facade over `SurfaceCoordinator.shared`.
 
 ### 4.12 Animation System
 
@@ -914,27 +951,88 @@ The per-frame **display link** is owned by `LayoutRefreshController` (not by `An
 | Feature | Key Files | Description |
 |---------|-----------|-------------|
 | **Overview** | `Core/Overview/OverviewController.swift`, `OverviewLayerRenderer.swift`, `OverviewThumbnailCapture.swift` | Expose-style workspace overview with retained Core Animation layers and per-window ScreenCaptureKit streams. Search, structural hotkeys, interactive gestures, and drag placement. |
-| **Quake Terminal** | `QuakeTerminal/QuakeTerminalController.swift` | Drop-down terminal on GhosttyKit. Each tab is a tree of split panes (`QuakeTerminalTab` → `QuakeSplitContainer`/`SplitNode`), each a `GhosttySurfaceView` (CAMetalLayer-backed). Edge placements slide and fade; Center and custom frames fade in place. Registers as a `.quake` surface. |
-| **Command Palette** | `UI/CommandPalette/CommandPaletteController.swift` | Substring search with tiered ranking over windows, application menus, and clipboard history. |
+| **Quake Terminal** | `QuakeTerminal/QuakeTerminalController.swift`, `QuakeTerminal/KittyQuickAccessTerminal.swift`, `QuakeTerminal/FootQuickAccessTerminal.swift` | Selects embedded Ghostty, Kitty's quick-access terminal or foot's Quake terminal. Ghostty tabs are trees of split panes (`QuakeTerminalTab` → `QuakeSplitContainer`/`SplitNode`), each a `GhosttySurfaceView` (CAMetalLayer-backed); edge placements slide and fade, while Center and custom frames fade in place. Ghostty registers as a `.quake` surface. Kitty uses a dedicated quick-access instance. `KittyQuickAccessTerminal` manages panel overrides through the Kitty remote-control helper using `KittyQuakeControlRequest`. `FootQuickAccessTerminal` starts a dedicated `foot --server` on a private socket, waits for its PID line, and sends `footclient --quake` toggle, hide and status with per-call overrides. |
+| **Command Palette** | `UI/CommandPalette/CommandPaletteController.swift`, `Core/Launcher/` | Six modes: windows, application menus, clipboard, commands, Launcher and Files. The original four use substring search with tiered ranking; apps/files use Spotlight ranking, while saved entries match their own names, keywords, paths and command text. |
 | **Menu Anywhere** | `UI/MenuAnywhere/MenuAnywhereController.swift` | Pops the frontmost app's menu bar as a native `NSMenu` at the cursor, via `MenuExtractor` (ObjC runtime AX-tree walk). |
 | **Workspace Bar** | `UI/WorkspaceBar/WorkspaceBarManager.swift` | Per-monitor workspace bars — now **driven by `SurfaceReconciler`** via `apply([DesiredBarSurface])`, not self-polling. |
-| **Hidden Bar** | `UI/HiddenBar/HiddenBarController.swift` | Per-app concealment through macOS menu-bar visibility preferences, AX item discovery and icon capture, and a hidden-items panel. Original visibility choices are journaled before changes and restored when released or on recovery after an interrupted session. OmniWM keeps its native status item available. `HiddenBarDrawerView` reveals the panel from its attachment edge using a Core Animation clipping mask and the shared motion policy; icons and their hit regions stay fixed during the transition. Selection and teardown dismiss immediately before native item interaction. |
+| **Hidden Bar** | `UI/HiddenBar/HiddenBarController.swift`, `Core/Shell/ShellWidgetHost+Interaction.swift` | Per-app concealment through macOS menu-bar visibility preferences, AX item discovery and icon capture. Original visibility choices are journaled before changes and restored when released or on recovery after an interrupted session. The shell's `hidden-bar` widget draws the icon strip; `HiddenBarMenuSession` acquires native menu pages and `hidden-bar-menu` renders them while the strip remains open. Native activation remains the fallback for items without menus. |
 | **Status Bar** | `UI/StatusBar/StatusBarController.swift` | Menu-bar icon, settings access, manual update checks. |
 | **Scratchpad** | `Core/World/ScratchpadState.swift`, `Core/Controller/WMController+Scratchpad*.swift` | Ten slots of floating windows (`membersBySlot` / `revealedIndex` in `WorldStore.scratchpads`); at most one slot revealed, show/hide coordinated by `WMController`. |
 | **Monitors** | `Core/Monitor/` | Display detection (`Monitor.current()`), UUID-first durable identity (`OutputId`), and `resolveWorkspaceRestoreAssignments` in `MonitorRestoreAssignments.swift` (re-maps saved per-monitor workspaces by unique display UUID, then uses runtime ID/name only for UUID-less displays before geometry/name best-match; `MonitorRestoreKey` is the data-only identity it matches on). Duplicate live UUID claims fail closed to session-only runtime identity. Orientation reported over IPC is the **effective** orientation (`settings.effectiveOrientation` — override or auto). |
 | **Sleep / Lock** | `Core/Sleep/`, `Core/LockScreen/` | `SleepPreventionManager` (IOPM assertion), `LockScreenObserver` (DistributedNotificationCenter lock/unlock). |
-| **System Stats** | `UI/SystemStats/SystemStatsSampler.swift` | CPU, memory-pressure, GPU, disk, and uptime sampling behind an optional workspace-bar button and popup; registers as a `.systemStats` surface. |
+| **System Stats** | `Core/Shell/SystemStatsSampler.swift` | CPU, memory-pressure, GPU, disk, uptime, host, and display readings that shell widgets read as `ctx.data`; the bundled `system-stats` widget draws the button and popout. |
 | **Diagnostics & Trace Capture** | `Core/Diagnostics/RuntimeTraceCaptureCoordinator.swift` | Bounded ring recorders per domain plus the single capture owner for the `problem` (wire name `trace`) and `performance` profiles. Both auto-finalize after 600s; the UI, the status bar, and IPC all drive the same coordinator. |
 | **Issue Reporter** | `Core/IssueReporter/FoundationModelsIssueEngine.swift` | Optionally rewrites a rough bug report into the five-section issue template on Apple's on-device model, then builds a pre-filled GitHub URL (`maxURLLength` 8000). Without an applied rewrite, the manual form uses deterministic formatting; rewrite failures report an error and leave that draft available. Prompts live as Markdown resources — see [issue-report-prompt.md](https://github.com/OmniNull/OmniWM/blob/main/docs/issue-report-prompt.md). |
 | **Release Updater** | `App/UpdateCoordinator.swift` | Polls the latest GitHub release once per day, supports manual checks, shows a release-notes popup. |
 
 **Overview rendering and capture.** `OverviewLayerRenderer` retains workspace layers and window layers keyed by stable `WindowHandle` identity, and installs native Core Animation transitions. `OverviewThumbnailCapture` reconciles per-window `SCStream` previews for visible cards and limits concurrent stream **starts** to four; more than four streams may remain running. `OverviewPreviewStream` coalesces incoming frames before publication, and each thumbnail layer displays the retained IOSurface from its latest frame. Closing Overview retires the streams while preserving cached previews; memory-pressure events release that cache when no sources are active.
 
-Overview ribbons and workspace-swipe backdrops each own an `OverviewWallpaperCache`. It first captures the rendered wallpaper window through SkyLight, so native solid colours match the desktop even when `NSWorkspace.desktopImageURL` returns the system's default image. Capture requires Screen Recording permission: Overview's cache checks it before each capture, and the swipe preview checks it before requesting its backdrop. If capture is unavailable, the cache falls back to the image URL. It retains size-bucketed thumbnails per display and frame, not additional full-size captures. Closing Overview or stopping a visible swipe preview clears the snapshots; display-frame changes also invalidate them. A swipe that cannot start because both capture and file fallback are unavailable clears the failed backdrop state, allowing the next warmup or swipe attempt to retry. Idle gesture cleanup preserves the swipe cache to avoid recapturing after ordinary trackpad touches.
+Overview ribbons and workspace-swipe backdrops each own an `OverviewWallpaperCache`. It first captures the rendered wallpaper window through SkyLight, so native solid colours match the desktop even when `NSWorkspace.desktopImageURL` returns the system's default image. The capture takes the frontmost on-screen window between the system wallpaper level and the desktop icon level that covers the display, so live wallpaper apps drawing just above the desktop (for example [Pixeldish](https://github.com/dappermint/pixeldish)) are captured instead of the static image underneath; oversized windows are cropped to the display. Capture requires Screen Recording permission: Overview's cache checks it before each capture, and the swipe preview checks it before requesting its backdrop. If capture is unavailable, the cache falls back to the image URL. It retains size-bucketed thumbnails per display and frame, not additional full-size captures. Closing Overview or stopping a visible swipe preview clears the snapshots; display-frame changes also invalidate them. A swipe that cannot start because both capture and file fallback are unavailable clears the failed backdrop state, allowing the next warmup or swipe attempt to retry. Idle gesture cleanup preserves the swipe cache to avoid recapturing after ordinary trackpad touches.
 
 **Overview mutation ownership.** `NiriLayoutHandler` owns explicit-`WindowHandle` Niri reorder, consume/expel, column, and insertion mutations; `WorkspaceNavigationHandler` owns explicit-handle window workspace/monitor transfers and Niri whole-column workspace transfers. Their internal `StructuralMutationOutcome` reports the selected handle, moved tokens, destination, and affected workspaces. `OverviewController` uses that result to make `WorkspaceManager` activate the destination workspace and interaction monitor, commit remembered layout focus, request relayout only for affected workspaces, and keep the moved window selected. Overview mutations suppress client-window activation, so no AX focus is issued until an intentional dismissal focuses the current selection.
 
 Dragging a card continues to resolve an `OverviewDragTarget` for workspace-only, exact-card, or between-column placement. A cross-layout move into Niri first commits destination admission, then applies the exact target in a version-gated post-layout continuation; if the continuation is invalidated, the workspace transfer remains authoritative and the stale insertion is discarded. Projection refreshes reuse cached titles, frames, icons, and thumbnails while updating affected engine snapshots and active-workspace flags. Close completion is driven by `WorkspaceManager.onWindowRemoved`, not a speculative timer, so selection advances only after authoritative removal.
+
+### 4.15 Launcher
+
+**Directories:** `Core/Launcher/`, `UI/CommandPalette/`; configuration lives in `LauncherConfiguration.swift`.
+
+The palette's persisted/IPC mode ID remains `applications`, while its displayed name is Launcher.
+`ApplicationCatalogService` combines registered apps with selected application folders;
+`LauncherExecutableCatalog` discovers executable files from the selected shell's PATH and configured folders.
+Files use `FileSearchEngine` and the metadata index. `CommandPaletteController` owns filtering, selection and
+presentation; `CommandPaletteActionExecutor` opens apps/files or dispatches a saved entry.
+
+For commands, scripts and saved executables, the execution path is:
+
+```text
+LauncherExecution.run(entry)
+  → LauncherLaunchRequest.prepare
+      → LauncherEnvironmentCache → selected shell environment
+      → resolve executable, argument array and working directory
+  → Background: LauncherProcess.run → bounded output and exit status
+  → Built-in: QuakeTerminalController.launch → a fresh Ghostty command tab
+  → External: LauncherExternalTerminal.launch → a fresh terminal session
+```
+
+Command text uses the selected shell's syntax. Script/executable arguments remain separate array elements.
+The built-in route requires the Ghostty Quake provider; external Terminal/iTerm2 control may require Automation
+permission. These user-started native commands are outside OmniShell widget HTTP consent and provider trust.
+Saved entries/defaults belong to `[launcher]` in `settings.toml`; see the [settings reference](/config/settings-reference/#launcher).
+
+### 4.16 OmniShell
+
+**Directory:** `Core/Shell/`, with `OmniWMScriptHost` hosting Luau and `OmniWMShellCore` handling layout/diff data.
+
+`ShellConfigurationCoordinator` resolves the selected profile and overrides, observes source/configuration inputs,
+and publishes configuration and source generations. `ShellWidgetSourceLoader` loads effective package sources.
+The main-actor `ShellWidgetHost` owns bar, island and popout instances; each `ShellWidgetPackage` actor owns its
+Luau VM, component lifecycle and service ledger. A root's configured components share its VM while retaining
+separate service owners, stores and instance state. View data subscriptions determine which feeds and views update.
+
+```text
+configuration/source observation
+  → ShellConfigurationCoordinator / ShellWidgetSourceLoader
+  → ShellWidgetHost → ShellWidgetPackage (Luau and retained component views)
+  → widget tree → OmniWMShellCore layout/diff → ShellLayerScene
+
+input or service completion
+  → owning package callback → changed state/dependencies → affected views
+```
+
+Package work uses its serial executor; `ShellLayerScene.engineQueue` handles scene work separately from the
+main-actor AppKit host. Native animation and gesture tracking do not require a Luau render for every sample.
+Source replacement retires the affected package or component generation, cancels its services and rejects late
+completions. Durable data lives in `ShellStore` and `ShellResourceStore`, outside the editable configuration.
+
+Declarations and approval have separate owners. A root/bar `settings.toml` or component manifest declares hosts;
+`ShellNetworkPermissions` applies user decisions and managed policy to HTTP requests and redirects.
+`ShellWidgetHost+Permissions` collects package approval requests and prunes them against current declarations.
+`ShellPermissionPrompts` observes that host, queues native prompts and passes choices to `ShellPermissionSettings`
+for persistence in `shellPermissions`. `ShellProvider` supervises native component programs only after source/command/digest
+trust, independently of HTTP host consent. Weather/Lyrics have their own service switches under the same effective
+organization policy. See [HTTP consent](/omnishell/reference/services/#consent-and-policy),
+[providers](/omnishell/reference/providers/) and [managed preferences](/config/managed-preferences/).
 
 ---
 
@@ -1003,7 +1101,6 @@ macOS window server creates window
     │
     v
 CGSEventObserver.handleRawCGSEvent → EventIntake.post(.cgs(.created))   [INTAKE]
-    │  CGSEventObserver.swift:120
     v
 EventIntake stamps seq + schedules one drain (CFRunLoopPerformBlock)    [STAGE 1]
     v

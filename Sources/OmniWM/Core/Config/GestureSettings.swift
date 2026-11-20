@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import Carbon
@@ -15,12 +15,18 @@ final class GestureSettings {
     @ObservationIgnored private var isApplying = false
 
     nonisolated static let windowGestureSensitivityRange = 0.1 ... 5.0
+    nonisolated static let mouseWheelSensitivityRange = 0.1 ... 10.0
 
     private nonisolated static let scrollSensitivityRange = 0.1 ... 100.0
 
     private nonisolated static func normalizedScrollSensitivity(_ value: Double) -> Double {
         guard value.isFinite else { return defaults.scrollSensitivity }
         return min(max(value, scrollSensitivityRange.lowerBound), scrollSensitivityRange.upperBound)
+    }
+
+    nonisolated static func normalizedMouseWheelSensitivity(_ value: Double) -> Double {
+        guard value.isFinite else { return defaults.mouseWheelSensitivity ?? 1.0 }
+        return min(max(value, mouseWheelSensitivityRange.lowerBound), mouseWheelSensitivityRange.upperBound)
     }
 
     var scrollEnabled = GestureSettings.defaults.scrollEnabled {
@@ -43,6 +49,17 @@ final class GestureSettings {
 
     var scrollModifierKey = GestureSettings.defaults.scrollModifierKey {
         didSet { notifyChange() }
+    }
+
+    var mouseWheelSensitivity = GestureSettings.defaults.mouseWheelSensitivity ?? 1.0 {
+        didSet {
+            let normalized = GestureSettings.normalizedMouseWheelSensitivity(mouseWheelSensitivity)
+            guard normalized == mouseWheelSensitivity else {
+                mouseWheelSensitivity = normalized
+                return
+            }
+            notifyChange()
+        }
     }
 
     var mouseMoveModifierKey = GestureSettings.defaults.mouseMoveModifierKey {
@@ -78,6 +95,10 @@ final class GestureSettings {
     }
 
     var workspaceSwipeAxis = GestureSettings.defaults.workspaceSwipeAxis {
+        didSet { notifyChange() }
+    }
+
+    var workspaceSwipeEdgeBehavior = GestureSettings.defaults.workspaceSwipeEdgeBehavior ?? .cycle {
         didSet { notifyChange() }
     }
 
@@ -128,6 +149,28 @@ final class GestureSettings {
         }
     }
 
+    var resizePreviewStyle = GestureSettings.defaults.resizePreviewStyle ?? .live {
+        didSet { notifyChange() }
+    }
+
+    var dwindleGroupDragAcrossDisplays = GestureSettings.defaults.dwindleGroupDragAcrossDisplays ?? .group {
+        didSet { notifyChange() }
+    }
+
+    var adoptNativeResize = GestureSettings.defaults.adoptNativeResize ?? false {
+        didSet {
+            guard oldValue != adoptNativeResize else { return }
+            notifyChange()
+        }
+    }
+
+    var adoptNativeMoveAcrossDisplays = GestureSettings.defaults.adoptNativeMoveAcrossDisplays ?? false {
+        didSet {
+            guard oldValue != adoptNativeMoveAcrossDisplays else { return }
+            notifyChange()
+        }
+    }
+
     var workspaceSwipeAxisLockedToVertical: Bool {
         scrollEnabled && workspaceSwipeFingerCount.rawValue == fingerCount.rawValue
     }
@@ -149,13 +192,19 @@ final class GestureSettings {
             workspaceSwipeEnabled: workspaceSwipeEnabled,
             workspaceSwipeFingerCount: workspaceSwipeFingerCount,
             workspaceSwipeAxis: workspaceSwipeAxis,
+            workspaceSwipeEdgeBehavior: workspaceSwipeEdgeBehavior,
             overviewGestureEnabled: overviewGestureEnabled,
             overviewGestureFingerCount: overviewGestureFingerCount,
             windowMoveEnabled: windowMoveEnabled,
             windowMoveFingerCount: windowMoveFingerCount,
             windowResizeEnabled: windowResizeEnabled,
             windowResizeFingerCount: windowResizeFingerCount,
-            windowGestureSensitivity: windowGestureSensitivity
+            windowGestureSensitivity: windowGestureSensitivity,
+            resizePreviewStyle: resizePreviewStyle,
+            dwindleGroupDragAcrossDisplays: dwindleGroupDragAcrossDisplays,
+            adoptNativeResize: adoptNativeResize,
+            adoptNativeMoveAcrossDisplays: adoptNativeMoveAcrossDisplays,
+            mouseWheelSensitivity: mouseWheelSensitivity
         )
     }
 
@@ -169,6 +218,7 @@ final class GestureSettings {
         isApplying = true
         scrollEnabled = gestures.scrollEnabled
         scrollSensitivity = gestures.scrollSensitivity
+        mouseWheelSensitivity = gestures.mouseWheelSensitivity ?? 1.0
         scrollModifierKey = gestures.scrollModifierKey
         mouseMoveModifierKey = gestures.mouseMoveModifierKey
         mouseResizeModifierKey = gestures.mouseResizeModifierKey
@@ -178,6 +228,7 @@ final class GestureSettings {
         workspaceSwipeEnabled = gestures.workspaceSwipeEnabled
         workspaceSwipeFingerCount = gestures.workspaceSwipeFingerCount
         workspaceSwipeAxis = gestures.workspaceSwipeAxis
+        workspaceSwipeEdgeBehavior = gestures.workspaceSwipeEdgeBehavior ?? .cycle
         overviewGestureEnabled = gestures.overviewGestureEnabled ?? false
         overviewGestureFingerCount = gestures.overviewGestureFingerCount ?? .four
         windowMoveEnabled = gestures.windowMoveEnabled ?? false
@@ -185,6 +236,10 @@ final class GestureSettings {
         windowResizeEnabled = gestures.windowResizeEnabled ?? false
         windowResizeFingerCount = gestures.windowResizeFingerCount ?? .three
         windowGestureSensitivity = gestures.windowGestureSensitivity ?? 1.0
+        resizePreviewStyle = gestures.resizePreviewStyle ?? .live
+        dwindleGroupDragAcrossDisplays = gestures.dwindleGroupDragAcrossDisplays ?? .group
+        adoptNativeResize = gestures.adoptNativeResize ?? false
+        adoptNativeMoveAcrossDisplays = gestures.adoptNativeMoveAcrossDisplays ?? false
         isApplying = false
         if export() != previous {
             notifyChange()

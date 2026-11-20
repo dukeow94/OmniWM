@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import SwiftUI
 
@@ -7,7 +7,7 @@ extension CommandPaletteView {
     var launcherResults: some View {
         CommandPaletteLauncherResultsView(
             mode: controller.selectedMode,
-            applicationSections: controller.applicationSections,
+            applicationSections: controller.displayedApplicationSections,
             fileSections: controller.fileSections,
             chips: controller.launcherChips,
             selectedChipID: controller.selectedLauncherChipID,
@@ -21,7 +21,16 @@ extension CommandPaletteView {
             onSelect: { controller.selectLauncherItem($0, activate: false) },
             onActivate: { controller.selectLauncherItem($0, activate: true) },
             onContextAction: { controller.performLauncherContextAction($1, for: $0) },
-            onColumnCountChange: { controller.launcherColumnCount = $0 }
+            onColumnCountChange: { controller.launcherColumnCount = $0 },
+            filter: controller.launcherFilter,
+            savedEntries: controller.selectedMode == .applications ? controller.launcherSavedEntries : [],
+            executables: controller.launcherExecutables,
+            cliLoading: controller.launcherFilter == .cli && LauncherExecutableCatalog.shared.isLoading,
+            cliFailure: controller.launcherFilter == .cli ? LauncherExecutableCatalog.shared.failure : nil,
+            onFilter: controller.selectLauncherFilter,
+            onAdd: controller.addLauncherEntry,
+            onManage: { controller.showLauncherSettings() },
+            onRefresh: controller.refreshLauncher
         )
     }
 

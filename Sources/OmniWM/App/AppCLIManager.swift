@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import Foundation
 
@@ -74,7 +74,7 @@ final class AppCLIManager {
 
         let linkURL = preferredUserLinkURL()
         let directoryOnPath = isDirectoryOnPATH(linkURL.deletingLastPathComponent())
-        if fileManager.fileExists(atPath: linkURL.path) {
+        if (try? fileManager.attributesOfItem(atPath: linkURL.path)) != nil {
             if symlinkResolvesToBundledCLI(at: linkURL) {
                 return .appManaged(linkURL: linkURL, directoryOnPath: directoryOnPath)
             }

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import Foundation
@@ -202,11 +202,7 @@ final class FloatingWindowRaiser {
 
         switch surface {
         case let .managed(entry):
-            controller.performWindowFronting(
-                pid: entry.pid,
-                windowId: entry.windowId,
-                axRef: entry.axRef
-            )
+            controller.performWindowFronting(entry)
         case let .owned(window):
             frontOwnedWindow(window)
         }

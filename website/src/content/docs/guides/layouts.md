@@ -17,6 +17,8 @@ When fewer containers are open than **Visible Containers**, they expand proporti
 
 Mouse and command resizing use the usual Niri behavior and keep your chosen size, even if that leaves empty space. Automatic filling resumes when the number of containers changes.
 
+Niri columns can extend into outer gaps. The gaps define the layout area; they do not crop windows.
+
 ## Hyprland Dwindle (BSP)
 
 A binary space partition layout that recursively divides screen space. Each new window splits the space in half, and a tile can group multiple windows as tabs. Best for traditional tiling with predictable layouts.
@@ -25,7 +27,7 @@ A binary space partition layout that recursively divides screen space. Each new 
 
 Both layouts show a tab rail beside grouped windows. Click a tab to reveal and focus that window without changing the group order. Hovering a tab also shows its window title, app, and position in the group.
 
-Enable **Settings → General → Appearance → Show app icons in tab rails** to replace compact markers with icons; crowded icon rails scroll vertically. See the [appearance reference](/config/settings-reference/#appearance).
+Enable **Settings → Appearance → App & Motion → Show app icons in tab rails** to replace compact markers with icons; crowded icon rails scroll vertically. See the [appearance reference](/config/settings-reference/#appearance).
 
 ## Floating windows
 

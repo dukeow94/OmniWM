@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import Foundation
 import OmniWMIPC
@@ -101,7 +101,10 @@ extension WMController {
             focusWorkspaceFromBar(id: workspaceId)
         case let .moveFocusedWindow(workspaceId):
             workspaceNavigationHandler.moveFocusedWindowFromBar(toWorkspaceId: workspaceId)
-        case .renameWorkspace:
+        case .renameWorkspace,
+             .editShellWidget,
+             .openBarWidgetSettings,
+             .openNetworkPermissions:
             return
         case let .setLayout(workspaceId, layout):
             guard let name = workspaceManager.descriptor(for: workspaceId)?.name else { return }
@@ -114,18 +117,17 @@ extension WMController {
             guard let workspaceId = workspaceManager.activeWorkspaceOrFirst(on: monitorId)?.id else { return }
             workspaceNavigationHandler.moveWindowsFromBar(tokens, toWorkspaceId: workspaceId)
         case let .toggleFloating(token):
-            toggleWindowFloating(token, preferredMonitor: monitorOfWindow(token))
+            toggleWindowFloating(
+                token,
+                preferredMonitor: monitorOfWindow(token),
+                arrivesQuietly: token != focusedManagedTokenForCommand()
+            )
         case let .summonRight(token):
             summonWindowRightFromBar(token, barMonitorId: barMonitorId)
         case let .windowMark(token, action):
             _ = commandHandler.performWindowMarkAction(action, for: token)
         case let .assignToScratchpad(token, index):
-            assignWindowToScratchpad(
-                token,
-                to: index,
-                preferredMonitor: monitorOfWindow(token),
-                focusOrigin: .pointerSelection
-            )
+            assignWindowToScratchpadFromBar(token, to: index)
         case let .createAppRule(token):
             AppRulesWindowController.shared.show(
                 settings: settings,
@@ -141,7 +143,7 @@ extension WMController {
             guard let handle = workspaceManager.handle(for: token) else { return }
             windowActionHandler.revealScratchpadWindowFromBar(handle: handle, index: index, monitorId: barMonitorId)
         case let .unassignScratchpadWindows(tokens):
-            unassignScratchpadWindows(tokens, on: barMonitorId)
+            unassignScratchpadWindowsFromBar(tokens, barMonitorId: barMonitorId)
         }
     }
 
@@ -182,5 +184,27 @@ extension WMController {
             anchorWorkspaceId: workspaceId,
             focusOrigin: .pointerSelection
         )
+    }
+
+    private func assignWindowToScratchpadFromBar(_ token: WindowToken, to index: ScratchpadIndex) {
+        assignWindowToScratchpad(
+            token,
+            to: index,
+            preferredMonitor: monitorOfWindow(token),
+            focusOrigin: .pointerSelection,
+            arrivesQuietly: token != focusedManagedTokenForCommand()
+        )
+    }
+
+    private func unassignScratchpadWindowsFromBar(_ tokens: [WindowToken], barMonitorId: Monitor.ID) {
+        let focusedToken = focusedManagedTokenForCommand()
+        let focused = tokens.filter { $0 == focusedToken }
+        let background = tokens.filter { $0 != focusedToken }
+        if !focused.isEmpty {
+            unassignScratchpadWindows(focused, on: barMonitorId, arrivesQuietly: false)
+        }
+        if !background.isEmpty {
+            unassignScratchpadWindows(background, on: barMonitorId, arrivesQuietly: true)
+        }
     }
 }

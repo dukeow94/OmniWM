@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import Foundation
@@ -66,6 +66,15 @@ extension WMController {
     }
 
     @discardableResult
+    func performWindowFronting(_ entry: borrowing WindowState) -> Bool {
+        if let axRef = entry.axRef {
+            return performWindowFronting(pid: entry.pid, windowId: entry.windowId, axRef: axRef)
+        }
+        guard canFocusWindow(pid: entry.pid, windowId: entry.windowId) else { return false }
+        return shellAppWindowManager.focus(entry.token)
+    }
+
+    @discardableResult
     func performWindowFronting(
         pid: pid_t,
         windowId: Int,
@@ -73,7 +82,6 @@ extension WMController {
     ) -> Bool {
         guard canFocusWindow(pid: pid, windowId: windowId) else { return false }
         MainThreadAXSpanTrace.measure(.fronting, pid: pid, windowId: windowId) {
-            windowFocusOperations.activateApp(pid)
             windowFocusOperations.focusSpecificWindow(pid, UInt32(windowId), axRef.element)
             windowFocusOperations.raiseWindow(axRef.element)
         }
@@ -99,10 +107,12 @@ extension WMController {
     }
 
     func performWindowOrdering(windowId: Int) {
-        if let entry = workspaceManager.entry(forWindowId: windowId),
-           workspaceManager.isWindowSuppressedByMacOS(entry.token)
-        {
-            return
+        if let entry = workspaceManager.entry(forWindowId: windowId) {
+            guard !workspaceManager.isWindowSuppressedByMacOS(entry.token) else { return }
+            if entry.axRef == nil {
+                _ = shellAppWindowManager.orderFront(entry.token)
+                return
+            }
         }
         windowFocusOperations.orderWindow(UInt32(windowId))
     }

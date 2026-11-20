@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import ApplicationServices
 @testable import OmniWM
@@ -28,7 +28,7 @@ final class WindowNativeWithdrawalModelTests: XCTestCase {
             let survivor = tokens[1 - withdrawnIndex]
             let handle = try XCTUnwrap(manager.handle(for: withdrawn))
             let nodeId = try XCTUnwrap(engine.findNode(for: withdrawn, in: workspaceId)?.id)
-            let axRef = try XCTUnwrap(manager.entry(for: withdrawn)).axRef
+            let axRef = try XCTUnwrap(manager.entry(for: withdrawn)?.axRef)
 
             XCTAssertTrue(manager.setWindowNativeWithdrawn(true, token: withdrawn))
             XCTAssertFalse(manager.setWindowNativeWithdrawn(true, token: withdrawn))
@@ -45,10 +45,7 @@ final class WindowNativeWithdrawalModelTests: XCTestCase {
             XCTAssertFalse(plan.diff.frameChanges.contains { $0.token == withdrawn })
             XCTAssertFalse(plan.diff.restoreChanges.contains { $0.token == withdrawn })
             let visibleFrame = try XCTUnwrap(engine.findNode(for: survivor, in: workspaceId)?.frame)
-            XCTAssertTrue(visibleFrame.approximatelyEqual(
-                to: controller.borderSafeFillFrame(for: monitor),
-                tolerance: 1
-            ))
+            XCTAssertEqual(visibleFrame, controller.borderSafeFillFrame(for: monitor))
             XCTAssertTrue(manager.handle(for: withdrawn) === handle)
             XCTAssertEqual(engine.findNode(for: withdrawn, in: workspaceId)?.id, nodeId)
             XCTAssertEqual(try XCTUnwrap(manager.entry(for: withdrawn)).axRef, axRef)

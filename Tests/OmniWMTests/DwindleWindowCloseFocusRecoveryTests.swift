@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import ApplicationServices
 import CoreGraphics
@@ -158,8 +158,8 @@ final class DwindleWindowCloseFocusRecoveryTests: XCTestCase {
         let closingFrame = try XCTUnwrap(frames[closing])
         let topFrame = try XCTUnwrap(frames[top])
         let bottomLeftFrame = try XCTUnwrap(frames[bottomLeft])
-        XCTAssertEqual(bottomLeftFrame.minY, closingFrame.minY, accuracy: 0.5)
-        XCTAssertEqual(topFrame.maxY, closingFrame.maxY, accuracy: 0.5)
+        XCTAssertEqual(bottomLeftFrame.minY, closingFrame.minY)
+        XCTAssertEqual(topFrame.maxY, closingFrame.maxY)
         XCTAssertGreaterThan(bottomLeftFrame.height, topFrame.height)
         XCTAssertEqual(engine.findGeometricNeighbor(from: closing, direction: .right, in: workspaceId), bottomLeft)
 
@@ -222,7 +222,7 @@ final class DwindleWindowCloseFocusRecoveryTests: XCTestCase {
         XCTAssertGreaterThan(topRightFrame.minY, bottomRightFrame.minY)
         XCTAssertGreaterThan(topRightFrame.minX, rootFrame.maxX)
         XCTAssertGreaterThan(bottomRightFrame.minX, rootFrame.maxX)
-        XCTAssertEqual(topRightFrame.height, bottomRightFrame.height, accuracy: 0.5)
+        XCTAssertEqual(topRightFrame.height, bottomRightFrame.height)
 
         XCTAssertEqual(engine.findGeometricNeighbor(from: root, direction: .right, in: workspaceId), bottomRight)
         XCTAssertTrue(controller.dwindleLayoutHandler.focusNeighbor(direction: .right))
@@ -277,8 +277,9 @@ final class DwindleWindowCloseFocusRecoveryTests: XCTestCase {
                 let controller = fixture.controller
                 let gate = DwindleCloseFocusFactGate()
                 let remoteEntry = try XCTUnwrap(controller.workspaceManager.entry(for: fixture.remoteToken))
+                let remoteReference = try XCTUnwrap(remoteEntry.axRef)
                 let remoteFact = FocusedWindowFact(
-                    axRef: remoteEntry.axRef,
+                    axRef: remoteReference,
                     isFullscreen: false,
                     isSystemModalSurface: false
                 )
@@ -297,15 +298,9 @@ final class DwindleWindowCloseFocusRecoveryTests: XCTestCase {
                 await Self.settleClose(fixture)
                 Self.assertRecoveredLocally(fixture)
 
-                let previousSeq = controller.eventIntake.lastSeq
-                await gate.resolve(remoteFact)
-                let clock = ContinuousClock()
-                let deadline = clock.now.advanced(by: .seconds(2))
-                while controller.eventIntake.lastSeq <= previousSeq, clock.now < deadline {
-                    await Task.yield()
+                await WindowAdmissionTestSupport.awaitActivationFactsDelivery(to: controller) {
+                    await gate.resolve(remoteFact)
                 }
-                XCTAssertGreaterThan(controller.eventIntake.lastSeq, previousSeq)
-                controller.eventIntake.drainNow()
                 Self.assertRecoveredLocally(fixture)
             }
         }

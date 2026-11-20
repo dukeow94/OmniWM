@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import Dispatch
+import Foundation
 import ScreenCaptureKit
 
 @MainActor
@@ -21,6 +22,19 @@ final class PreviewCaptureCoordinator {
         }
     }
 
+    @MainActor
+    private final class DiscoveryRace {
+        var continuation: CheckedContinuation<Void, Never>?
+        var outcome: Result<[SCWindow], any Error>?
+
+        func finish(_ outcome: Result<[SCWindow], any Error>?) {
+            guard let continuation else { return }
+            self.outcome = outcome
+            self.continuation = nil
+            continuation.resume()
+        }
+    }
+
     private struct RetainedFrame {
         let bytes: Int
         var lastUse: UInt64 = 0
@@ -28,18 +42,39 @@ final class PreviewCaptureCoordinator {
         var holders: [(capture: OverviewThumbnailCapture, handle: WindowHandle)] = []
     }
 
+    typealias WindowDiscovery = @MainActor () async throws -> [SCWindow]
+
+    private static let discoveryTimeout: Duration = .seconds(3)
+
     private let ownedWindowRegistry: OwnedWindowRegistry
+    private let discoverWindows: WindowDiscovery
+    private let sleep: @MainActor (Duration) async throws -> Void
     private let memoryPressure: any DispatchSourceMemoryPressure
     private var captures: [WeakCapture] = []
     private var windowsByToken: [WindowToken: SCWindow] = [:]
     private var discoveryTask: Task<Int?, Never>?
     private var clock: UInt64 = 0
+    private var memoryPressureObservers: [UUID: @MainActor (Bool) -> Void] = [:]
+    private(set) var isUnderMemoryPressure = false
 
-    init(ownedWindowRegistry: OwnedWindowRegistry = .shared) {
+    init(
+        ownedWindowRegistry: OwnedWindowRegistry = .shared,
+        sleep: @escaping @MainActor (Duration) async throws -> Void = { try await Task.sleep(for: $0) },
+        discoverWindows: @escaping WindowDiscovery = {
+            try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: false).windows
+        }
+    ) {
         self.ownedWindowRegistry = ownedWindowRegistry
-        memoryPressure = DispatchSource.makeMemoryPressureSource(eventMask: [.warning, .critical], queue: .main)
+        self.sleep = sleep
+        self.discoverWindows = discoverWindows
+        memoryPressure = DispatchSource.makeMemoryPressureSource(
+            eventMask: [.normal, .warning, .critical],
+            queue: .main
+        )
         memoryPressure.setEventHandler { [weak self] in
-            MainActor.assumeIsolated { self?.releaseCaches(reason: .memoryPressure) }
+            MainActor.assumeIsolated {
+                self?.handleMemoryPressure(self?.memoryPressure.data ?? [])
+            }
         }
         memoryPressure.activate()
     }
@@ -50,6 +85,28 @@ final class PreviewCaptureCoordinator {
 
     func register(_ capture: OverviewThumbnailCapture) {
         captures.append(WeakCapture(capture))
+    }
+
+    func addMemoryPressureObserver(_ observer: @escaping @MainActor (Bool) -> Void) -> UUID {
+        let id = UUID()
+        memoryPressureObservers[id] = observer
+        return id
+    }
+
+    func removeMemoryPressureObserver(_ id: UUID) {
+        memoryPressureObservers.removeValue(forKey: id)
+    }
+
+    func handleMemoryPressure(_ events: DispatchSource.MemoryPressureEvent) {
+        if events.contains(.warning) || events.contains(.critical) {
+            isUnderMemoryPressure = true
+            releaseCaches(reason: .memoryPressure)
+        } else if events.contains(.normal) {
+            isUnderMemoryPressure = false
+        } else {
+            return
+        }
+        for observer in memoryPressureObservers.values { observer(isUnderMemoryPressure) }
     }
 
     func nextUse() -> UInt64 {
@@ -66,8 +123,11 @@ final class PreviewCaptureCoordinator {
         let task = Task { @MainActor [weak self] () -> Int? in
             guard let self else { return nil }
             do {
-                let content = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: false)
-                windowsByToken = Dictionary(uniqueKeysWithValues: content.windows.compactMap { window in
+                guard let windows = try await discoverWindowsWithinTimeout() else {
+                    FallbackFiringRecorder.shared.note(.capture, "overviewContentTimeout")
+                    return nil
+                }
+                windowsByToken = Dictionary(uniqueKeysWithValues: windows.compactMap { window in
                     guard let app = window.owningApplication,
                           ownedWindowRegistry.isCaptureEligible(windowNumber: Int(window.windowID))
                     else { return nil }
@@ -84,6 +144,31 @@ final class PreviewCaptureCoordinator {
         let discoveredCount = await task.value
         discoveryTask = nil
         return (windowsByToken[token], discoveredCount)
+    }
+
+    private func discoverWindowsWithinTimeout() async throws -> [SCWindow]? {
+        let race = DiscoveryRace()
+        await withCheckedContinuation { continuation in
+            race.continuation = continuation
+            let timeout = Task { @MainActor [sleep] in
+                do {
+                    try await sleep(Self.discoveryTimeout)
+                } catch {
+                    return
+                }
+                race.finish(nil)
+            }
+            Task { @MainActor [discoverWindows] in
+                do {
+                    let windows = try await discoverWindows()
+                    race.finish(.success(windows))
+                } catch {
+                    race.finish(.failure(error))
+                }
+                timeout.cancel()
+            }
+        }
+        return try race.outcome?.get()
     }
 
     func sharedPreview(

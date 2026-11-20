@@ -1,0 +1,136 @@
+---
+title: Async services, HTTP, JSON, and storage
+description: Cancellable owner-scoped services, timers, HTTP request limits, JSON conversion, and durable state.
+sidebar:
+  order: 6
+---
+
+import LuauDeclaration from '../../../../components/docs/LuauDeclaration.astro';
+
+Use these services from input, lifecycle, or async callbacks, where the host knows the calling owner. Render and activity functions describe output; they must not start side-effecting service work. Components share a VM but their async reservations and durable stores retain each configured instance’s identity.
+
+## Timers and JSON
+
+`omniwm.after(seconds, callback)` schedules one callback, with a minimum delay of 0.01 seconds. It returns a handle with `handle:cancel()`, or `nil, error` when the request cannot be accepted. There are at most 32 outstanding async reservations per owner and 256 per root package. A completed request keeps its reservation until delivery; the reservation is released before its callback runs. Disabling or reloading an owner cancels its requests and rejects late completions.
+
+```lua
+local handle, err = omniwm.after(1, function()
+    omniwm.log("one second later")
+end)
+if not handle then omniwm.log(err) end
+```
+
+`json.encode(value)` and `json.decode(text)` return a result or `nil, error`. They accept finite numbers, strings, booleans, arrays and string-keyed objects, with depth at most 64 and encoded/input size at most 4 MiB. Use `json.null` for a JSON null inside an array or object; decoded empty arrays retain their identity.
+
+<LuauDeclaration name="omniwm.after" />
+
+<LuauDeclaration name="ServiceHandle" />
+
+<LuauDeclaration name="json.encode" />
+
+<LuauDeclaration name="json.decode" />
+
+<LuauDeclaration name="json.null" />
+
+<LuauDeclaration name="json" />
+
+## HTTP
+
+`omniwm.http(request, callback)` starts an asynchronous HTTP(S) request. It returns a cancellable service handle, or `nil, error` when admission fails. At most six HTTP requests are outstanding per package, within the shared 32-per-owner and 256-per-package service limits. A result waiting for delivery still occupies its native reservation. There are no automatic retries.
+
+```lua
+local request, err = omniwm.http({
+    url = "https://api.github.com/repos/OmniNull/OmniWM/actions/runs?per_page=5",
+    headers = { Accept = "application/vnd.github+json" },
+    response = "json",
+    maxBytes = 262144,
+    timeout = 30,
+}, function(result)
+    if result.ok then
+        instance.state.runs = result.json.workflow_runs
+    else
+        instance.state.error = result.error
+    end
+end)
+if not request then instance.state.error = err end
+```
+
+The method defaults to GET, the response to `"text"`, the response limit to 1 MiB and the total deadline to 30 seconds. Choose `"json"` for a parsed immutable value or `"bytes"` for a binary Luau string. Request bodies are binary strings or ready Resources; Resource bodies require the files capability and are prepared off the UI thread. Bodies and response limits are capped at 4 MiB; deadlines must be positive and at most 120 seconds. Request header text and encoded response headers each have a separate 64 KiB bound. The HTTP session has no disk cache, cookies or stored credentials.
+
+Callbacks receive `{ok, status, headers, text?, json?, bytes?, error?}`. Response header names are lowercase. `ok` is true only for a successfully decoded 2xx response. Non-2xx responses use `error="http_status"` and retain a successfully decoded body. Transport and JSON errors have no replacement body. Status is zero if no HTTP status was received. Keep prior valid component data when a request fails. Cancellation, instance removal and package close prevent late callback delivery.
+
+A component declares exact network hosts in its manifest:
+
+```toml
+capabilities = { network = ["api.github.com"], purpose = "Shows public repository workflow status." }
+```
+
+Root/bar scripts declare theirs with the same line at the top of the `settings.toml` beside their effective `init.luau`, above any `[options.*]` table; a replacement `init.luau` does not inherit the hosts of the one it replaces, and a `settings.toml` that fails to load grants no hosts. Undeclared hosts fail with `network_denied`, without a prompt. The optional `purpose` is at most 300 characters and appears as **The widget’s own description**; it is not a grant.
+
+### Consent and policy
+
+Declarations are not consent. The first request to a declared, undecided host automatically shows a native prompt for that widget’s undecided hosts. Background polling can prompt too. Allow and Deny are remembered across profiles and instances for the same widget role, name and resolved source folder. Newly declared hosts need a new decision; an override or symlink retarget to another folder starts with no consent.
+
+| Error | Meaning |
+|---|---|
+| `network_not_approved` | No user decision or managed preapproval; the request fails immediately and queues consent. |
+| `network_blocked` | Your organization blocks the host or excludes it through allowlist-only policy. |
+| `network_denied` | User denial, an undeclared host, or a disallowed URL scheme. |
+
+These codes arrive in the callback's `error`, not as an admission error. `HTTPError` also permits other error strings, such as transport failures. Requests are never parked or replayed after Allow: the next ordinary request succeeds. A startup-only widget must wait for its next normal reload. Deny, Reset and managed blocks re-check transfers and queued body work; revoked work cannot report a successful late result. Bytes already sent cannot be recalled.
+
+Use **Settings > Network & Permissions** to change decisions, or follow **Network & Permissions…** from a declaring widget’s bar menu or Styles & Widgets inspector. Decisions are stored in OmniWM’s [settings.toml](/config/settings-reference/#shellpermissions), not the widget’s settings file. A root’s Luau configuration API cannot grant consent.
+
+Your own `shell.toml` instance `capabilities.network` can extend a component’s declared hosts; those hosts still need consent. Host matching is exact, case-insensitive and ignores trailing dots, with no wildcard or subdomain grants; a declared host covers any port. Requests must use HTTPS; plain HTTP is accepted only for declared `localhost`, `127.0.0.1` and `::1`. Every redirect re-checks declarations and current decisions but never prompts. Organization blocks win, a user Deny wins over managed preapproval, and otherwise managed preapproval or user Allow permits the request. See [Managed preferences](/config/managed-preferences/).
+
+These rules constrain the Luau HTTP API. Trusted native programs, terminal processes, update checks and browser `openURL` actions are outside it; this is not an OmniWM-wide firewall.
+
+The installed **CI status** component is optional and is not enabled by default. Add it through lake's component catalog or configure an instance with `widget="ci-status"`, `options.repo="owner/name"` and an integer `options.interval` between 15 and 3600 seconds (default 60). It uses public repository workflows without credentials. It keeps the last five valid runs across restarts, polls with one request or timer at a time and displays **Retry polling** if timer admission fails. A failed HTTP admission waits for the next ordinary poll; Retry resumes only when the user selects it. Replacing the component views leaves its HTTP, polling, storage and activity behavior available to custom layouts.
+
+A newly observed failed workflow offers a stable four-second `activity.alert` marker keyed by run and attempt. The lake profile temporarily selects that alert, then returns according to its editable attention policy. The component also exposes its status in compact and expanded views.
+
+<LuauDeclaration name="omniwm.http" />
+
+<LuauDeclaration name="HTTPRequest" />
+
+<LuauDeclaration name="HTTPError" />
+
+<LuauDeclaration name="HTTPResult" />
+
+## Durable state
+
+`omniwm.store.get(key)` reads an immutable snapshot from the current owner's durable store. `omniwm.store.set(key, value)` returns `true` or `nil, error`; passing `nil` deletes the key. The full snapshot is limited to 256 KiB. Stores are separate for each profile, root package and configured instance ID, and load before component `init`. They live outside the configuration folder. `ctx.state` and `instance.state` are not saved automatically.
+
+Writes coalesce on a separate utility queue, at least one second apart during normal operation, and flush on teardown, reload and quit. `omniwm.store.status` exposes `state` (`ready`, `pending` or `failed`), `revision`, `committedRevision` and an optional `error`. A failed commit retains the in-memory snapshot and reports the failure; it does not start an automatic retry loop.
+
+Async callbacks and coroutines retain their component identity. A coroutine whose owner or captured display no longer exists fails safely when resumed. Callbacks can log and issue commands without a display instance; commands without a captured display use the main screen. Incoming completions use one bounded queue and batches of at most 16, with affected trees rendered once after each batch.
+
+<LuauDeclaration name="omniwm.store.get" />
+
+<LuauDeclaration name="omniwm.store.set" />
+
+<LuauDeclaration name="omniwm.store.status" />
+
+<LuauDeclaration name="StoreStatus" />
+
+<LuauDeclaration name="omniwm.store" />
+
+## App windows
+
+In a hosted app window, `omniwm.windows.open(id)` opens a child window the app declares, such as a confirmation sheet or a Preferences window, and `omniwm.windows.close(id)` closes it. Call them from that window's UI handlers; bars and popouts can't use them. The optional callback receives `ok` and, on failure, an `error` message.
+
+<LuauDeclaration name="omniwm.windows.open" />
+
+<LuauDeclaration name="omniwm.windows.close" />
+
+<LuauDeclaration name="WindowResult" />
+
+<LuauDeclaration name="WindowCallback" />
+
+<LuauDeclaration name="omniwm.windows" />
+
+## Complete OmniWM namespace
+
+This block is copied verbatim from the shipped declarations. Links in the [symbol index](/omnishell/reference/) lead to each service’s behavior and types.
+
+<LuauDeclaration name="omniwm" />

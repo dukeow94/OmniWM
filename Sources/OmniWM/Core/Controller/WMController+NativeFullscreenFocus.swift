@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import Foundation
@@ -42,7 +42,9 @@ extension WMController {
             )
         )
         selectNativeFullscreenPlaceholder(entry)
-        performWindowFronting(pid: entry.pid, windowId: entry.windowId, axRef: entry.axRef)
+        if let axRef = entry.axRef {
+            performWindowFronting(pid: entry.pid, windowId: entry.windowId, axRef: axRef)
+        }
     }
 
     private func traceNativeFullscreenActivationRejected(

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import Foundation
 
@@ -35,6 +35,11 @@ extension IPCAutomationManifest {
             channel: .layoutChanged,
             summary: "Workspace layout updates.",
             resultKind: .workspaces
+        ),
+        .init(
+            channel: .shellWidgets,
+            summary: "Luau shell widget load and failure updates.",
+            resultKind: .shellWidgets
         )
     ]
 

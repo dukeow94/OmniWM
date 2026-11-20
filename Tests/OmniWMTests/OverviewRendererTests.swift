@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import CoreGraphics
@@ -62,20 +62,6 @@ final class OverviewRendererTests: XCTestCase {
             hoveredBorderColor: SettingsColor(red: 0, green: 1, blue: 0, alpha: 1),
             selectedBorderColor: SettingsColor(red: 0, green: 0, blue: 1, alpha: 1)
         )
-        let token = WindowToken(pid: 1, windowId: 1)
-        let window = OverviewWindowItem(
-            handle: WindowHandle(id: token),
-            windowId: token.windowId,
-            workspaceId: UUID(),
-            title: "Window",
-            appName: "App",
-            appIcon: nil,
-            originalFrame: .zero,
-            overviewFrame: .zero,
-            matchesSearch: true
-        )
-
-        XCTAssertEqual(window.title, "Window")
         assertColor(
             OverviewRenderer.borderColor(isSelected: false, isHovered: false, palette: palette),
             equals: [1, 0, 0, 1]
@@ -190,10 +176,15 @@ final class OverviewRendererTests: XCTestCase {
         let labelFrame = CGRect(x: 20, y: -116, width: 960, height: 32)
         let viewport = CGRect(x: 0, y: -90, width: 1000, height: 800)
 
+        let section = OverviewWorkspaceSection(
+            workspaceId: WorkspaceDescriptor.ID(), name: "Label", windows: [],
+            sectionFrame: sectionFrame, labelFrame: labelFrame, gridFrame: sectionFrame,
+            isActive: false, displayId: nil
+        )
         XCTAssertFalse(OverviewRenderGeometry.shouldRender(frame: sectionFrame, visibleContentRect: viewport))
         XCTAssertTrue(
             OverviewRenderGeometry.shouldRender(
-                frame: sectionFrame.union(labelFrame),
+                frame: OverviewRenderGeometry.sectionCullingFrame(section, progress: 1),
                 visibleContentRect: viewport
             )
         )
@@ -316,11 +307,11 @@ final class OverviewRendererTests: XCTestCase {
         let root = try XCTUnwrap(view.layerRenderer.windowLayers[item.handle]?.root)
         let interpolated = item.interpolatedFrame(progress: 0.4)
         XCTAssertEqual(view.presentationProgress, 0.4)
-        XCTAssertEqual(root.frame.origin.x, interpolated.origin.x, accuracy: 0.000000001)
-        XCTAssertEqual(root.frame.origin.y, interpolated.origin.y, accuracy: 0.000000001)
-        XCTAssertEqual(root.frame.width, interpolated.width, accuracy: 0.000000001)
-        XCTAssertEqual(root.frame.height, interpolated.height, accuracy: 0.000000001)
-        XCTAssertEqual(root.opacity, 0.4, accuracy: 0.000001)
+        XCTAssertEqual(root.frame.origin.x, interpolated.origin.x)
+        XCTAssertEqual(root.frame.origin.y, interpolated.origin.y)
+        XCTAssertEqual(root.frame.width, interpolated.width)
+        XCTAssertEqual(root.frame.height, interpolated.height)
+        XCTAssertEqual(root.opacity, 0.4)
         XCTAssertNil(root.animation(forKey: "overview.position"))
         XCTAssertNil(view.layerRenderer.activeTransition)
 
@@ -338,11 +329,11 @@ final class OverviewRendererTests: XCTestCase {
         let position = try XCTUnwrap(root.animation(forKey: "overview.position") as? CASpringAnimation)
         let from = try XCTUnwrap((position.fromValue as? NSValue)?.pointValue)
         let to = try XCTUnwrap((position.toValue as? NSValue)?.pointValue)
-        XCTAssertEqual(from.x, interpolated.midX, accuracy: 0.000000001)
-        XCTAssertEqual(from.y, interpolated.midY, accuracy: 0.000000001)
-        XCTAssertEqual(to.x, item.overviewFrame.midX, accuracy: 0.000000001)
-        XCTAssertEqual(to.y, item.overviewFrame.midY, accuracy: 0.000000001)
-        XCTAssertEqual(position.initialVelocity, 2 / 0.6, accuracy: 0.000000001)
+        XCTAssertEqual(from.x, interpolated.midX)
+        XCTAssertEqual(from.y, interpolated.midY)
+        XCTAssertEqual(to.x, item.overviewFrame.midX)
+        XCTAssertEqual(to.y, item.overviewFrame.midY)
+        XCTAssertEqual(position.initialVelocity, 2 / 0.6)
         XCTAssertEqual(view.presentationProgress, 1)
     }
 
@@ -581,7 +572,7 @@ final class OverviewRendererTests: XCTestCase {
         view.presentProgress(0.4)
         view.updateLayer()
         let card = try XCTUnwrap(view.layerRenderer.windowLayers[item.handle])
-        XCTAssertEqual(card.root.opacity, 0.4, accuracy: 0.000001)
+        XCTAssertEqual(card.root.opacity, 0.4)
 
         view.updatePreview(try makeOverviewPreviewFrame(), for: item.handle)
         view.updateLayer()
@@ -590,7 +581,7 @@ final class OverviewRendererTests: XCTestCase {
         layout.settleRestFrames(anchorWorkspaceId: nil)
         view.updateLayout(layout, state: .opening, searchQuery: "", selectedWindowHandle: nil)
         view.updateLayer()
-        XCTAssertEqual(card.root.opacity, 0.4, accuracy: 0.000001)
+        XCTAssertEqual(card.root.opacity, 0.4)
     }
 
     @MainActor
@@ -603,7 +594,7 @@ final class OverviewRendererTests: XCTestCase {
         view.presentProgress(0.4)
         view.updateLayer()
         let card = try XCTUnwrap(view.layerRenderer.windowLayers[item.handle])
-        XCTAssertEqual(card.root.opacity, 0.3, accuracy: 0.000001)
+        XCTAssertEqual(card.root.opacity, 0.3)
     }
 
     @MainActor
@@ -786,7 +777,7 @@ final class OverviewRendererTests: XCTestCase {
 
         XCTAssertEqual(components.count, expected.count, file: file, line: line)
         for (actual, expected) in zip(components, expected) {
-            XCTAssertEqual(actual, expected, accuracy: 0.0001, file: file, line: line)
+            XCTAssertEqual(actual, expected, file: file, line: line)
         }
     }
 }

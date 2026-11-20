@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import Foundation
@@ -48,18 +48,6 @@ extension AXEventHandler {
             return false
         }
         return controller.workspaceManager.activeWorkspace(on: monitorId)?.id == workspaceId
-    }
-
-    func rescanAppThatLostFocus() {
-        guard let controller else { return }
-        let focusedToken = controller.workspaceManager.nativeManagedFocusToken
-        guard focusedToken != nil || controller.workspaceManager.externalFocusToken != nil else { return }
-        defer { previouslyFocusedManagedToken = focusedToken }
-        guard let previousToken = previouslyFocusedManagedToken,
-              previousToken != focusedToken,
-              controller.workspaceManager.entry(for: previousToken) != nil
-        else { return }
-        requestTargetedFullRescan(for: [previousToken.pid])
     }
 
     static func effectivePlacementOrigin(
@@ -303,15 +291,5 @@ extension AXEventHandler {
             return false
         }
         return controller.isManagedWindowDisplayable(entry.token)
-    }
-
-    func updateManagedReplacementTitle(windowInfo: WindowServerInfo, token: WindowToken) {
-        guard let controller,
-              let entry = controller.workspaceManager.entry(for: token),
-              let title = windowInfo.title ?? AXWindowService.titlePreferFast(windowId: windowInfo.id)
-        else {
-            return
-        }
-        _ = controller.workspaceManager.updateManagedReplacementTitle(title, for: entry.token)
     }
 }

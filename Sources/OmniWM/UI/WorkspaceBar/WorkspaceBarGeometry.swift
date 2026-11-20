@@ -1,11 +1,16 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import CoreGraphics
 
 struct WorkspaceBarSplitLayout: Equatable {
     let activeFrame: CGRect
     let secondaryFrame: CGRect?
+}
+
+struct WorkspaceBarZones: Equatable {
+    let notch: ClosedRange<CGFloat>?
+    let mode: WorkspaceBarFullWidthNotchMode
 }
 
 struct WorkspaceBarSplitAvailableWidths: Equatable {
@@ -27,10 +32,6 @@ struct WorkspaceBarGeometry: Equatable {
     static let notchGap: CGFloat = 8
     static let minimumSplitSideSpace: CGFloat = 60
     static let minimumIslandWidth: CGFloat = 40
-    static func statsButtonAnchor(buttonFrame: CGRect) -> CGPoint {
-        CGPoint(x: buttonFrame.midX, y: buttonFrame.midY)
-    }
-
     let effectivePosition: WorkspaceBarPosition
     let menuBarHeight: CGFloat
     let barHeight: CGFloat
@@ -49,20 +50,22 @@ struct WorkspaceBarGeometry: Equatable {
             resolved: resolved
         )
         let barHeight = isFill ? resolvedMenuBarHeight : max(0, CGFloat(resolved.height))
-        let reservedInset = isFill || resolved.autoHide ? 0 : (isVisible && resolved.reserveLayoutSpace ? barHeight : 0)
+        let reservedInset = resolved.autoHide ? 0 : (isVisible && resolved.reserveLayoutSpace ? barHeight : 0)
 
         var insets = Struts.zero
         switch effectivePosition {
         case .overlappingMenuBar:
             if reservedInset > 0 {
-                let y = constrainedOriginY(
-                    monitor.visibleFrame.maxY + CGFloat(resolved.yOffset),
-                    height: barHeight,
-                    screenFrame: monitor.frame
-                )
+                let y = isFill
+                    ? monitor.frame.maxY - barHeight
+                    : overMenuBarOriginY(monitor: monitor, resolved: resolved, barHeight: barHeight)
                 insets.top = max(0, monitor.visibleFrame.maxY - y)
             }
-        case .belowMenuBar: insets.top = reservedInset
+        case .belowMenuBar:
+            if reservedInset > 0 {
+                let visibleMenuBarHeight = max(0, monitor.frame.maxY - monitor.visibleFrame.maxY)
+                insets.top = reservedInset + max(0, resolvedMenuBarHeight - visibleMenuBarHeight)
+            }
         case .bottom: insets.bottom = reservedInset
         case .left: insets.left = reservedInset
         case .right: insets.right = reservedInset
@@ -73,6 +76,11 @@ struct WorkspaceBarGeometry: Equatable {
             barHeight: barHeight,
             reservedInsets: insets
         )
+    }
+
+    static func overMenuBarOriginY(monitor: Monitor, resolved: ResolvedBarSettings, barHeight: CGFloat) -> CGFloat {
+        let top = resolved.fullWidth ? monitor.frame.maxY - barHeight : monitor.visibleFrame.maxY
+        return constrainedOriginY(top + CGFloat(resolved.yOffset), height: barHeight, screenFrame: monitor.frame)
     }
 
     static func constrainedOriginY(_ originY: CGFloat, height: CGFloat, screenFrame: CGRect) -> CGFloat {
@@ -86,6 +94,9 @@ struct WorkspaceBarGeometry: Equatable {
     ) -> CGRect {
         if resolved.notchMode == .fillLeftOfNotch {
             return fillLeftOfNotchFrame(for: monitor)
+        }
+        if resolved.fullWidth {
+            return fullWidthFrame(monitor: monitor, resolved: resolved)
         }
 
         if effectivePosition.isVertical {
@@ -110,6 +121,41 @@ struct WorkspaceBarGeometry: Equatable {
         y += CGFloat(resolved.yOffset)
 
         return CGRect(x: x, y: y, width: width, height: barHeight)
+    }
+
+    func zones(frame: CGRect, monitor: Monitor, resolved: ResolvedBarSettings) -> WorkspaceBarZones? {
+        guard resolved.fullWidth else { return nil }
+        let notch = effectivePosition == .overlappingMenuBar && monitor.hasNotch ? monitor.notchRange : nil
+        return WorkspaceBarZones(
+            notch: notch.map { $0.lowerBound - frame.minX ... $0.upperBound - frame.minX },
+            mode: resolved.fullWidthNotchMode
+        )
+    }
+
+    private func fullWidthFrame(monitor: Monitor, resolved: ResolvedBarSettings) -> CGRect {
+        let visible = monitor.visibleFrame
+        if effectivePosition.isVertical {
+            return CGRect(
+                x: (effectivePosition == .left ? visible.minX : visible.maxX - barHeight) + CGFloat(resolved.xOffset),
+                y: visible.minY,
+                width: barHeight,
+                height: visible.height
+            )
+        }
+        let overMenuBar = effectivePosition == .overlappingMenuBar
+        let span = overMenuBar ? monitor.frame : visible
+        return CGRect(
+            x: span.minX,
+            y: overMenuBar
+                ? Self.overMenuBarOriginY(monitor: monitor, resolved: resolved, barHeight: barHeight)
+                : Self.constrainedOriginY(
+                    originY(for: monitor) + CGFloat(resolved.yOffset),
+                    height: barHeight,
+                    screenFrame: monitor.frame
+                ),
+            width: span.width,
+            height: barHeight
+        )
     }
 
     func autoHideRegions(
@@ -236,7 +282,8 @@ struct WorkspaceBarGeometry: Equatable {
     func originY(for monitor: Monitor) -> CGFloat {
         switch effectivePosition {
         case .overlappingMenuBar: monitor.visibleFrame.maxY
-        case .belowMenuBar: monitor.visibleFrame.maxY - barHeight
+        case .belowMenuBar:
+            min(monitor.visibleFrame.maxY, monitor.frame.maxY - menuBarHeight) - barHeight
         case .bottom,
              .left,
              .right: monitor.visibleFrame.minY
@@ -257,9 +304,11 @@ struct WorkspaceBarGeometry: Equatable {
         return resolved.position
     }
 
+    static let hiddenMenuBarHeight: CGFloat = 28
+
     static func menuBarHeight(for monitor: Monitor) -> CGFloat {
         let height = monitor.frame.maxY - monitor.visibleFrame.maxY
-        return height > 0 ? height : 28
+        return max(monitor.notchHeight, height > 1 ? height : hiddenMenuBarHeight)
     }
 
     private func splitMetrics(

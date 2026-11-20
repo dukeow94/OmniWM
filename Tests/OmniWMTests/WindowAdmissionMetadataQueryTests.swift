@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import Foundation
 @testable import OmniWM
@@ -44,7 +44,7 @@ final class WindowAdmissionMetadataQueryTests: XCTestCase {
             XCTAssertTrue(handler.dispatchAdmissionRetry(windowId: windowId))
             let task = try XCTUnwrap(handler.lifecycleQueries.task)
             XCTAssertEqual(queries, 0)
-            await fulfillment(of: [started], timeout: 2)
+            await fulfillment(of: [started], timeout: failureBound)
             let phase = handler.admissionRetryStateByWindowId[windowId]?.executionPhase
             for _ in 0 ..< 20 { XCTAssertTrue(handler.retryAdmissionAfterFrameChange(windowId: windowId)) }
             XCTAssertEqual(queries, 1)
@@ -84,7 +84,7 @@ final class WindowAdmissionMetadataQueryTests: XCTestCase {
         ))
         XCTAssertTrue(handler.dispatchAdmissionRetry(windowId: windowId))
         let task = try XCTUnwrap(handler.lifecycleQueries.task)
-        await fulfillment(of: [started], timeout: 2)
+        await fulfillment(of: [started], timeout: failureBound)
         XCTAssertTrue(handler.scheduleAdmissionRetry(
             windowId: windowId, expectedToken: token, reason: .factsDeferred,
             trigger: .focused(
@@ -131,7 +131,7 @@ final class WindowAdmissionMetadataQueryTests: XCTestCase {
         let task = try XCTUnwrap(handler.lifecycleQueries.task)
         XCTAssertEqual(queries, 0)
         XCTAssertTrue(handler.isCreatedWindowDeferred(windowId))
-        await fulfillment(of: [started], timeout: 2)
+        await fulfillment(of: [started], timeout: failureBound)
         for _ in 0 ..< 20 { handler.drainDeferredCreatedWindows { _ in [2] } }
         XCTAssertEqual(queries, 1)
         XCTAssertEqual(spaceQueries, 0)

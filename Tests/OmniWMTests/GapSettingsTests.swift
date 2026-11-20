@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import CoreGraphics
 import Foundation
@@ -393,8 +393,8 @@ final class GapSettingsTests: XCTestCase {
             try XCTUnwrap(rightPlan.diff.frameChanges.first { $0.token == token }?.frame)
         }
 
-        XCTAssertEqual(separation(between: leftFrames[0], and: leftFrames[1]), 4, accuracy: 0.5)
-        XCTAssertEqual(separation(between: rightFrames[0], and: rightFrames[1]), 24, accuracy: 0.5)
+        XCTAssertEqual(separation(between: leftFrames[0], and: leftFrames[1]), 4)
+        XCTAssertEqual(separation(between: rightFrames[0], and: rightFrames[1]), 24)
     }
 
     @MainActor
@@ -457,6 +457,7 @@ final class GapSettingsTests: XCTestCase {
         controller.workspaceManager.applySettings()
         controller.niriLayoutHandler.enableNiriLayout()
         controller.syncMonitorsToNiriEngine()
+        settings.quakeTerminal.enabled = false
         controller.applyPersistedSettings(settings, startServices: false)
         controller.layoutRefreshController.resetState()
         let leftWorkspace = try XCTUnwrap(controller.workspaceManager.workspaceId(named: "1"))

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import ApplicationServices
 import Foundation
@@ -9,6 +9,8 @@ final class AccessibilityPermissionMonitor {
     static let shared = AccessibilityPermissionMonitor()
 
     private var task: Task<Void, Never>?
+    private var pollTask: Task<Void, Never>?
+    static let pollInterval: Duration = .seconds(1)
     private var continuations: [UUID: AsyncStream<Bool>.Continuation] = [:]
     private(set) var isGranted: Bool
 
@@ -23,10 +25,17 @@ final class AccessibilityPermissionMonitor {
                 yield(status)
             }
         }
+        pollTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: Self.pollInterval, tolerance: Self.pollInterval)
+                self?.yield(AXIsProcessTrusted())
+            }
+        }
     }
 
     deinit {
         task?.cancel()
+        pollTask?.cancel()
         let currentContinuations = Array(continuations.values)
         for continuation in currentContinuations {
             continuation.finish()

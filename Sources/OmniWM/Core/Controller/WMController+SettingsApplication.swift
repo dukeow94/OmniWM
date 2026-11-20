@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import Foundation
@@ -11,11 +11,14 @@ extension WMController {
     }
 
     func applyPersistedSettings(_ settings: SettingsStore, startServices: Bool = true) {
+        workspaceBarManager.updateShellPermissions(settings, reloadingManagedPolicy: true)
         setAnimationsEnabled(settings.animationsEnabled, persist: false)
         setAnimationSpeed(settings.animationSpeed, persist: false)
         applyCurrentAppearanceMode()
 
         updateHotkeyBindings(settings.hotkeyBindings)
+        updateWindowSwitcherSettings()
+        updateKeyboardModeSettings()
         setHotkeysEnabled(settings.hotkeysEnabled)
 
         setGapSize(settings.gaps.size, publishChange: false)
@@ -42,9 +45,8 @@ extension WMController {
         setQuakeTerminalEnabled(settings.quakeTerminal.enabled)
         syncClipboardHistoryService()
 
-        quakeTerminalController.applyGeometryToVisibleWindow()
-        quakeTerminalController.reloadOpacityConfig()
-        quakeTerminalController.reloadBackgroundBlur()
+        applyKittyQuakeSettings()
+        reloadQuakeTerminalAppearance()
         updateWorkspaceBarSettings()
         updateHiddenBarSettings()
         _ = syncMouseWarpPolicy()
@@ -113,6 +115,7 @@ extension WMController {
         ) { [weak self] _, _ in
             Task { @MainActor [weak self] in
                 self?.refreshBorderAppearance()
+                self?.workspaceBarManager.refreshShellAppearance()
             }
         }
     }
@@ -144,6 +147,7 @@ extension WMController {
             centerFocusedColumn: settings.niri.centerFocusedColumn,
             alwaysCenterSingleColumn: settings.niri.alwaysCenterSingleColumn,
             singleWindowFit: settings.niri.singleWindowFit,
+            edgeOverscroll: settings.niri.edgeOverscroll,
             containerPrimarySpanPresets: settings.niri.containerPrimarySpanPresets,
             defaultContainerPrimarySpan: settings.niri.defaultContainerPrimarySpan
         )

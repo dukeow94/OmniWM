@@ -1,12 +1,11 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import CoreHID
 import Foundation
 import IOKit
 import os
-import Synchronization
 
 @MainActor
 final class MultitouchGestureSource {
@@ -31,7 +30,7 @@ final class MultitouchGestureSource {
     private let devices: MultitouchDeviceRegistration
     private var activeGeneration: UInt = 0
     private var previousActiveCount = 0
-    private var revalidationTask: Task<Void, Never>?
+    private(set) var revalidationTask: Task<Void, Never>?
     private var episodeActive = false
     private var episodeReasons: Set<RevalidationReason> = []
     private var episodeBaselineDeviceIds: Set<UInt64> = []
@@ -410,7 +409,7 @@ extension MultitouchGestureSource {
 
     private static let contactCallback: MultitouchBinding.ContactCallback = { _, fingers, count, timestamp, _, refcon in
         let token = RegistrationToken(bitPattern: refcon.map(UInt.init(bitPattern:)) ?? 0)
-        let frame = MultitouchGestureSource.buildRawFrame(fingers: fingers, count: count, timestamp: timestamp)
+        let frame = MultitouchPalmFilters.capture(fingers: fingers, count: count, timestamp: timestamp, token: token)
         guard let source = MultitouchGestureSource.shared else { return 0 }
         source.enqueueRawFrame(frame, token: token)
         return 0

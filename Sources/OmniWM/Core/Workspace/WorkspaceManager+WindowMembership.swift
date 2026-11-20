@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import Foundation
@@ -12,6 +12,14 @@ extension WorkspaceManager {
         let removedEntry = removeTrackedWindow(entry)
         schedulePersistedWindowRestoreCatalogSave()
         return removedEntry
+    }
+
+    @discardableResult
+    func removeHostedWindow(_ token: WindowToken) -> WindowState? {
+        guard let entry = windowQueries.entry(for: token),
+              entry.target.hostedMetadata != nil
+        else { return nil }
+        return removeTrackedWindow(entry)
     }
 
     @discardableResult
@@ -43,6 +51,7 @@ extension WorkspaceManager {
             )
         )
         _ = removeNativeFullscreenRecord(containing: entry.token)
+        quietArrivalTokens.remove(entry.token)
         if removesNativeFullscreenFocusOwner {
             _ = clearNativeFocusOwner()
         }
@@ -57,8 +66,12 @@ extension WorkspaceManager {
     }
 
     func setWorkspace(for token: WindowToken, to workspace: WorkspaceDescriptor.ID) {
+        if let parent = entry(for: token)?.target.hostedMetadata?.role.parent {
+            guard hostedFamilyRoot(for: token) == parent, entry(for: parent)?.workspaceId == workspace else { return }
+        }
         let previousWorkspace = windowQueries.workspace(for: token)
         guard previousWorkspace != workspace else { return }
+        quietArrivalTokens.remove(token)
         if let originalToken = nativeFullscreenOriginalToken(forCurrentToken: token),
            var record = nativeFullscreenRecordsByOriginalToken[originalToken],
            record.currentToken == token,
@@ -92,6 +105,10 @@ extension WorkspaceManager {
     }
 
     func setHiddenState(_ state: HiddenState?, for token: WindowToken) {
+        if let parent = entry(for: token)?.target.hostedMetadata?.role.parent {
+            guard hostedFamilyRoot(for: token) == parent,
+                  entry(for: parent)?.hiddenState?.reason == state?.reason else { return }
+        }
         guard windowQueries.hiddenState(for: token) != state else { return }
         guard let workspaceId = workspace(for: token) else { return }
         recordReconcileEvent(

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import Foundation
@@ -46,6 +46,11 @@ extension CommandHandler {
     }
 
     func perform(_ action: WorkspaceAction, controller: WMController) -> ExternalCommandResult {
+        if detachesWindow(action), let token = controller.focusedManagedTokenForCommand(),
+           controller.workspaceManager.entry(for: token)?.target.hostedMetadata?.role.parent != nil
+        {
+            return .attachedWindow
+        }
         switch action {
         case let .moveToMonitor(direction):
             controller.workspaceNavigationHandler.moveWindowToMonitor(direction: direction)
@@ -56,9 +61,15 @@ extension CommandHandler {
         case .moveDown:
             controller.workspaceNavigationHandler.moveWindowToAdjacentWorkspace(direction: .down)
         case let .switchTo(index):
-            controller.workspaceNavigationHandler.switchWorkspace(index: index)
+            controller.workspaceNavigationHandler.switchWorkspace(
+                index: index,
+                autoBackAndForth: controller.settings.workspaces.autoBackAndForth
+            )
         case let .switchSlot(slot):
-            controller.workspaceNavigationHandler.switchWorkspaceSlot(slot)
+            controller.workspaceNavigationHandler.switchWorkspaceSlot(
+                slot,
+                autoBackAndForth: controller.settings.workspaces.autoBackAndForth
+            )
         case let .moveToSlot(slot):
             controller.workspaceNavigationHandler.moveFocusedWindow(toWorkspaceSlot: slot)
         case .next:
@@ -66,13 +77,7 @@ extension CommandHandler {
         case .previous:
             controller.workspaceNavigationHandler.switchWorkspaceRelative(isNext: false)
         case let .moveWorkspaceToMonitor(direction):
-            if let workspaceId = controller.activeWorkspace()?.id {
-                _ = controller.workspaceNavigationHandler.moveWorkspaceToMonitor(
-                    workspaceId,
-                    direction: direction,
-                    force: true
-                )
-            }
+            moveActiveWorkspace(toMonitor: direction, controller: controller)
         case let .swapWithMonitor(direction):
             controller.workspaceNavigationHandler.swapCurrentWorkspaceWithMonitor(direction: direction)
         case .backAndForth:
@@ -81,6 +86,31 @@ extension CommandHandler {
             toggleWorkspaceLayout()
         }
         return .executed
+    }
+
+    private func detachesWindow(_ action: WorkspaceAction) -> Bool {
+        switch action {
+        case .moveToMonitor,
+             .moveTo,
+             .moveUp,
+             .moveDown,
+             .moveToSlot:
+            true
+        case .switchTo,
+             .switchSlot,
+             .next,
+             .previous,
+             .moveWorkspaceToMonitor,
+             .swapWithMonitor,
+             .backAndForth,
+             .toggleLayout:
+            false
+        }
+    }
+
+    private func moveActiveWorkspace(toMonitor direction: Direction, controller: WMController) {
+        guard let workspaceId = controller.activeWorkspace()?.id else { return }
+        _ = controller.workspaceNavigationHandler.moveWorkspaceToMonitor(workspaceId, direction: direction, force: true)
     }
 
     func perform(_ action: WindowMovementAction, controller: WMController) -> ExternalCommandResult {
@@ -138,6 +168,11 @@ extension CommandHandler {
     }
 
     func perform(_ action: IPCFullscreenCommand, controller: WMController) -> ExternalCommandResult {
+        if let token = controller.focusedManagedTokenForCommand(),
+           controller.workspaceManager.entry(for: token)?.target.hostedMetadata?.role.parent != nil
+        {
+            return .attachedWindow
+        }
         switch action {
         case .managed:
             toggleFullscreen()
@@ -226,6 +261,23 @@ extension CommandHandler {
         }
     }
 
+    func perform(_ action: IPCMediaCommand, controller: WMController) {
+        switch action {
+        case .volumeUp:
+            ShellAudio.perform(.change(percent: ShellVolumeCommand.step), appVolumes: controller.appVolumeMixer)
+        case .volumeDown:
+            ShellAudio.perform(.change(percent: -ShellVolumeCommand.step), appVolumes: controller.appVolumeMixer)
+        case .volumeMute:
+            ShellAudio.perform(.toggleMute, appVolumes: controller.appVolumeMixer)
+        case .playPause:
+            controller.mediaController.perform(.toggle)
+        case .next:
+            controller.mediaController.perform(.next)
+        case .previous:
+            controller.mediaController.perform(.previous)
+        }
+    }
+
     func perform(_ action: IPCPresentationCommand, controller: WMController) -> ExternalCommandResult {
         switch action {
         case .workspaceBar:
@@ -245,30 +297,6 @@ extension CommandHandler {
     }
 
     func toggleColumnTabbedInNiri() {
-        guard let controller else { return }
-        controller.niriLayoutHandler.withNiriWorkspaceContext { engine, wsId, motion, state, _, _, _, orientation in
-            if engine.toggleColumnTabbed(
-                in: wsId,
-                state: state,
-                motion: motion,
-                orientation: orientation
-            ) {
-                controller.workspaceManager.recordReconcileEvent(
-                    .layoutOperationPerformed(workspaceId: wsId, operation: .displayModeChanged, source: .command)
-                )
-                controller.layoutRefreshController.requestLayoutCommandRelayout(
-                    affectedWorkspaceIds: [wsId]
-                )
-                if engine.hasAnyWindowAnimationsRunning(in: wsId) {
-                    controller.layoutRefreshController.startScrollAnimation(for: wsId)
-                }
-                controller.niriLayoutHandler.showColumnModeToast(
-                    engine: engine,
-                    workspaceId: wsId,
-                    state: state,
-                    motion: motion
-                )
-            }
-        }
+        controller?.niriLayoutHandler.toggleColumnTabbed(target: .focused)
     }
 }

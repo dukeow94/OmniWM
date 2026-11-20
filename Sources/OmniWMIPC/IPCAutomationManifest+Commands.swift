@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import Foundation
 
@@ -457,6 +457,33 @@ extension IPCAutomationManifest {
         .init(
             name: .presentation(.systemStats),
             summary: "Toggle the system stats popup when a workspace-bar System Stats button is available."
+        ),
+        .init(
+            name: .media(.volumeUp),
+            summary: "Raise the output volume by one step."
+        ),
+        .init(
+            name: .media(.volumeDown),
+            summary: "Lower the output volume by one step."
+        ),
+        .init(
+            name: .media(.volumeMute),
+            summary: "Mute or unmute the output."
+        ),
+        .init(
+            name: .media(.playPause),
+            summary: "Play or pause what is playing."
+        ),
+        .init(
+            name: .media(.next),
+            summary: "Skip to the next track."
+        ),
+        .init(
+            name: .media(.previous),
+            summary: "Go back to the previous track."
         )
+    ] + keyboardModeCommandDescriptors + [
+        .init(name: .shellAppOpen, summary: "Open or focus a hosted OmniShell app window.", arguments: [.appID]),
+        .init(name: .shellAppNewWindow, summary: "Create a new hosted OmniShell app window.", arguments: [.appID])
     ]
 }

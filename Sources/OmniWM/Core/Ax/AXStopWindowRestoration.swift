@@ -1,35 +1,17 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import ApplicationServices
 import Foundation
 
 struct StopWindowTarget: Sendable {
-    enum Placement: Sendable {
-        case topLeft(CGPoint)
-        case floatingOrigin(CGPoint)
-        case floatingNormalizedOrigin(CGPoint)
-    }
-
     let token: WindowToken
     let window: AXWindowRef
     let visibleFrame: CGRect?
-    let placement: Placement?
+    let placement: StopWindowGeometry.Placement?
 
     func destination(for currentFrame: CGRect) -> CGRect? {
-        guard let visibleFrame else { return nil }
-        let point: CGPoint
-        switch placement {
-        case let .topLeft(topLeft): point = topLeft
-        case let .floatingOrigin(origin): point = CGPoint(x: origin.x, y: origin.y + currentFrame.height)
-        case let .floatingNormalizedOrigin(normalized):
-            let origin = FloatingFrameGeometry.origin(from: normalized, windowSize: currentFrame.size, in: visibleFrame)
-            point = CGPoint(x: origin.x, y: origin.y + currentFrame.height)
-        case nil: point = currentFrame.topLeftCorner
-        }
-        let x = min(max(point.x, visibleFrame.minX), max(visibleFrame.minX, visibleFrame.maxX - currentFrame.width))
-        let y = min(max(point.y, min(visibleFrame.maxY, visibleFrame.minY + currentFrame.height)), visibleFrame.maxY)
-        return CGRect(x: x, y: y - currentFrame.height, width: currentFrame.width, height: currentFrame.height)
+        StopWindowGeometry.destination(for: currentFrame, in: visibleFrame, placement: placement)
     }
 }
 
@@ -61,10 +43,7 @@ struct StopWindowOperations {
         Self(
             setTimeout: { AXUIElementSetMessagingTimeout(window.element, $0) == .success },
             readMinimized: { AXWindowService.isMinimized(window) },
-            unminimize: {
-                AXUIElementSetAttributeValue(window.element, kAXMinimizedAttribute as CFString, kCFBooleanFalse) ==
-                    .success
-            },
+            unminimize: { AXWindowService.unminimize(window) },
             readFrame: { try? AXWindowService.frame(window) },
             writePosition: { frame, current in
                 AXWindowService.setFrame(
@@ -131,7 +110,7 @@ enum AXStopWindowRestoration {
 }
 
 extension AppAXContext {
-    nonisolated func restoreForStop(
+    func restoreForStop(
         _ target: StopWindowTarget,
         deadline: TimeInterval,
         operations: @escaping @Sendable (AXWindowRef) -> StopWindowOperations = StopWindowOperations.native

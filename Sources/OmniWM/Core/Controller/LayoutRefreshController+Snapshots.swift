@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import Foundation
@@ -30,16 +30,20 @@ extension LayoutRefreshController {
     ) -> LayoutWindowSnapshot {
         let layoutReason = entry.layoutReason
         let constraints: WindowSizeConstraints
-        if isExcluded || !resolveConstraints || layoutReason == .nativeFullscreen {
+        if let metadata = entry.target.hostedMetadata {
+            constraints = WindowSizeConstraints(minSize: metadata.minimumSize, maxSize: .zero, isFixed: false)
+        } else if isExcluded || !resolveConstraints || layoutReason == .nativeFullscreen {
             constraints = controller.workspaceManager.cachedConstraints(for: entry.token) ?? .unconstrained
         } else if let cached = controller.workspaceManager.cachedConstraints(for: entry.token) {
             constraints = cached
-        } else {
-            controller.factResolver.resolveWindowConstraints(token: entry.token, axRef: entry.axRef)
+        } else if let axRef = entry.axRef {
+            controller.factResolver.resolveWindowConstraints(token: entry.token, axRef: axRef)
             constraints = controller.workspaceManager.cachedConstraints(
                 for: entry.token,
                 maxAge: .greatestFiniteMagnitude
             ) ?? .unconstrained
+        } else {
+            constraints = .unconstrained
         }
 
         var mergedConstraints = constraints
@@ -51,7 +55,7 @@ extension LayoutRefreshController {
         let hiddenState = entry.hiddenState
         let nativeFullscreenOriginalToken: WindowToken? = if layoutReason == .nativeFullscreen,
                                                              let record = controller.workspaceManager
-                                                             .nativeFullscreenRecord(for: entry.token),
+                                                                 .nativeFullscreenRecord(for: entry.token),
                                                              record.currentToken == entry.token
         {
             record.originalToken
@@ -107,6 +111,7 @@ extension LayoutRefreshController {
             workingFrame: layoutFrames?.workingFrame ?? monitor.visibleFrame,
             borderSafeFillFrame: layoutFrames?.borderSafeFillFrame ?? monitor.visibleFrame,
             fullscreenLayoutFrame: layoutFrames?.fullscreenLayoutFrame ?? monitor.visibleFrame,
+            roomGapLimits: layoutFrames?.roomGapLimits ?? [:],
             scale: scale,
             orientation: orientation ?? monitor.autoOrientation
         )
@@ -126,17 +131,18 @@ extension LayoutRefreshController {
         var excludedTokens: Set<WindowToken> = []
         var windows: [LayoutWindowSnapshot] = []
         windows.reserveCapacity(controller.workspaceManager.windowCount(in: workspaceId))
-        controller.workspaceManager.windowQueries.forEachWindow(in: workspaceId, mode: .tiling) { entry in
-            let isExcluded = controller.workspaceManager.isWindowSuppressedByMacOS(entry)
-            if isExcluded { excludedTokens.insert(entry.token) }
-            windows.append(buildWindowSnapshot(
-                for: entry,
-                isExcluded: isExcluded,
-                resolveConstraints: resolveConstraints,
-                bounds: (monitorSnapshot.workingFrame.size, neighborAxes),
-                controller: controller
-            ))
-        }
+        controller.workspaceManager.windowQueries
+            .forEachWindowForLayoutSnapshot(in: workspaceId, mode: .tiling) { entry in
+                let isExcluded = controller.workspaceManager.isWindowSuppressedByMacOS(entry)
+                if isExcluded { excludedTokens.insert(entry.token) }
+                windows.append(buildWindowSnapshot(
+                    for: entry,
+                    isExcluded: isExcluded,
+                    resolveConstraints: resolveConstraints,
+                    bounds: (monitorSnapshot.workingFrame.size, neighborAxes),
+                    controller: controller
+                ))
+            }
 
         return WorkspaceRefreshInput(
             workspaceId: workspaceId,
@@ -155,6 +161,21 @@ extension LayoutRefreshController {
 }
 
 extension LayoutRefreshController {
+    func destinationConstraints(for token: WindowToken, on monitor: Monitor) -> WindowSizeConstraints {
+        guard let controller, let entry = controller.workspaceManager.entry(for: token) else { return .unconstrained }
+        var constraints = controller.workspaceManager.cachedConstraints(
+            for: token,
+            maxAge: .greatestFiniteMagnitude
+        ) ?? .unconstrained
+        _ = mergeObservedAndRuleConstraints(&constraints, entry: entry, controller: controller)
+        return Self.overflowCappedConstraints(
+            constraints,
+            layoutReason: entry.layoutReason,
+            workArea: buildMonitorSnapshot(for: monitor).workingFrame.size,
+            cappedAxes: monitor.neighborAxes(among: controller.workspaceManager.monitors)
+        )
+    }
+
     private func mergeObservedAndRuleConstraints(
         _ mergedConstraints: inout WindowSizeConstraints,
         entry: borrowing WindowState,

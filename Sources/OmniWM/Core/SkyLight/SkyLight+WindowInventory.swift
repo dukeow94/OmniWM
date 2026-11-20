@@ -1,10 +1,51 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import CoreGraphics
 import Foundation
 
 extension SkyLight {
+    private struct WindowBoundsQuery: Sendable {
+        let windowIds: [UInt32]
+        let windowQueryWindows: SkyLightQueryFunctions.WindowQueryWindowsFunc
+        let windowQueryResultCopyWindows: SkyLightQueryFunctions.WindowQueryResultCopyWindowsFunc
+        let windowIteratorAdvance: SkyLightQueryFunctions.WindowIteratorAdvanceFunc
+        let windowIteratorGetWindowID: SkyLightQueryFunctions.WindowIteratorGetWindowIDFunc
+        let windowIteratorGetBounds: SkyLightQueryFunctions.WindowIteratorGetBoundsFunc
+
+        nonisolated func read(connectionId cid: Int32) -> [UInt32: CGRect]? {
+            guard cid != 0 else { return nil }
+            let windowNumbers = windowIds.map { NSNumber(value: $0) } as CFArray
+            guard let query = windowQueryWindows(cid, windowNumbers, 0)?.takeRetainedValue(),
+                  let iterator = windowQueryResultCopyWindows(query)?.takeRetainedValue()
+            else { return nil }
+            var bounds: [UInt32: CGRect] = [:]
+            bounds.reserveCapacity(windowIds.count)
+            while windowIteratorAdvance(iterator) {
+                bounds[windowIteratorGetWindowID(iterator)] = windowIteratorGetBounds(iterator)
+            }
+            return bounds
+        }
+    }
+
+    func queryWindowBounds(_ windowId: UInt32) -> CGRect? {
+        queryWindowBounds([windowId])[windowId]
+    }
+
+    func queryWindowBounds(_ windowIds: [UInt32]) -> [UInt32: CGRect] {
+        let query = WindowBoundsQuery(
+            windowIds: windowIds,
+            windowQueryWindows: queries.windowQueryWindows,
+            windowQueryResultCopyWindows: queries.windowQueryResultCopyWindows,
+            windowIteratorAdvance: queries.windowIteratorAdvance,
+            windowIteratorGetWindowID: queries.windowIteratorGetWindowID,
+            windowIteratorGetBounds: queries.windowIteratorGetBounds
+        )
+        return immediateQueryConnection()?.performNow { query.read(connectionId: $0) }
+            ?? query.read(connectionId: getMainConnectionID())
+            ?? [:]
+    }
+
     private struct WindowInfoQuery: Sendable {
         let windowIds: Set<UInt32>
         let windowQueryWindows: SkyLightQueryFunctions.WindowQueryWindowsFunc
@@ -21,14 +62,10 @@ extension SkyLight {
 
         nonisolated func read(connectionId cid: Int32) -> [UInt32: WindowServerInfo]? {
             guard !windowIds.isEmpty else { return [:] }
-            guard cid != 0,
-                  let windowCount = UInt32(exactly: windowIds.count)
-            else {
-                return nil
-            }
+            guard cid != 0 else { return nil }
 
             let windowNumbers = windowIds.map { NSNumber(value: $0) } as CFArray
-            guard let query = windowQueryWindows(cid, windowNumbers, windowCount)?.takeRetainedValue()
+            guard let query = windowQueryWindows(cid, windowNumbers, 0)?.takeRetainedValue()
             else { return nil }
             guard let iterator = windowQueryResultCopyWindows(query)?.takeRetainedValue() else { return nil }
 
@@ -121,6 +158,15 @@ extension SkyLight {
         return try await connection.perform { query.read(connectionId: $0) }
     }
 
+    func queryWindowInfoOffMainConnection(_ windowId: UInt32) -> WindowServerInfo? {
+        let query = windowInfoQuery([windowId])
+        let infos = MainThreadAXSpanTrace.measure(.windowServerQuery, windowId: Int(windowId), count: 1) {
+            immediateQueryConnection()?.performNow { query.read(connectionId: $0) }
+        } succeeded: { $0 != nil }
+        guard let infos else { return queryWindowInfo(windowId) }
+        return infos[windowId]
+    }
+
     func queryAllVisibleWindows() -> [WindowServerInfo] {
         let result = MainThreadAXSpanTrace.measure(.windowServerVisibleQuery) { () -> [WindowServerInfo]? in
             let cid = getMainConnectionID()
@@ -180,7 +226,7 @@ extension SkyLight {
             let widNumber = CFNumberCreate(nil, .sInt32Type, &widValue)!
             let windowArray = [widNumber] as CFArray
 
-            guard let query = queries.windowQueryWindows(cid, windowArray, 1)?.takeRetainedValue() else { return nil }
+            guard let query = queries.windowQueryWindows(cid, windowArray, 0)?.takeRetainedValue() else { return nil }
             guard let iterator = queries.windowQueryResultCopyWindows(query)?.takeRetainedValue() else { return nil }
             guard queries.windowIteratorAdvance(iterator) else { return nil }
 

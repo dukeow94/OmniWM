@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import Foundation
@@ -9,6 +9,9 @@ extension WMController {
     func configureInputRouting() {
         axManager.isWindowParked = { [workspaceManager] windowId in
             workspaceManager.entry(forWindowId: windowId)?.hiddenState != nil
+        }
+        axManager.onParkFrameApplyFailed = { [weak self] result in
+            self?.layoutRefreshController.repairLayoutTransientPark(after: result)
         }
         intentLedger.seqProvider = { [eventIntake] in eventIntake.lastSeq }
         intentLedger.deadlineWheel = deadlineWheel
@@ -23,7 +26,25 @@ extension WMController {
                 _ = commandHandler.handleHotkeyInvocation(invocation)
             }
         }
-        settings.onWorkspaceHotkeysChanged = { [weak self] in
+        hotkeys.onKeyboardModeChange = { [weak self] kind in
+            self?.keyboardModeDidChange(kind)
+        }
+        hotkeys.isKeyboardModeArmingBlocked = { [weak self] in
+            guard let self else { return true }
+            return secureInputMonitor.isSecureInputActive || isLockScreenActive
+        }
+        hotkeys.onWindowSwitcherAction = { [weak self] action, generation in
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                if case .begin = action {
+                    guard settings.windowSwitcher.enabled else { return }
+                    windowSwitcherController.handle(action, generation: generation)
+                } else {
+                    windowSwitcherControllerStorage?.handle(action, generation: generation)
+                }
+            }
+        }
+        settings.onDynamicHotkeysChanged = { [weak self] in
             guard let self else { return }
             updateHotkeyBindings(settings.hotkeyBindings)
         }
@@ -32,6 +53,7 @@ extension WMController {
         }
         motionPolicy.onAnimationsEnabledChange = { [weak self] in
             self?.layoutRefreshController.workspaceSwipe.syncAvailability()
+            self?.workspaceBarManager.refreshShellShaders()
         }
     }
 
@@ -42,6 +64,7 @@ extension WMController {
         secureInputIndicator.openHotkeysSettings = { [weak self] in
             self?.statusBarController?.openSettings(section: .hotkeys)
         }
+        tabRailManager.ringOrderedAbove = { [weak self] in self?.surfaceReconciler.ringWindowId(orderedAbove: $0) }
         tabRailManager.onSelect = { [weak self] info, visualIndex, token in
             guard let self else { return }
             switch info.owner {
@@ -62,6 +85,9 @@ extension WMController {
     }
 
     func configureWorldCallbacks() {
+        workspaceManager.onHostedFamilyWorkspaceChanged = { [weak self] token, workspace in
+            self?.retargetHostedChildFocus(afterMoving: token, to: workspace)
+        }
         workspaceManager.onSessionStateChanged = { [weak self] surfaceScope in
             self?.handleSessionStateChanged(surfaceScope: surfaceScope)
         }
@@ -80,6 +106,7 @@ extension WMController {
             self?.windowMarkRegistry.retire(entry.token)
             self?.windowActionHandlerStorage?.handleOverviewWindowRemoved(entry)
             self?.layoutRefreshController.workspaceSwipe.windowRemoved(entry.token)
+            self?.niriEdgePictures.remove(entry.token)
             PreviewCaptureCoordinator.shared.windowRemoved(entry.token)
         }
         workspaceManager.onDeferredWorkspaceMonitorMove = { [weak self] outcome in
@@ -113,6 +140,7 @@ extension WMController {
                     source: .focusPolicy
                 )
             )
+            self?.surfaceReconciler.reapplyParkingEdgeMasks()
         }
         MenuAnywhereController.shared.onMenuTrackingChanged = { [weak self] isTracking in
             guard let self else { return }
@@ -127,7 +155,6 @@ extension WMController {
                 self.focusPolicyEngine.endLease(owner: .nativeMenu)
             }
         }
-        self.hiddenBarController.configureMotion(motionPolicy)
         self.hiddenBarController.onCursorWarp = { [weak self] point in
             self?.mouseWarpHandler.noteProgrammaticCursorMove(to: point)
         }
@@ -163,5 +190,6 @@ extension WMController {
         )
         refreshHotkeyFailureSnapshots()
         refreshDiagnosticsIssues()
+        refreshKeyboardModeIndicator()
     }
 }

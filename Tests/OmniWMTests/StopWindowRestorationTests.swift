@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import ApplicationServices
 @testable import OmniWM
@@ -8,7 +8,7 @@ import XCTest
 final class StopWindowRestorationTests: XCTestCase {
     private let usable = CGRect(x: 100, y: 40, width: 1000, height: 700)
 
-    private func target(placement: StopWindowTarget
+    private func target(placement: StopWindowGeometry
         .Placement? = .topLeft(CGPoint(x: 400, y: 500))) -> StopWindowTarget
     {
         let token = WindowToken(pid: 696_001, windowId: 696_002)
@@ -104,7 +104,7 @@ final class StopWindowRestorationTests: XCTestCase {
             target(), deadline: 1, operations: fixture.operations, checkCancellation: {}, now: { 0.8 }
         )
         XCTAssertTrue(fixture.timeouts.allSatisfy { $0 <= 0.2 })
-        XCTAssertEqual(fixture.timeouts.dropLast().last!, 0.1, accuracy: 0.001)
+        XCTAssertEqual(fixture.timeouts.dropLast().last!, 0.1)
     }
 
     func testDeadlineAfterNativeWriteDoesNotCountAsSuccess() {

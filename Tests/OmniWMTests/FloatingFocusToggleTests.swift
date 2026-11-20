@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import ApplicationServices
 import Foundation
@@ -87,11 +87,7 @@ final class FloatingFocusToggleTests: XCTestCase {
 
         XCTAssertEqual(fixture.manager.preferredFocusToken(in: fixture.workspace1), firstTiled)
         XCTAssertEqual(fixture.controller.toggleFloatingFocus(), .executed)
-        let clock = ContinuousClock()
-        let deadline = clock.now.advanced(by: .seconds(2))
-        while fixture.controller.intentLedger.activeManagedRequest?.token != firstTiled, clock.now < deadline {
-            try await clock.sleep(for: .milliseconds(5))
-        }
+        await WindowAdmissionTestSupport.drainLayoutRefreshes(fixture.controller)
         XCTAssertEqual(fixture.controller.intentLedger.activeManagedRequest?.token, firstTiled)
     }
 

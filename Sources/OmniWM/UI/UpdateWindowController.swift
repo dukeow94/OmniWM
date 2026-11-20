@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import SwiftUI
@@ -75,6 +75,7 @@ private struct UpdatePopupView: View {
     let configuration: UpdatePopupConfiguration
 
     @State private var copiedCommand = false
+    @State private var installing = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
@@ -115,10 +116,11 @@ private struct UpdatePopupView: View {
     }
 
     private var versionStrip: some View {
-        HStack(spacing: 12) {
-            versionCard(label: String(localized: "Current"), value: configuration.currentVersion)
-            versionCard(label: String(localized: "Latest"), value: configuration.latestVersion)
-            Spacer()
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top, spacing: 12) {
+                versionCard(label: String(localized: "Current"), value: configuration.currentVersion)
+                versionCard(label: String(localized: "Latest"), value: configuration.latestVersion)
+            }
             commandChip
         }
     }
@@ -130,7 +132,11 @@ private struct UpdatePopupView: View {
                 .foregroundStyle(.secondary)
             Text(value)
                 .font(.system(size: 16, weight: .bold, design: .monospaced))
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+                .textSelection(.enabled)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
         .background(.white.opacity(0.05))
@@ -138,11 +144,11 @@ private struct UpdatePopupView: View {
     }
 
     private var commandChip: some View {
-        VStack(alignment: .trailing, spacing: 6) {
+        VStack(alignment: .leading, spacing: 6) {
             Text("Manual update command")
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(.secondary)
-            Text(UpdateCoordinator.homebrewUpdateCommand)
+            Text(configuration.homebrewUpdateCommand)
                 .font(.system(size: 13, weight: .medium, design: .monospaced))
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
@@ -172,9 +178,19 @@ private struct UpdatePopupView: View {
 
     private var footer: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Updates stay manual. OmniWM can open the release page or copy the Homebrew upgrade command for you.")
-                .font(.system(size: 12))
-                .foregroundStyle(.secondary)
+            Group {
+                if configuration.installUpdate == nil {
+                    Text(
+                        "Updates stay manual. OmniWM can open the release page or copy the Homebrew upgrade command for you."
+                    )
+                } else {
+                    Text(
+                        "Install and Relaunch downloads this release from GitHub, checks its signature, replaces this copy of OmniWM and relaunches it."
+                    )
+                }
+            }
+            .font(.system(size: 12))
+            .foregroundStyle(.secondary)
 
             HStack(spacing: 10) {
                 Button("Skip This Version") {
@@ -189,19 +205,38 @@ private struct UpdatePopupView: View {
 
                 Spacer()
 
-                Button(copiedCommand ? String(localized: "Copied") : String(localized: "Copy brew upgrade omniwm")) {
-                    configuration.copyCommand()
-                    copiedCommand = true
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-                        copiedCommand = false
+                Group {
+                    let command = configuration.homebrewUpdateCommand
+                    let title = command == "brew upgrade omniwm"
+                        ? String(localized: "Copy brew upgrade omniwm") : String(localized: "Copy")
+                    Button(copiedCommand ? String(localized: "Copied") : title) {
+                        configuration.copyCommand()
+                        copiedCommand = true
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                            copiedCommand = false
+                        }
                     }
+                    .buttonStyle(.omniGlass)
                 }
-                .buttonStyle(.omniGlass)
 
-                Button("Open Release Page") {
-                    configuration.openReleasePage()
+                if let installUpdate = configuration.installUpdate {
+                    Button("Open Release Page") {
+                        configuration.openReleasePage()
+                    }
+                    .buttonStyle(.omniGlass)
+
+                    Button(installing ? String(localized: "Installing…") : String(localized: "Install and Relaunch")) {
+                        installing = true
+                        installUpdate()
+                    }
+                    .buttonStyle(.omniGlassProminent)
+                    .disabled(installing)
+                } else {
+                    Button("Open Release Page") {
+                        configuration.openReleasePage()
+                    }
+                    .buttonStyle(.omniGlassProminent)
                 }
-                .buttonStyle(.omniGlassProminent)
             }
         }
     }

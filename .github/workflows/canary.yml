@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
     inputs:
       force:
-        description: Build even when main has no commits after the newest canary or release tag
+        description: Build even when main has no app commits after the newest canary or release tag
         type: boolean
         default: false
 
@@ -72,6 +72,7 @@ jobs:
     environment: canary-signing
     permissions:
       contents: write
+      actions: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -97,16 +98,18 @@ jobs:
             FORCE_ARG="--force"
           fi
           python3 Scripts/canary_release.py check --github-output "$GITHUB_OUTPUT" $FORCE_ARG
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
-        with:
-          path: |
-            .cache/dev-tools/bin
-            .cache/dev-tools/downloads
-            Frameworks/GhosttyKit.xcframework
-          key: dev-deps-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Scripts/dev-tools.env', 'Scripts/build-metadata.env') }}
-      - name: Set up dependencies
+      - name: Require passing CI for the checked-out commit
+        id: verify
         if: steps.check.outputs.should_skip != 'true'
-        run: ./Scripts/dev-tools.sh setup
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 Scripts/canary_release.py verify-ci
+      - uses: ./.github/actions/setup-swift
+        if: steps.check.outputs.should_skip != 'true'
+      - uses: ./.github/actions/setup-dev-tools
+        if: steps.check.outputs.should_skip != 'true'
+        with:
+          make-target: setup
       # Imported after dependency setup and removed before any later action step.
       - name: Import signing and notarization credentials
         if: steps.check.outputs.should_skip != 'true'
@@ -122,22 +125,27 @@ jobs:
           export KEYCHAIN_PASSWORD
           ./Scripts/release-ci-credentials.sh
       - name: Build, sign and notarize the canary app
+        id: build
         if: steps.check.outputs.should_skip != 'true'
         env:
           OMNIWM_SIGNING_IDENTITY: ${{ env.OMNIWM_RELEASE_SIGNING_IDENTITY }}
           OMNIWM_NOTARIZE_PROFILE: ${{ env.OMNIWM_RELEASE_NOTARIZE_PROFILE }}
-        run: Scripts/package-app.sh release true
+        run: |
+          set -euo pipefail
+          STAMP="$(date -u +%Y%m%d-%H%M)"
+          TAG="canary-$STAMP-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "stamp=$STAMP" >> "$GITHUB_OUTPUT"
+          OMNIWM_CANARY_TAG="$TAG" Scripts/package-app.sh release true
       - name: Publish the canary prerelease
         id: publish
         if: steps.check.outputs.should_skip != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.build.outputs.tag }}
+          STAMP: ${{ steps.build.outputs.stamp }}
         run: |
           set -euo pipefail
-          STAMP="$(date -u +%Y%m%d-%H%M)"
-          # Run and attempt IDs keep forced reruns in the same UTC minute
-          # from sharing a tag.
-          TAG="canary-$STAMP-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
           # The tag must name the commit the ZIP and notes were built from;
           # checkout of main can be newer than the event's GITHUB_SHA.
           HEAD_SHA="$(git rev-parse HEAD)"
@@ -163,6 +171,7 @@ jobs:
         env:
           SHOULD_SKIP: ${{ steps.check.outputs.should_skip }}
           SKIP_REASON: ${{ steps.check.outputs.skip_reason }}
+          VERIFY_OUTCOME: ${{ steps.verify.outcome }}
           PUBLISHED_TAG: ${{ steps.publish.outputs.tag }}
           PUBLISHED_URL: ${{ steps.publish.outputs.url }}
         run: |
@@ -170,6 +179,9 @@ jobs:
           {
             if [[ "$SHOULD_SKIP" == "true" ]]; then
               printf '## Canary skipped\n\n%s\n' "$SKIP_REASON"
+            elif [[ "$VERIFY_OUTCOME" == "failure" ]]; then
+              printf '## Canary blocked\n\nCI verification failed for the checked-out commit. See the **Require passing CI for the checked-out commit** step in [this run](%s/%s/actions/runs/%s).\n' \
+                "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID"
             elif [[ -n "$PUBLISHED_TAG" ]]; then
               printf '## Canary published\n\n- Tag: `%s`\n- Release: %s\n' "$PUBLISHED_TAG" "$PUBLISHED_URL"
             fi

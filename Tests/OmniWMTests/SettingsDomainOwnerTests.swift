@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import Foundation
 import Observation
@@ -94,6 +94,24 @@ final class SettingsDomainOwnerTests: XCTestCase {
         binding.wrappedValue = .niri
         XCTAssertEqual(settings.workspaces.layoutType(for: "2"), .niri)
         XCTAssertEqual(try SettingsTOMLCodec.decode(Data(contentsOf: settings.settingsFileURL)), settings.toExport())
+    }
+
+    func testFullyVisibleHoverSettingImportsAndPersistsEdits() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let settings = makeSettings(directory: directory)
+        let focus = settings.focus
+        var imported = settings.toExport()
+        imported.focus.followsMouseOnlyFullyVisible = true
+        settings.applyExport(imported)
+        XCTAssertTrue(settings.focus === focus)
+        XCTAssertTrue(focus.followsMouseOnlyFullyVisible)
+        focus.followsMouseOnlyFullyVisible = false
+        let saved = try SettingsTOMLCodec.decode(Data(contentsOf: settings.settingsFileURL))
+        XCTAssertFalse(saved.focus.followsMouseOnlyFullyVisible)
+        focus.followsMouseOnlyFullyVisible = true
+        XCTAssertTrue(try SettingsTOMLCodec.decode(Data(contentsOf: settings.settingsFileURL))
+            .focus.followsMouseOnlyFullyVisible)
     }
 
     private func makeSettings(directory: URL) -> SettingsStore {

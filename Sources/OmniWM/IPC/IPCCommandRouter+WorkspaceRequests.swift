@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import Foundation
 import OmniWMIPC
@@ -56,14 +56,14 @@ extension IPCCommandRouter {
         }
 
         guard let workspaceId = controller.workspaceManager.workspaceId(
-            for: rawWorkspaceID,
-            createIfMissing: false
-        ),
-            let outcome = controller.workspaceNavigationHandler.moveWorkspaceToMonitor(
-                workspaceId,
-                direction: direction,
-                force: force
-            )
+                  for: rawWorkspaceID,
+                  createIfMissing: false
+              ),
+              let outcome = controller.workspaceNavigationHandler.moveWorkspaceToMonitor(
+                  workspaceId,
+                  direction: direction,
+                  force: force
+              )
         else {
             return .notFound
         }

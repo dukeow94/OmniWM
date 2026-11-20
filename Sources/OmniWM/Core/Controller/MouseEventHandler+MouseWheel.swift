@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (C) 2026 BarutSRB — https://github.com/OmniNull/OmniWM
+// Copyright (C) 2026 OmniNull — https://github.com/OmniNull/OmniWM
 
 import AppKit
 import Foundation
@@ -40,12 +40,17 @@ extension MouseEventHandler {
         ) else { return }
         guard let context = resolveScrollContext(at: payload.location) else { return }
 
+        let delta = Self.scaledWheelAxisDelta(
+            columnDelta.value,
+            isContinuous: payload.isContinuous,
+            sensitivity: controller.settings.gestures.mouseWheelSensitivity
+        )
         let ticks: Int
         switch columnDelta.axis {
         case .horizontal:
-            ticks = state.horizontalWheelTracker.accumulate(columnDelta.value)
+            ticks = state.horizontalWheelTracker.accumulate(delta)
         case .vertical:
-            ticks = state.verticalWheelTracker.accumulate(columnDelta.value)
+            ticks = state.verticalWheelTracker.accumulate(delta)
         }
         guard ticks != 0 else { return }
 
@@ -67,7 +72,7 @@ extension MouseEventHandler {
             cancelActiveMouseInteraction()
             return false
         }
-        if shouldBlockOwnWindowInput(at: location) { return false }
+        if shouldBlockOwnWindowGestureInput(at: location) { return false }
         guard !state.isResizing, !state.isMoving else { return false }
 
         return true
@@ -173,6 +178,13 @@ extension MouseEventHandler {
         let delta = abs(pointDelta) > mouseWheelAxisEpsilon ? pointDelta : fixedPointDelta
         guard !isContinuous, abs(delta) > mouseWheelAxisEpsilon else { return delta }
         return delta > 0 ? niriWheelScrollTickAmount : -niriWheelScrollTickAmount
+    }
+
+    nonisolated static func scaledWheelAxisDelta(
+        _ delta: CGFloat, isContinuous: Bool, sensitivity: Double
+    ) -> CGFloat {
+        guard isContinuous else { return delta }
+        return delta * CGFloat(GestureSettings.normalizedMouseWheelSensitivity(sensitivity))
     }
 
     nonisolated static func mouseWheelModifiersMatch(_ modifiers: CGEventFlags, required: CGEventFlags) -> Bool {
