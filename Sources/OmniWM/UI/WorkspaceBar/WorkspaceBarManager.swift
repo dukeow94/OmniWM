@@ -50,6 +50,7 @@ final class WorkspaceBarManager {
     }
 
     var shellEdgeHover = ShellEdgeHover()
+    var mouseButtonsDown: @MainActor () -> Bool = { NSEvent.pressedMouseButtons != 0 }
     var shellVars: [String: String] = [:]
     var shellItemIcons: [String: NSImage] = [:]
     var shellCompactedScratchpads: [Monitor.ID: Set<Int>] = [:]

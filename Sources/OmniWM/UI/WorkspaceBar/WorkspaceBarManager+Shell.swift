@@ -108,7 +108,7 @@ extension WorkspaceBarManager {
             pointer: pointer,
             drawers: host.drawers,
             monitors: controller.workspaceManager.monitors,
-            buttonsDown: NSEvent.pressedMouseButtons != 0,
+            buttonsDown: mouseButtonsDown(),
             open: host.openDrawer,
             islandDragging: host.islandDragging
         ) {

@@ -779,6 +779,10 @@ final class ShellWidgetBarLifecycleTests: XCTestCase {
         XCTAssertNotNil(host.drawer)
         manager.handleAutoHideMouseMoved(at: CGPoint(x: drawer.panel.frame.midX, y: drawer.panel.frame.midY))
         XCTAssertNotNil(host.drawer)
+        manager.mouseButtonsDown = { true }
+        manager.handleAutoHideMouseMoved(at: CGPoint(x: main.frame.minX + 5, y: main.frame.minY + 5))
+        XCTAssertNotNil(host.drawer)
+        manager.mouseButtonsDown = { false }
         manager.handleAutoHideMouseMoved(at: CGPoint(x: main.frame.minX + 5, y: main.frame.minY + 5))
         XCTAssertNil(host.drawer)
     }
@@ -906,6 +910,7 @@ final class ShellWidgetBarLifecycleTests: XCTestCase {
         manager.setup(controller: controller, settings: controller.settings)
         manager.panelFactory = { WorkspaceBarPanel.defaultPanel() }
         manager.frameApplier = { _, _ in }
+        manager.mouseButtonsDown = { false }
         managers.append(manager)
         return manager
     }
